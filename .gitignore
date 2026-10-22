@@ -1,0 +1,21 @@
+# Local tools and reference-review scratch space; never part of the deliverable.
+.venv/
+.arena/
+__pycache__/
+*.pyc
+
+# Future application/build work must keep credentials and artifacts out of Git.
+.env
+.env.*
+!.env.example
+!*.env.example
+!github-actions.env.example
+*.jks
+*.keystore
+*.p12
+*.apk
+*.aab
+node_modules/
+dist/
+build/
+coverage/
