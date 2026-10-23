@@ -1,9 +1,9 @@
-# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.9)
+# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.10)
 
 > **Single Living Progress Ledger (`UNDAL-MASTER-GUIDE/27-builder-protocol-32-responses.md`)**  
 > **Repository:** `rahimchawdhury63-creator/undal` · **Branch:** `arena/f81366de-undal`  
-> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 9 — COMPLETE (`W2 undal-realtime` Part 2 — `ALM-01` Data-Only FCM HTTP v1 Engine, `database.rules.json` Security Rules + AST Evaluator, `< 85 / 100` Spark Lease Custom-Token Broker, Self-Test Alarm & Cash-Gate Config — `W2` 100.0% COMPLETE!)`**  
-> **Next Scheduled Milestone:** **`Build Response 10`** (`W3 undal-admin` Part 1 — Super Admin TOTP Auth, RBAC Matrix, Settings Governance, Zone Polygons, Vendor/Rider KYC Review & Immutable Audit Logs, awaiting Founder `"continue"`)
+> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 10 — COMPLETE (`W3 undal-admin` Part 1 — 4-Gate Admin Security Middleware, RFC 6238 TOTP + 5m Step-Up, 7-Role RBAC Matrix, Capabilities `C1–C70` across Domains 1–4, Kulaura 1-Tap Launch & `ADR-0006 v2` Private Signed KYC View URLs)`**  
+> **Next Scheduled Milestone:** **`Build Response 11`** (`W3 undal-admin` Part 2 — Capabilities `C71–C132` across Domains 5–9: Weekly Settlement & Invoices, TrxID Cash Remittances, Order 360, Zero-Ads Growth Engine, Support/Disputes, Executive BI & `4` Cron Triggers — completing `W3` 100%, awaiting Founder `"continue"`)
 
 ---
 
@@ -13,13 +13,13 @@
 |---|---:|---:|---:|---|
 | **Master Guide Files Read (`00–28` + `App A–N`)** | 43 | **43 (`100%`)** | 0 | Restated across `docs/understanding/01..07` |
 | **Visual Reference Screenshot Audit (`All 4 Surfaces`)** | **172** | **172 (`100.0%`)** | 0 | `01-customer-*` (`65`) + `04-partner-rider-*` (`107`) |
-| **Dual Free Media Law (`ADR-0006 v2`: Unlimited ImgBB Public + Private Cloudinary Vault)** | TS + Dart + SQL + `W1` + Gate | **DONE ✓ (`Build 5–6`)** | Admin review view routes wired in `Build 10` | `ADR-0006`, `imgbb.ts`, `cloudinary.ts`, `routes/media.ts`, `[NO-SUPABASE-STORAGE]` |
+| **Dual Free Media Law (`ADR-0006 v2`: Unlimited ImgBB Public + Private Cloudinary Vault)** | TS + Dart + SQL + `W1` + `W3` + Gate | **DONE ✓ (`Build 5, 6 & 10`)** | **100% enforced across DB + `W1` + `W3` + CI!** | `ADR-0006`, `imgbb.ts`, `cloudinary.ts`, `vendors-kyc.ts`, `[NO-SUPABASE-STORAGE]` |
 | **Shared TS & Flutter Packages (`@undal/shared-ts` + `undal_core`)** | 2 packages | **DONE ✓ (`Build 1, 5 & 6`)** | Extended per response | `packages/shared_ts/`, `packages/undal_core/` |
 | **Golden Math Parity (`M-1..M-8` + `F-1..F-6` + 10K Fuzz)** | **TS + Dart + SQL** | **TS + Dart + SQL `100%` ✓** | **0 poisha drift across all 3 engines + ledger!** | `03` & `04` `pgTAP` + `migrations-b04/b05.test.mjs` |
 | **Postgres Migrations + `pgTAP` RLS Suite (`0001..0016`)** | **16 migrations / 50+ tables** | **`16 / 16` (`62` tables, `100.0%` DONE!) ✓** | **0 remaining migrations — DB engine 100% complete!** | `supabase/migrations/0001..0016`, **`109 / 109` `pg_prove` assertions** |
 | **`W1 undal-api` Edge Worker (`workers/api`)** | Part 1 + Part 2 (`File 06 §1`) | **`100.0%` DONE ✓ (`Build 6–7`)** | **0 remaining routes — `W1` 100% complete!** | `workers/api/src/**`, `5 / 5` real PG16 E2E suites |
-| **`W2 undal-realtime` Edge Worker + Firebase RTDB Rules** | Part 1 + Part 2 (`File 06 §2` + `File 07`) | **`100.0%` DONE ✓ (`Build 8–9`)** | **0 remaining routes — `W2` + `database.rules.json` 100% complete!** | `workers/realtime/src/**`, `infra/firebase/database.rules.json`, `7 / 7` suites (`ALM-01`, `RT-01` 30-order + 86-conn surge, rules matrix, PG16 E2E) |
-| **Super Admin Capabilities (`Appendix C`)** | 132 P0 | **All 62 DB tables + RLS + RPCs ready ✓** | **`Build 10–11` (`W3`) + `Build 25–28` (`admin_web`)** | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
+| **`W2 undal-realtime` Edge Worker + Firebase RTDB Rules** | Part 1 + Part 2 (`File 06 §2` + `File 07`) | **`100.0%` DONE ✓ (`Build 8–9`)** | **0 remaining routes — `W2` + `database.rules.json` 100% complete!** | `workers/realtime/src/**`, `infra/firebase/database.rules.json`, `7 / 7` suites |
+| **Super Admin Capabilities (`Appendix C`)** | 132 P0 | **`70 / 132` (`C1–C70` live in `W3`!) ✓** | **`Build 11` (`C71–C132` in `W3`) + `Build 25–28` (`admin_web`)** | `workers/admin/src/**`, `admin-rbac-matrix.test.mjs`, `admin-part1-pg16.test.mjs` |
 
 ---
 
@@ -38,8 +38,8 @@
 | **Build 7** | **W1 API Part 2 — carts, vouchers, COD `place_order`, 14-state lifecycle, QR handover, Cash Gate, chat, reviews & Partner/Rider ops (`W1` 100% Complete!)** | `workers/api/src/{domain-errors,db-postgrest-ops,db-postgrest-social-ops}.ts`, `routes/{account,cart,orders,social,operators}.ts`, `test/api-part2-{orders,social-ops}.test.mjs` | **DONE ✓** | GHA Run [`#39981685058`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39981685058) (`4/4` jobs green · `5/5` real PG16 `W1` suites + `109/109` `pg_prove`) ✓ |
 | **Build 8** | **W2 Realtime Part 1 — `ZoneDispatchDO`, live presence, `F-1..F-6` fare engine, multi-order batcher (`DSP-03`), `D-23` solo-rider lock (`DSP-02`), `ORD-02` & Nominatim/OSRM geo proxies** | `workers/realtime/src/{presence,geo,assignment,batcher,zone-dispatch-do,http,db-postgrest*,routes/*}.ts`, `test/{realtime-cores,realtime-e2e-pg16}.test.mjs` | **DONE ✓** | GHA Run [`#39989599153`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39989599153) (`4/4` jobs green · `3/3` `W2` vector + real PG16 `ZoneDispatchDO` suites + `109/109` `pg_prove`) ✓ |
 | **Build 9** | **W2 Realtime Part 2 — `ALM-01` data-only FCM HTTP v1 sender, RS256 OAuth2 + custom token signer, `< 85/100` Spark lease broker (`RT-01`), `database.rules.json` + AST security evaluator, self-test alarm & cash-gate config (`W2` 100% Complete!)** | `infra/firebase/database.rules.json`, `workers/realtime/src/{google-auth,fcm-sender,rtdb-broker,rtdb-rules-eval,dispatch-fanout,routes/realtime-alerts}.ts`, `test/{fcm-rtdb-rules,realtime-b09-e2e}.test.mjs` | **DONE ✓** | GHA Run [`#39992786899`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39992786899) (`4/4` jobs green · `7/7` `W2` suites + `109/109` `pg_prove`) ✓ |
-| **Build 10** | **W3 Admin — auth/RBAC/settings/zones/KYC/audit** | `workers/admin` part 1 | **NEXT** | RBAC matrix test (every role × every route) |
-| **Build 11** | W3 Admin — invoices/remittances/moderation/campaigns/reports | `workers/admin` part 2 | Queued | Settlement cycle end-to-end test |
+| **Build 10** | **W3 Admin Part 1 — 4-Gate TOTP + 5m Step-Up, 7-Role RBAC Matrix, Domains 1–4 (`C1–C70`: Gov, Dispatch, Zones/Kulaura/Fare Sim, 3-Track KYC + `ADR-0006 v2` Private Signed URLs)** | `workers/admin/src/**` (`totp`, `rbac`, `geo-polygon`, `http`, `db-postgrest*`, `routes/{governance*,dispatch-control,zones-pricing,vendors-kyc}`), `test/{admin-rbac-matrix,admin-part1-pg16}.test.mjs` | **DONE ✓** | `3/3` `W3` suites (`56+` role × route matrix + real PG16 `C1..C70` E2E) + `109/109` `pg_prove` ✓ |
+| **Build 11** | **W3 Admin Part 2 — Finance/Settlement/Remittances, Order 360, Growth Engine, Support/Disputes, Executive BI & 4 Cron Triggers (`C71–C132`)** | `workers/admin` part 2 (`W3` 100% complete) | **NEXT** | Weekly settlement + cash-remittance + cron E2E suite |
 | **Build 12** | Customer App — shell, auth, address+map, home feed, search | `apps/customer_app` part 1 (`c-01..c-12`) | Queued | Widget tests + golden responsive screenshots |
 | **Build 13** | Customer App — restaurant page, customiser, cart, checkout | `apps/customer_app` part 2 (`c-01..c-21`) | Queued | Flow test: browse → place COD order |
 | **Build 14** | Customer App — live tracking, chat, pickup QR, history, account | `apps/customer_app` part 3 (`c-22..c-40`) | Queued | RTDB → polling fallback test; QR token test |
@@ -72,3 +72,13 @@
 5. **`workers/realtime/src/rtdb-broker.ts`** — `RtdbLeaseBroker` (`< 85 / 100` Spark hard ceiling, priority rider preemption, `realtime_mode = 'polling'` kill-switch, `5000ms` HTTP poll degradation, `RT-01`) + `RtdbRoomClient` compact single-letter active room writer (`<= 5 dp` coords) & `> 1h` closed-room / `> 10m` stale-presence sweeper.
 6. **`workers/realtime/src/dispatch-fanout.ts`** & **`workers/realtime/src/routes/realtime-alerts.ts`** — Parallel `ZoneDispatchDO` room write + multi-device Partner/Rider data-only FCM fan-out + `alert_cancel` silence + `POST /v1/realtime/token`, `POST /v1/alerts/test`, and `GET /v1/cashgate/config` (`KYC_INCOMPLETE` `403` guard + Worker-secret `UNDAL_BKASH_NUMBER` / `UNDAL_NAGAD_NUMBER`).
 7. **`workers/realtime/test/fcm-rtdb-rules.test.mjs`** & **`workers/realtime/test/realtime-b09-e2e.test.mjs`** — Full `ALM-01` 11-event + negative tamper test, `RT-01` 30-order simultaneous surge (`67 < 85`) + 86-listener overflow simulation, `database.rules.json` hostile attack matrix, and live PostgreSQL 16 (`PGlite` + `0001..0016`) end-to-end integration test.
+
+---
+
+## 4. Build Response 10 Detailed Audit Log (`2026-10-23` — `W3 undal-admin` Part 1 · Capabilities `C1–C70` Complete!)
+
+### Delivered Artifacts (`100%` `<= 435` lines across every file, `0` placeholders, `0` Supabase Storage, `0` secrets)
+1. **`workers/admin/src/{totp,rbac,geo-polygon,http,types}.ts`** — Complete 4-Gate Super Admin Security Pipeline (`JWT` -> `admin + active + totp_enrolled_at` -> wildcard/read-only RBAC matching `public.has_admin_permission` -> `300s` `X-Undal-Step-Up` RFC 6238 `TOTP-SHA1` verification -> append-only `public.audit_logs` before/after diff) plus self-intersecting bowtie & cross-zone overlap geometry validator (`C42`, `C44`).
+2. **`workers/admin/src/routes/{governance,governance-settings,dispatch-control,zones-pricing,vendors-kyc}.ts`** — All **70 P0 Super Admin capabilities (`C1–C70`)** across Domain 1 Governance/Security (`C1–C21`), Domain 2 Dispatch Control Tower (`C22–C40` including `DELIVERED` double-entry ledger completion), Domain 3 Zones & Dynamic Pricing (`C41–C54` including 1-tap `Kulaura` activation & `F-1..F-6` live fare simulator), and Domain 4 3-Track KYC, Menu Moderation & `EN/বাংলা` Taxonomy (`C55–C70`, including `ADR-0006 v2` `POST /v1/images/private-view-url` minting `<= 600s` `s--XXXXXXXX--` signed Cloudinary URLs & rejecting `imgbb` public assets).
+3. **`workers/admin/src/{db-postgrest,db-postgrest-ops,index}.ts`** + **`workers/admin/test/{admin-rbac-matrix,admin-part1-pg16}.test.mjs`** — Full stateless `/rest/v1/*` adapter + `56+`-probe 7-role RBAC matrix suite + real PostgreSQL 16 (`PGlite` + `0001..0016`) end-to-end integration suite.
+
