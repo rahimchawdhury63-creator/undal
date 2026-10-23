@@ -433,5 +433,41 @@ export function createPgliteRealtimeAdapter(db) {
     async getActiveRtdbLeaseCount() {
       return 12;
     },
+    async listDeviceTokensForProfiles(profileIds) {
+      if (!profileIds || profileIds.length === 0) return [];
+      const rows = (
+        await db.query(
+          'SELECT profile_id, fcm_token, app_flavor FROM public.device_tokens WHERE profile_id = ANY($1::uuid[])',
+          [profileIds],
+        )
+      ).rows;
+      return rows.map((r) => ({
+        profileId: String(r.profile_id),
+        fcmToken: String(r.fcm_token),
+        appFlavor: String(r.app_flavor),
+      }));
+    },
+    async pruneDeviceToken(fcmToken) {
+      await db.query('DELETE FROM public.device_tokens WHERE fcm_token = $1', [fcmToken]);
+    },
+    async logFcmDispatch(entry) {
+      await db.query(
+        'INSERT INTO public.fcm_dispatch_log (order_id, recipient_id, event_type, data_only_verified, http_status, latency_ms, error_code, created_at) VALUES ($1,$2,$3,true,$4,$5,$6,$7)',
+        [entry.orderId, entry.recipientId, entry.eventType, entry.httpStatus, entry.latencyMs, entry.errorCode, new Date(entry.nowMs).toISOString()],
+      );
+    },
+    async listVendorOutletProfileIds(vendorId) {
+      const vRows = (await db.query('SELECT owner_profile_id FROM public.vendors WHERE id = $1 LIMIT 1', [vendorId])).rows;
+      const sRows = (await db.query('SELECT profile_id FROM public.vendor_staff_members WHERE vendor_id = $1 AND is_active = true', [vendorId])).rows;
+      const ids = new Set();
+      if (vRows[0]?.owner_profile_id) ids.add(String(vRows[0].owner_profile_id));
+      for (const s of sRows) ids.add(String(s.profile_id));
+      return Array.from(ids);
+    },
+    async getOrderAccessMeta(orderId) {
+      const r = (await db.query('SELECT id, public_code, customer_id, vendor_id, rider_id, status FROM public.orders WHERE id = $1 LIMIT 1', [orderId])).rows[0];
+      if (!r) return null;
+      return { orderId: String(r.id), publicCode: String(r.public_code), customerId: String(r.customer_id), vendorId: String(r.vendor_id), riderId: r.rider_id ? String(r.rider_id) : null, status: String(r.status) };
+    },
   };
 }

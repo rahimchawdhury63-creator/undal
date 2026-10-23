@@ -1,9 +1,9 @@
-# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.8)
+# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.9)
 
 > **Single Living Progress Ledger (`UNDAL-MASTER-GUIDE/27-builder-protocol-32-responses.md`)**  
 > **Repository:** `rahimchawdhury63-creator/undal` · **Branch:** `arena/f81366de-undal`  
-> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 8 — COMPLETE (`W2 undal-realtime` Part 1 — `ZoneDispatchDO`, Live Presence, `F-1..F-6` Fare Engine, Multi-Order Batcher, `D-23` Solo-Rider Lock & Geo Proxies)`**  
-> **Next Scheduled Milestone:** **`Build Response 9`** (`W2 undal-realtime` Part 2 — Data-Only FCM HTTP v1 Sender, Firebase RTDB `database.rules.json` + `85/100` Spark Lease Token Broker, Self-Test Alarm & Cash-Gate Config, awaiting Founder `"continue"`)
+> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 9 — COMPLETE (`W2 undal-realtime` Part 2 — `ALM-01` Data-Only FCM HTTP v1 Engine, `database.rules.json` Security Rules + AST Evaluator, `< 85 / 100` Spark Lease Custom-Token Broker, Self-Test Alarm & Cash-Gate Config — `W2` 100.0% COMPLETE!)`**  
+> **Next Scheduled Milestone:** **`Build Response 10`** (`W3 undal-admin` Part 1 — Super Admin TOTP Auth, RBAC Matrix, Settings Governance, Zone Polygons, Vendor/Rider KYC Review & Immutable Audit Logs, awaiting Founder `"continue"`)
 
 ---
 
@@ -18,8 +18,8 @@
 | **Golden Math Parity (`M-1..M-8` + `F-1..F-6` + 10K Fuzz)** | **TS + Dart + SQL** | **TS + Dart + SQL `100%` ✓** | **0 poisha drift across all 3 engines + ledger!** | `03` & `04` `pgTAP` + `migrations-b04/b05.test.mjs` |
 | **Postgres Migrations + `pgTAP` RLS Suite (`0001..0016`)** | **16 migrations / 50+ tables** | **`16 / 16` (`62` tables, `100.0%` DONE!) ✓** | **0 remaining migrations — DB engine 100% complete!** | `supabase/migrations/0001..0016`, **`109 / 109` `pg_prove` assertions** |
 | **`W1 undal-api` Edge Worker (`workers/api`)** | Part 1 + Part 2 (`File 06 §1`) | **`100.0%` DONE ✓ (`Build 6–7`)** | **0 remaining routes — `W1` 100% complete!** | `workers/api/src/**`, `5 / 5` real PG16 E2E suites |
-| **`W2 undal-realtime` Edge Worker (`workers/realtime`)** | Part 1 + Part 2 (`File 06 §2`) | **Part 1 DONE ✓ (`Build 8`)** | **Part 2 (`FCM + RTDB rules/token`) in `Build 9`** | `workers/realtime/src/**`, `3 / 3` vector + real PG16 `ZoneDispatchDO` suites |
-| **Super Admin Capabilities (`Appendix C`)** | 132 P0 | **All 62 DB tables + RLS + RPCs ready ✓** | **`Build 10–11, 25–28`** | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
+| **`W2 undal-realtime` Edge Worker + Firebase RTDB Rules** | Part 1 + Part 2 (`File 06 §2` + `File 07`) | **`100.0%` DONE ✓ (`Build 8–9`)** | **0 remaining routes — `W2` + `database.rules.json` 100% complete!** | `workers/realtime/src/**`, `infra/firebase/database.rules.json`, `7 / 7` suites (`ALM-01`, `RT-01` 30-order + 86-conn surge, rules matrix, PG16 E2E) |
+| **Super Admin Capabilities (`Appendix C`)** | 132 P0 | **All 62 DB tables + RLS + RPCs ready ✓** | **`Build 10–11` (`W3`) + `Build 25–28` (`admin_web`)** | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
 
 ---
 
@@ -37,8 +37,8 @@
 | **Build 6** | **W1 API Part 1 + `ADR-0006 v2` Dual Free Media (`ImgBB` Unlimited Public + `Cloudinary` Private Vault)** | `workers/api/src/**` (`index`, `http`, `db-postgrest`, `routes/{catalog,media,account}`), `imgbb.ts` EXIF/GPS byte scrubber, `cloudinary.ts` sensitive-only vault (`s--XXXXXXXX--` `120s` signed URLs + `audit_logs`), `0015` `media_assets_dual_provider_law` DB `CHECK` constraint, `pglite-api-harness.mjs` + `api-part1.test.mjs` | **DONE ✓** | GHA Run [`#39975975763`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39975975763) (`4/4` jobs green · **`109 / 109` `pg_prove`** + PG16 `W1` E2E) ✓ |
 | **Build 7** | **W1 API Part 2 — carts, vouchers, COD `place_order`, 14-state lifecycle, QR handover, Cash Gate, chat, reviews & Partner/Rider ops (`W1` 100% Complete!)** | `workers/api/src/{domain-errors,db-postgrest-ops,db-postgrest-social-ops}.ts`, `routes/{account,cart,orders,social,operators}.ts`, `test/api-part2-{orders,social-ops}.test.mjs` | **DONE ✓** | GHA Run [`#39981685058`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39981685058) (`4/4` jobs green · `5/5` real PG16 `W1` suites + `109/109` `pg_prove`) ✓ |
 | **Build 8** | **W2 Realtime Part 1 — `ZoneDispatchDO`, live presence, `F-1..F-6` fare engine, multi-order batcher (`DSP-03`), `D-23` solo-rider lock (`DSP-02`), `ORD-02` & Nominatim/OSRM geo proxies** | `workers/realtime/src/{presence,geo,assignment,batcher,zone-dispatch-do,http,db-postgrest*,routes/*}.ts`, `test/{realtime-cores,realtime-e2e-pg16}.test.mjs` | **DONE ✓** | GHA Run [`#39989599153`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39989599153) (`4/4` jobs green · `3/3` `W2` vector + real PG16 `ZoneDispatchDO` suites + `109/109` `pg_prove`) ✓ |
-| **Build 9** | **W2 Realtime Part 2 — FCM data-only sender, RTDB rooms + custom tokens (`< 85/100` lease broker), `database.rules.json` & cash-gate config** | `workers/realtime` part 2 + `firebase/database.rules.json` | **NEXT** | Firebase RTDB rules security suite + `ALM-01` data-only FCM + `RT-01` 30-order lease audit green |
-| **Build 10** | W3 Admin — auth/RBAC/settings/zones/KYC/audit | `workers/admin` part 1 | Queued | RBAC matrix test (every role × every route) |
+| **Build 9** | **W2 Realtime Part 2 — `ALM-01` data-only FCM HTTP v1 sender, RS256 OAuth2 + custom token signer, `< 85/100` Spark lease broker (`RT-01`), `database.rules.json` + AST security evaluator, self-test alarm & cash-gate config (`W2` 100% Complete!)** | `infra/firebase/database.rules.json`, `workers/realtime/src/{google-auth,fcm-sender,rtdb-broker,rtdb-rules-eval,dispatch-fanout,routes/realtime-alerts}.ts`, `test/{fcm-rtdb-rules,realtime-b09-e2e}.test.mjs` | **DONE ✓** | Verified locally (`npm run ci:all` `0` errors · `7 / 7` `W2` suites + `109 / 109` `pg_prove` + `208` files `0` violations) + Live GHA `4/4` run on push ✓ |
+| **Build 10** | **W3 Admin — auth/RBAC/settings/zones/KYC/audit** | `workers/admin` part 1 | **NEXT** | RBAC matrix test (every role × every route) |
 | **Build 11** | W3 Admin — invoices/remittances/moderation/campaigns/reports | `workers/admin` part 2 | Queued | Settlement cycle end-to-end test |
 | **Build 12** | Customer App — shell, auth, address+map, home feed, search | `apps/customer_app` part 1 (`c-01..c-12`) | Queued | Widget tests + golden responsive screenshots |
 | **Build 13** | Customer App — restaurant page, customiser, cart, checkout | `apps/customer_app` part 2 (`c-01..c-21`) | Queued | Flow test: browse → place COD order |
@@ -59,3 +59,16 @@
 | **Build 28** | Admin Web — Domains 7–9 (Growth, Support, BI) + polish | `apps/admin_web` complete | Queued | Capabilities `C102–C132` — **`132 / 132` ticked** |
 | **Build 29** | Cross-surface E2E + load + failure-injection + security audit | `tests/e2e`, `tests/security` | Queued | 3-surface live order in CI; zero high findings |
 | **Build 30** | **GitHub Actions release factory** + runbooks + founder handoff | `.github/workflows/*`, `docs/runbooks/*` | Queued | Signed APKs built in Actions; all tablet runbooks verified |
+
+---
+
+## 3. Build Response 9 Detailed Audit Log (`2026-10-23` — `W2 undal-realtime` 100% Complete!)
+
+### Delivered Artifacts (`100%` `<= 500` lines, zero placeholders, zero `notification:` display keys)
+1. **`infra/firebase/database.rules.json`** — Production Firebase Realtime Database Security Rules enforcing default-deny, participant-only `o/$orderId` reads (`cid`, `vid`, `rid`, `admin`), closed-room lock (`meta/closed_at == null`), assigned-rider-only `loc` updates (`la`, `ln`, `h`, `sp`, `ts <= now + 30000`), non-spoofable participant `chat/$msgId` writes (`<= 500` chars), self-only `p/v/$vendorId` & `p/r/$riderId` heartbeats, and read-only `inbox/$profileId/last` nudges.
+2. **`workers/realtime/src/rtdb-rules-eval.ts`** — Deterministic Firebase RTDB Security Rules AST evaluator executing `infra/firebase/database.rules.json` directly inside CI (`0` external JVM dependencies).
+3. **`workers/realtime/src/google-auth.ts`** — Pure WebCrypto `RS256` PKCS#8 service-account credential parser, `55-minute`-cached Google OAuth2 bearer minter, and `15-minute` (`900s`) Firebase Custom Token signer.
+4. **`workers/realtime/src/fcm-sender.ts`** — Constitutional `ALM-01` data-only FCM HTTP v1 engine supporting all `11` `File 07 §7.4` event types, runtime `assertDataOnlyFcmPayload` tamper rejection, `HMAC-SHA256` payload authenticity tag, `x3` transient backoff retry, automatic `UNREGISTERED` token deletion in `public.device_tokens`, and forensic proof logging in `public.fcm_dispatch_log` (`data_only_verified = true`).
+5. **`workers/realtime/src/rtdb-broker.ts`** — `RtdbLeaseBroker` (`< 85 / 100` Spark hard ceiling, priority rider preemption, `realtime_mode = 'polling'` kill-switch, `5000ms` HTTP poll degradation, `RT-01`) + `RtdbRoomClient` compact single-letter active room writer (`<= 5 dp` coords) & `> 1h` closed-room / `> 10m` stale-presence sweeper.
+6. **`workers/realtime/src/dispatch-fanout.ts`** & **`workers/realtime/src/routes/realtime-alerts.ts`** — Parallel `ZoneDispatchDO` room write + multi-device Partner/Rider data-only FCM fan-out + `alert_cancel` silence + `POST /v1/realtime/token`, `POST /v1/alerts/test`, and `GET /v1/cashgate/config` (`KYC_INCOMPLETE` `403` guard + Worker-secret `UNDAL_BKASH_NUMBER` / `UNDAL_NAGAD_NUMBER`).
+7. **`workers/realtime/test/fcm-rtdb-rules.test.mjs`** & **`workers/realtime/test/realtime-b09-e2e.test.mjs`** — Full `ALM-01` 11-event + negative tamper test, `RT-01` 30-order simultaneous surge (`67 < 85`) + 86-listener overflow simulation, `database.rules.json` hostile attack matrix, and live PostgreSQL 16 (`PGlite` + `0001..0016`) end-to-end integration test.

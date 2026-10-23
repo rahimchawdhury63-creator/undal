@@ -1,12 +1,14 @@
 /**
  * @file workers/realtime/src/index.ts
- * @description Complete `W2 undal-realtime` Cloudflare Worker entrypoint (`Build Response 8`):
+ * @description Complete `W2 undal-realtime` Cloudflare Worker entrypoint (`Build Responses 8 & 9` — 100% of `W2`):
  * - Per-zone serialized `ZoneDispatchDO` (`SQLite`/KV atomic single & batched dispatch + `D-23`)
  * - Operator presence (`POST /v1/presence/ping`) & Rider pre-flight sessions (`start` / `end` + Cash Gate)
  * - Cross-Worker `HMAC-SHA256` `POST /v1/dispatch/order-placed` + atomic `POST /v1/offers/:id/accept|reject`
- * - `60s`-cached `GET /v1/zone/:id/sdr` Supply/Demand Ratio, weather & geohash hotspot heatmap
- * - Throttled & cached `POST /v1/geo/{geocode,reverse,route}` (`Nominatim <= 1 req/s`, `OSRM`, Plus Codes)
- * - Every-5-minute Cron sweep (`weather_cache` refresh via `api.met.no` / `Open-Meteo` + offer expiry cascade)
+ * - `POST /v1/realtime/token` (`< 85 / 100` Spark lease broker + RS256 Firebase custom token or `5000ms` poll fallback)
+ * - `POST /v1/alerts/test` + `dispatchDataOnlyFcm` (`ALM-01` high-priority data-only FCM HTTP v1 + `UNREGISTERED` pruning)
+ * - `GET /v1/cashgate/config` (`UNDAL_BKASH_NUMBER` / `UNDAL_NAGAD_NUMBER` strictly from Worker secrets for approved riders)
+ * - `60s`-cached `GET /v1/zone/:id/sdr` + throttled `POST /v1/geo/{geocode,reverse,route}`
+ * - Cron sweep (`weather_cache` + offer expiry cascade + closed RTDB room `> 1h` & stale presence `> 10m` pruning)
  */
 
 import { createRealtimePostgrestAdapter } from './db-postgrest.ts';
@@ -17,17 +19,24 @@ import {
   jsonErr,
   jsonOk,
 } from './http.ts';
+import { GLOBAL_RTDB_LEASE_BROKER, RtdbRoomClient } from './rtdb-broker.ts';
 import { handleDispatchAndGeoRoutes } from './routes/dispatch-geo.ts';
 import { handlePresenceAndSessionRoutes } from './routes/presence-session.ts';
+import { handleRealtimeTokenAndAlertRoutes } from './routes/realtime-alerts.ts';
 import type { RealtimeWorkerEnv } from './types.ts';
 import { createLocalZoneDispatchNamespace, ZoneDispatchDO } from './zone-dispatch-do.ts';
 
 export * from './assignment.ts';
 export * from './batcher.ts';
 export * from './db-postgrest.ts';
+export * from './dispatch-fanout.ts';
+export * from './fcm-sender.ts';
 export * from './geo.ts';
+export * from './google-auth.ts';
 export * from './http.ts';
 export * from './presence.ts';
+export * from './rtdb-broker.ts';
+export * from './rtdb-rules-eval.ts';
 export * from './types.ts';
 export { createLocalZoneDispatchNamespace, ZoneDispatchDO };
 
@@ -59,12 +68,14 @@ export default {
 
     if (request.method === 'GET' && url.pathname === '/healthz') {
       const cap = Number(env.RTDB_LEASE_HARD_CAP ?? '85');
-      const activeLeases = env.dbAdapter ? await db.getActiveRtdbLeaseCount(nowMs) : 0;
+      const dbLeases = env.dbAdapter ? await db.getActiveRtdbLeaseCount(nowMs) : 0;
+      const activeLeases = Math.max(dbLeases, GLOBAL_RTDB_LEASE_BROKER.countActive(nowMs));
       return jsonOk(
         {
           service: env.SERVICE_NAME ?? 'undal-realtime',
           rtdbLeaseCap: cap,
           activeRtdbLeases: activeLeases,
+          realtimeMode: env.REALTIME_MODE ?? 'rtdb',
           status: 'ok',
         },
         requestId,
@@ -77,6 +88,17 @@ export default {
     }
 
     try {
+      const realtimeAlertRes = await handleRealtimeTokenAndAlertRoutes({
+        request,
+        pathname: url.pathname,
+        requestId,
+        principal: auth.principal,
+        env,
+        db,
+        nowMs,
+      });
+      if (realtimeAlertRes) return realtimeAlertRes;
+
       const presenceRes = await handlePresenceAndSessionRoutes({
         request,
         pathname: url.pathname,
@@ -106,11 +128,13 @@ export default {
     }
   },
 
-  // Cron trigger (`every 5 minutes`): refreshes zone weather & sweeps offer expiries across active zones.
+  // Cron trigger (`every 5 minutes`): refreshes weather, sweeps offer expiries & prunes closed RTDB rooms (`RT-01`).
   async scheduled(_controller: unknown, env: RealtimeWorkerEnv): Promise<{
     readonly sweptZones: number;
     readonly expiredOffers: number;
     readonly vendorUnreachableCancelled: number;
+    readonly prunedRooms: number;
+    readonly prunedPresence: number;
   }> {
     const nowMs = env.nowMs ? env.nowMs() : Date.now();
     const db = env.dbAdapter ?? createRealtimePostgrestAdapter(env);
@@ -144,6 +168,19 @@ export default {
       }
     }
 
-    return { sweptZones, expiredOffers, vendorUnreachableCancelled };
+    const rtdb = new RtdbRoomClient({
+      rtdbUrl: env.FIREBASE_RTDB_URL,
+      serviceAccountJson: env.FIREBASE_SERVICE_ACCOUNT_JSON,
+      fetchImpl: env.fetchImpl ?? fetch,
+    });
+    const sweep = await rtdb.sweepExpiredNodes(nowMs);
+
+    return {
+      sweptZones,
+      expiredOffers,
+      vendorUnreachableCancelled,
+      prunedRooms: sweep.deletedRooms,
+      prunedPresence: sweep.deletedPresenceNodes,
+    };
   },
 };

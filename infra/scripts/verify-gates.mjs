@@ -161,6 +161,7 @@ export function verifyRepository(repoRoot) {
     'packages/undal_core/lib/src/fare/undal_fare.dart',
     'packages/undal_core/lib/l10n/app_en.arb',
     'packages/undal_core/lib/l10n/app_bn.arb',
+    'infra/firebase/database.rules.json',
     '.github/workflows/ci.yml',
     '.github/workflows/keystore-generate.yml',
     '.github/workflows/bootstrap-admin.yml',

@@ -10,6 +10,7 @@ import { DEFAULT_FARE_POLICY, okEnvelope } from '@undal/shared-ts';
 import { evaluateOfferRejection, maxConcurrentCapacity, rankRiderCandidates } from './assignment.ts';
 import { findBestBatchForOrder } from './batcher.ts';
 import { createRealtimePostgrestAdapter } from './db-postgrest.ts';
+import { fanOutOfferResolution, fanOutOrderOfferIssued } from './dispatch-fanout.ts';
 import { classifyPresence } from './presence.ts';
 import type {
   DispatchOrderSnapshot,
@@ -250,6 +251,15 @@ export class ZoneDispatchDO {
     await this.state.storage.put(`order:${order.orderId}`, dispatchState);
     await db.persistBatchAndOffer(offer);
     await this.scheduleNextAlarm(offer.expiresAtMs);
+    await fanOutOrderOfferIssued({
+      order,
+      offer,
+      attemptNumber,
+      fallbackVendorProfileId: dispatchState.vendorProfileId,
+      env: this.env,
+      db,
+      nowMs,
+    });
 
     return { status: 'offering', offer, candidateCount: ranked.length };
   }
@@ -277,6 +287,7 @@ export class ZoneDispatchDO {
         const expired: OfferRecord = { ...offer, response: 'expired', respondedAtMs: nowMs };
         await this.state.storage.put(key, expired);
         await db.persistOfferDecision(expired);
+        await fanOutOfferResolution({ offer: expired, resolution: 'expired', env: this.env, db, nowMs });
         expiredOffers += 1;
 
         const ordState = await this.state.storage.get<OrderDispatchState>(`order:${offer.orderId}`);
@@ -383,6 +394,7 @@ export class ZoneDispatchDO {
           await this.state.storage.put(`order:${offer.orderId}`, ordState);
         }
         await db.persistOfferDecision(accepted);
+        await fanOutOfferResolution({ offer: accepted, resolution: 'accepted', env: this.env, db, nowMs });
         return Response.json({ status: 'accepted', offer: accepted }, { status: 200 });
       }
 
@@ -422,6 +434,7 @@ export class ZoneDispatchDO {
         };
         await this.state.storage.put(`offer:${offer.id}`, updated);
         await db.persistOfferDecision(updated);
+        await fanOutOfferResolution({ offer: updated, resolution: 'rejected', env: this.env, db, nowMs });
 
         let nextOffer: OfferRecord | null = null;
         let nextStatus: OrderDispatchState['status'] = decision.escalateToAdmin ? 'escalated_admin' : 'queued_no_rider';

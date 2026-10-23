@@ -37,6 +37,11 @@ export function createPostgrestDispatchMethods(t: PostgrestTransport): Pick<
   | 'getIdempotencyRecord'
   | 'saveIdempotencyRecord'
   | 'getActiveRtdbLeaseCount'
+  | 'listDeviceTokensForProfiles'
+  | 'pruneDeviceToken'
+  | 'logFcmDispatch'
+  | 'listVendorOutletProfileIds'
+  | 'getOrderAccessMeta'
 > {
   return {
     async getDispatchOrder(orderId: string): Promise<DispatchOrderSnapshot | null> {
@@ -271,6 +276,72 @@ export function createPostgrestDispatchMethods(t: PostgrestTransport): Pick<
 
     async getActiveRtdbLeaseCount(): Promise<number> {
       return 0;
+    },
+
+    async listDeviceTokensForProfiles(profileIds) {
+      if (profileIds.length === 0) return [];
+      const inList = profileIds.map((id) => encodeURIComponent(id)).join(',');
+      const rows = await t.restGet<readonly Record<string, unknown>[]>(
+        `device_tokens?select=profile_id,fcm_token,app_flavor&profile_id=in.(${inList})`,
+      );
+      return rows.map((r) => ({
+        profileId: String(r['profile_id']),
+        fcmToken: String(r['fcm_token']),
+        appFlavor: String(r['app_flavor']),
+      }));
+    },
+
+    async pruneDeviceToken(fcmToken: string): Promise<void> {
+      await t.restWrite('DELETE', `device_tokens?fcm_token=eq.${encodeURIComponent(fcmToken)}`, undefined, 'return=minimal');
+    },
+
+    async logFcmDispatch(entry): Promise<void> {
+      await t.restWrite(
+        'POST',
+        'fcm_dispatch_log',
+        {
+          order_id: entry.orderId,
+          recipient_id: entry.recipientId,
+          event_type: entry.eventType,
+          data_only_verified: true,
+          http_status: entry.httpStatus,
+          latency_ms: entry.latencyMs,
+          error_code: entry.errorCode,
+          created_at: new Date(entry.nowMs).toISOString(),
+        },
+        'return=minimal',
+      );
+    },
+
+    async listVendorOutletProfileIds(vendorId: string): Promise<readonly string[]> {
+      const [vRows, sRows] = await Promise.all([
+        t.restGet<readonly { owner_profile_id: string }[]>(
+          `vendors?select=owner_profile_id&id=eq.${encodeURIComponent(vendorId)}&limit=1`,
+        ),
+        t.restGet<readonly { profile_id: string }[]>(
+          `vendor_staff_members?select=profile_id&vendor_id=eq.${encodeURIComponent(vendorId)}&is_active=eq.true`,
+        ),
+      ]);
+      const ids = new Set<string>();
+      if (vRows[0]?.owner_profile_id) ids.add(vRows[0].owner_profile_id);
+      for (const s of sRows) ids.add(s.profile_id);
+      return Array.from(ids);
+    },
+
+    async getOrderAccessMeta(orderId: string) {
+      const rows = await t.restGet<readonly Record<string, unknown>[]>(
+        `orders?select=id,public_code,customer_id,vendor_id,rider_id,status&id=eq.${encodeURIComponent(orderId)}&limit=1`,
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return {
+        orderId: String(r['id']),
+        publicCode: String(r['public_code']),
+        customerId: String(r['customer_id']),
+        vendorId: String(r['vendor_id']),
+        riderId: r['rider_id'] ? String(r['rider_id']) : null,
+        status: String(r['status']),
+      };
     },
   };
 }

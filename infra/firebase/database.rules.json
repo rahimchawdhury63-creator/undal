@@ -1,0 +1,46 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "o": {
+      "$orderId": {
+        ".read": "auth != null && (auth.token.role === 'admin' || data.child('meta/cid').val() === auth.uid || data.child('meta/vid').val() === auth.token.vendor_id || data.child('meta/rid').val() === auth.token.rider_id)",
+        ".write": false,
+        "loc": {
+          ".write": "auth != null && data.parent().child('meta/closed_at').val() == null && data.parent().child('meta/rid').val() === auth.token.rider_id",
+          ".validate": "newData.hasChildren(['la', 'ln', 'ts']) && newData.child('la').isNumber() && newData.child('la').val() >= -90 && newData.child('la').val() <= 90 && newData.child('ln').isNumber() && newData.child('ln').val() >= -180 && newData.child('ln').val() <= 180 && (!newData.child('h').exists() || (newData.child('h').isNumber() && newData.child('h').val() >= 0 && newData.child('h').val() < 360)) && (!newData.child('sp').exists() || (newData.child('sp').isNumber() && newData.child('sp').val() >= 0 && newData.child('sp').val() <= 60)) && newData.child('ts').isNumber() && newData.child('ts').val() <= now + 30000"
+        },
+        "chat": {
+          "$msgId": {
+            ".write": "auth != null && data.parent().parent().child('meta/closed_at').val() == null && !data.exists() && (data.parent().parent().child('meta/cid').val() === auth.uid || data.parent().parent().child('meta/vid').val() === auth.token.vendor_id || data.parent().parent().child('meta/rid').val() === auth.token.rider_id)",
+            ".validate": "newData.hasChildren(['f', 'b', 'ts', 'k']) && newData.child('f').val() === auth.uid && newData.child('b').isString() && newData.child('b').val().length >= 1 && newData.child('b').val().length <= 500 && (newData.child('k').val() === 'text' || newData.child('k').val() === 'media_ref') && newData.child('ts').isNumber() && newData.child('ts').val() <= now + 30000"
+          }
+        }
+      }
+    },
+    "p": {
+      "v": {
+        "$vendorId": {
+          ".read": "auth != null && (auth.token.role === 'admin' || auth.token.vendor_id === $vendorId)",
+          ".write": "auth != null && auth.token.vendor_id === $vendorId",
+          ".validate": "newData.hasChildren(['on', 'ts']) && (newData.child('on').val() === 0 || newData.child('on').val() === 1) && newData.child('ts').isNumber() && newData.child('ts').val() <= now + 30000"
+        }
+      },
+      "r": {
+        "$riderId": {
+          ".read": "auth != null && (auth.token.role === 'admin' || auth.token.rider_id === $riderId)",
+          ".write": "auth != null && auth.token.rider_id === $riderId",
+          ".validate": "newData.hasChildren(['on', 'la', 'ln', 'ts', 'z']) && (newData.child('on').val() === 0 || newData.child('on').val() === 1) && newData.child('la').isNumber() && newData.child('la').val() >= -90 && newData.child('la').val() <= 90 && newData.child('ln').isNumber() && newData.child('ln').val() >= -180 && newData.child('ln').val() <= 180 && newData.child('z').isString() && newData.child('z').val().length >= 2 && newData.child('z').val().length <= 64 && newData.child('ts').isNumber() && newData.child('ts').val() <= now + 30000"
+        }
+      }
+    },
+    "inbox": {
+      "$profileId": {
+        "last": {
+          ".read": "auth != null && auth.uid === $profileId",
+          ".write": false
+        }
+      }
+    }
+  }
+}

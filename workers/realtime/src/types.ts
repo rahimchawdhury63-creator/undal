@@ -240,15 +240,25 @@ export interface RealtimeDbAdapter {
   getIdempotencyRecord(key: string, actorId: string, nowMs: number): Promise<{ requestHash: string; status: number; body: Record<string, unknown> } | null>;
   saveIdempotencyRecord(key: string, actorId: string, endpoint: string, requestHash: string, status: number, body: Record<string, unknown>, nowMs: number): Promise<void>;
   getActiveRtdbLeaseCount(nowMs: number): Promise<number>;
+  listDeviceTokensForProfiles?(profileIds: readonly string[]): Promise<readonly { profileId: string; fcmToken: string; appFlavor: string }[]>;
+  pruneDeviceToken?(fcmToken: string): Promise<void>;
+  logFcmDispatch?(entry: { orderId: string | null; recipientId: string; eventType: string; httpStatus: number; latencyMs: number; errorCode: string | null; nowMs: number }): Promise<void>;
+  listVendorOutletProfileIds?(vendorId: string): Promise<readonly string[]>;
+  getOrderAccessMeta?(orderId: string): Promise<{ orderId: string; publicCode: string; customerId: string; vendorId: string; riderId: string | null; status: string } | null>;
 }
 
 export interface RealtimeWorkerEnv {
   readonly SERVICE_NAME?: string;
   readonly RTDB_LEASE_HARD_CAP?: string;
+  readonly REALTIME_MODE?: 'rtdb' | 'polling';
   readonly SUPABASE_URL?: string;
   readonly SUPABASE_SERVICE_ROLE_KEY?: string;
   readonly SUPABASE_JWT_SECRET?: string;
   readonly INTERNAL_HMAC_SECRET?: string;
+  readonly FIREBASE_SERVICE_ACCOUNT_JSON?: string;
+  readonly FIREBASE_RTDB_URL?: string;
+  readonly UNDAL_BKASH_NUMBER?: string;
+  readonly UNDAL_NAGAD_NUMBER?: string;
   readonly OSRM_BASE_URL?: string;
   readonly NOMINATIM_BASE_URL?: string;
   readonly NOMINATIM_CONTACT_EMAIL?: string;
