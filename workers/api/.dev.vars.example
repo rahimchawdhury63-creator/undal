@@ -1,0 +1,5 @@
+# W1 (undal-api) Worker Secrets — Set in Cloudflare / GitHub Secrets ONLY (zero values here)
+SUPABASE_SERVICE_ROLE_KEY=
+IMGBB_API_KEY=
+QR_SIGNING_SECRET=
+INTERNAL_WORKER_SHARED_SECRET=

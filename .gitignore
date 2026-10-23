@@ -1,0 +1,48 @@
+# Undal Monorepo .gitignore — Secrets & Build Artifacts Strictly Excluded (D-03, File 09)
+
+# Environment & Secret Files (NEVER commit real values)
+.env
+.env.*
+!.env.example
+.dev.vars
+!.dev.vars.example
+**/google-services.json
+**/GoogleService-Info.plist
+**/key.properties
+*.jks
+*.keystore
+*.pem
+*.p12
+service-account*.json
+
+# Node / TypeScript / Cloudflare Workers / Pages
+node_modules/
+dist/
+build/
+.wrangler/
+.cloudflare/
+.turbo/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Flutter / Dart / Android
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+**/android/.gradle/
+**/android/local.properties
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+*.apk
+*.aab
+*.idsig
+
+# Supabase / Local Temp
+supabase/.branches/
+supabase/.temp/
+.DS_Store
+Thumbs.db
+*.log

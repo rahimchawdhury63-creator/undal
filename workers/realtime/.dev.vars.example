@@ -1,0 +1,4 @@
+# W2 (undal-realtime) Worker Secrets — Set in Cloudflare / GitHub Secrets ONLY (zero values here)
+SUPABASE_SERVICE_ROLE_KEY=
+FIREBASE_SERVICE_ACCOUNT_JSON=
+INTERNAL_WORKER_SHARED_SECRET=

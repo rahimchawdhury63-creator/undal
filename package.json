@@ -1,0 +1,21 @@
+{
+  "name": "undal-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "UNDAL — 100% Free-Tier Food Delivery & Pickup Platform for Bangladesh (EN + বাংলা)",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "workers/*",
+    "apps/customer_web",
+    "apps/admin_web"
+  ],
+  "scripts": {
+    "check:gates": "node infra/scripts/verify-gates.mjs",
+    "test:gates": "node --test infra/scripts/verify-gates.test.mjs",
+    "ci:plan": "npm run test:gates && npm run check:gates"
+  }
+}

@@ -1,0 +1,6 @@
+# W3 (undal-admin) Worker Secrets — Set in Cloudflare / GitHub Secrets ONLY (zero values here)
+SUPABASE_SERVICE_ROLE_KEY=
+FIREBASE_SERVICE_ACCOUNT_JSON=
+ADMIN_TOTP_PEPPER=
+QR_SIGNING_SECRET=
+INTERNAL_WORKER_SHARED_SECRET=
