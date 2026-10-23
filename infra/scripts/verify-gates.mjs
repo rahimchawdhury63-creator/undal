@@ -5,10 +5,10 @@
  * Enforces:
  *   1. <= 500 lines hard limit on every authored repository file (File 28 §4).
  *   2. Secret & private-credential leak detection (D-03, File 09, SEC-02).
- *   3. Competitor brand & forbidden hex (#D70F64) purity check in product code (File 25).
+ *   3. Brand purity — zero competitor names/#D70F64 AND zero hardcoded hexes inside `apps/` (File 25 §25.6).
  *   4. Zero placeholders (TODO/FIXME) & zero dead UI handlers in product code (File 26).
  *   5. Strict data-only FCM structural rule — zero `notification:` keys in FCM builders (ALM-01).
- *   6. All Plan Response 1 & Plan Response 2 deliverables present and non-empty (File 27).
+ *   6. Required architecture, token & ledger deliverables present and non-empty (File 27).
  */
 
 import fs from 'node:fs';
@@ -32,6 +32,8 @@ const GENERATED_FILENAMES = new Set([
 const CODE_EXTENSIONS = new Set([
   '.ts', '.tsx', '.js', '.mjs', '.cjs', '.dart', '.kt', '.sql', '.css', '.html', '.yaml', '.yml',
 ]);
+
+const APP_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.css', '.dart']);
 
 /**
  * Splits UTF-8 text into logical line count matching `wc -l` / editor line count.
@@ -88,12 +90,19 @@ export function evaluateFileContent(relPath, content) {
     relPath.startsWith('infra/scripts/verify-gates');
 
   if (!isDocsOrGateSelf && CODE_EXTENSIONS.has(ext)) {
-    // Gate 3: Brand purity — forbid competitor names and #D70F64 pink in product code.
+    // Gate 3a: Brand purity — forbid competitor names and #D70F64 pink in product code.
     if (/#d70f64/i.test(content)) {
       errors.push(`[BRAND-PURITY] ${relPath} contains forbidden competitor hex #D70F64.`);
     }
     if (/\b(?:foodpanda|pandapro|pandamart|pandapay|pandabox)\b/i.test(content)) {
       errors.push(`[BRAND-PURITY] ${relPath} contains forbidden competitor brand identifier.`);
+    }
+
+    // Gate 3b: File 25 §25.6 law — no app surface hardcodes raw hex literals outside shared tokens.
+    if (relPath.startsWith('apps/') && APP_SOURCE_EXTENSIONS.has(ext)) {
+      if (/#[0-9A-Fa-f]{6}\b|\b0xFF[0-9A-Fa-f]{6}\b/.test(content)) {
+        errors.push(`[TOKEN-LAW] ${relPath} hardcodes a raw colour hex (use @undal/shared-ts or undal_core tokens).`);
+      }
     }
 
     // Gate 4: Zero TODO/FIXME placeholders & zero dead empty UI tap handlers.
@@ -135,7 +144,14 @@ export function verifyRepository(repoRoot) {
     'docs/adr/ADR-0005-operator-workflow-refinements.md',
     'packages/shared_ts/src/tokens.ts',
     'packages/shared_ts/src/tokens.css',
+    'packages/shared_ts/src/money.ts',
+    'packages/shared_ts/src/fare.ts',
+    'packages/shared_ts/src/i18n.ts',
     'packages/undal_core/lib/src/tokens/undal_tokens.dart',
+    'packages/undal_core/lib/src/money/undal_money.dart',
+    'packages/undal_core/lib/src/fare/undal_fare.dart',
+    'packages/undal_core/lib/l10n/app_en.arb',
+    'packages/undal_core/lib/l10n/app_bn.arb',
     '.github/workflows/ci.yml',
     '.github/workflows/keystore-generate.yml',
     '.github/workflows/bootstrap-admin.yml',

@@ -1,0 +1,23 @@
+name: partner_app
+description: UNDAL Partner Android application (kitchen order console, native alarm engine, menu & weekly settlement).
+version: 0.1.0+1
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  undal_core:
+    path: ../../packages/undal_core
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

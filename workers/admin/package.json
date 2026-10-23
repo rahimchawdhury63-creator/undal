@@ -1,0 +1,14 @@
+{
+  "name": "@undal/worker-admin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "W3 undal-admin Cloudflare Worker — RBAC, Step-Up TOTP, KYC, Finance, Settlement Crons & BI",
+  "type": "module",
+  "dependencies": {
+    "@undal/shared-ts": "*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs"
+  }
+}

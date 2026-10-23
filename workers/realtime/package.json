@@ -1,0 +1,14 @@
+{
+  "name": "@undal/worker-realtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "W2 undal-realtime Cloudflare Worker — ZoneDispatchDO, RTDB Spark lease broker, data-only FCM & geo proxies",
+  "type": "module",
+  "dependencies": {
+    "@undal/shared-ts": "*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs"
+  }
+}

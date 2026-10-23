@@ -1,0 +1,8 @@
+name = "undal-api"
+main = "src/index.ts"
+compatibility_date = "2026-03-01"
+workers_dev = true
+
+[vars]
+SERVICE_NAME = "undal-api"
+ENVIRONMENT = "production"

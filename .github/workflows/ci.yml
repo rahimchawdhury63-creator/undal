@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  constitutional-gates:
-    name: Gates, Design Tokens, Typecheck & Secret Scan
+  ts-web-workers-gates:
+    name: TypeScript, Web Builds, Worker Tests, Fuzz & Gates
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -32,11 +32,11 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Install workspace dev tooling
+      - name: Install monorepo dependencies
         run: npm ci
 
-      - name: Typecheck shared design tokens & run automated unit suites + constitutional gates
-        run: npm run ci:plan
+      - name: Typecheck all 6 TS workspaces, build Vite apps, run tests & check gates
+        run: npm run ci:all
 
       - name: Scan git history & working tree for leaked secrets (gitleaks)
         run: |
@@ -44,6 +44,29 @@ jobs:
           curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | tar -xz -C /tmp gitleaks
           /tmp/gitleaks detect --source . --verbose --redact
+
+  flutter-packages-and-apps:
+    name: Flutter Analyze & Widget/Golden Math Tests (4 Packages)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Flutter SDK (pinned & cached)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
+          channel: 'stable'
+          cache: true
+
+      - name: Analyze & test package:undal_core + all 3 Flutter apps
+        run: |
+          set -euo pipefail
+          for pkg in packages/undal_core apps/customer_app apps/partner_app apps/rider_app; do
+            echo "=== Testing Flutter workspace: $pkg ==="
+            (cd "$pkg" && flutter pub get && flutter analyze && flutter test)
+          done
 
   bootstrap-dry-run:
     name: Keystore & Super-Admin Bootstrap Dry-Run

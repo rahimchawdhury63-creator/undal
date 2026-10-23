@@ -1,0 +1,14 @@
+{
+  "name": "@undal/worker-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "W1 undal-api Cloudflare Worker — public feed, storefront, cart, COD checkout, orders & media proxy",
+  "type": "module",
+  "dependencies": {
+    "@undal/shared-ts": "*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs"
+  }
+}

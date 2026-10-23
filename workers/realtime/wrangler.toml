@@ -1,0 +1,19 @@
+name = "undal-realtime"
+main = "src/index.ts"
+compatibility_date = "2026-03-01"
+workers_dev = true
+
+[vars]
+SERVICE_NAME = "undal-realtime"
+RTDB_LEASE_HARD_CAP = "85"
+
+[[durable_objects.bindings]]
+name = "ZONE_DISPATCH"
+class_name = "ZoneDispatchDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ZoneDispatchDO"]
+
+[triggers]
+crons = ["*/5 * * * *"]

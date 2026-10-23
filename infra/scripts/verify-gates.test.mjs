@@ -28,14 +28,15 @@ test('evaluateFileContent enforces strict 500-line ceiling on authored files', (
   assert.match(errs[0], /\[LINE-CAP\]/);
 });
 
-test('evaluateFileContent blocks competitor brand leaks, dead UI handlers, TODOs, and FCM notification keys', () => {
+test('evaluateFileContent blocks competitor brand leaks, raw app hexes, dead UI handlers, TODOs, and FCM notification keys', () => {
   const badCode = [
     'const accent = "#D70F64";',
     '// TODO: wire later',
     'ElevatedButton(onPressed: () {}, child: Text("foodpanda"))',
   ].join('\n');
   const errs = evaluateFileContent('apps/customer_app/lib/bad.dart', badCode);
-  assert.equal(errs.length, 4);
+  assert.equal(errs.length, 5);
+  assert.ok(errs.some((e) => e.includes('[TOKEN-LAW]')));
 
   const badFcm = 'export const msg = { notification: { title: "Bad" }, data: { type: "NEW_ORDER" } };';
   const fcmErrs = evaluateFileContent('workers/realtime/src/fcm.ts', badFcm);
@@ -46,5 +47,5 @@ test('evaluateFileContent blocks competitor brand leaks, dead UI handlers, TODOs
 test('verifyRepository passes cleanly against the live Undal repository workspace', () => {
   const result = verifyRepository(REPO_ROOT);
   assert.equal(result.errors.length, 0, `Unexpected gate errors: ${result.errors.join('; ')}`);
-  assert.ok(result.filesChecked >= 10, 'Expected repository files to be audited');
+  assert.ok(result.filesChecked >= 50, 'Expected full monorepo authored files to be audited');
 });

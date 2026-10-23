@@ -1,6 +1,6 @@
 {
   "name": "undal-monorepo",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "UNDAL — 100% Free-Tier Food Delivery & Pickup Platform for Bangladesh (EN + বাংলা)",
   "type": "module",
@@ -13,16 +13,25 @@
     "apps/customer_web",
     "apps/admin_web"
   ],
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.24.2"
+  },
   "devDependencies": {
-    "typescript": "^5.8.2"
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0"
   },
   "scripts": {
-    "typecheck": "npm run typecheck --workspace=@undal/shared-ts",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
     "check:gates": "node infra/scripts/verify-gates.mjs",
-    "test:gates": "node --test infra/scripts/verify-gates.test.mjs",
-    "test:tokens": "node --test packages/shared_ts/test/tokens.test.mjs",
-    "test:bootstrap": "node --test infra/scripts/bootstrap-admin.test.mjs",
-    "test": "node --test infra/scripts/verify-gates.test.mjs infra/scripts/bootstrap-admin.test.mjs packages/shared_ts/test/tokens.test.mjs",
-    "ci:plan": "npm run typecheck && npm test && npm run check:gates && node infra/scripts/bootstrap-admin.mjs --dry-run"
+    "test:root": "node --test infra/scripts/verify-gates.test.mjs infra/scripts/bootstrap-admin.test.mjs",
+    "test": "npm run test:root && npm test --workspaces --if-present",
+    "ci:plan": "npm run ci:all",
+    "ci:all": "npm run typecheck && npm run build && npm test && npm run check:gates && node infra/scripts/bootstrap-admin.mjs --dry-run"
   }
 }

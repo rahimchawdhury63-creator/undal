@@ -1,0 +1,23 @@
+name: rider_app
+description: UNDAL Rider Android application (transparent dynamic fare, native alarm engine, QR handover & COD cash gate).
+version: 0.1.0+1
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  undal_core:
+    path: ../../packages/undal_core
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

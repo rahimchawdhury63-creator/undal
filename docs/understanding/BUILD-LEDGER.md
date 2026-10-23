@@ -1,9 +1,9 @@
-# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.0)
+# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.1)
 
 > **Single Living Progress Ledger (`UNDAL-MASTER-GUIDE/27-builder-protocol-32-responses.md`)**  
 > **Repository:** `rahimchawdhury63-creator/undal` · **Branch:** `arena/f81366de-undal`  
-> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Plan Response 2 — COMPLETE`**  
-> **Next Scheduled Milestone:** **`Build Response 1`** (awaiting Founder `"continue"` — canonical `Build 1 → Build 30` sequence locked)
+> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 1 — COMPLETE`**  
+> **Next Scheduled Milestone:** **`Build Response 2`** (`Migrations I — auth/profiles/RBAC/audit/settings/taxonomy`, awaiting Founder `"continue"`)
 
 ---
 
@@ -12,15 +12,13 @@
 | Workstream | Canonical Target | Completed | In Progress / Queued | Verification Artifact |
 |---|---:|---:|---:|---|
 | **Master Guide Files Read (`00–28` + `App A–N`)** | 43 | **43 (`100%`)** | 0 | Restated across `docs/understanding/01..07` |
-| **Customer Reference Screenshots (`App 41 + Web 24`)** | 65 | **65 (`100%`)** | 0 | [`01-customer-surface-analysis.md`](./01-customer-surface-analysis.md) + `01a..01c` |
-| **Operator Reference Screenshots (`Partner 63 + Rider 44`)** | 107 | **107 (`100%`)** | 0 | [`04-partner-rider-analysis.md`](./04-partner-rider-analysis.md) + `04a..04c` |
-| **Total Repository Visual Screenshot Audit** | **172** | **172 (`100.0%`)** | **0** | Every single image visually opened & mapped |
-| **Architecture ADRs (`D-01..D-24` + `ADR-0001..0005`)** | 29 | **29 (`100%`)** | Expand as needed | `docs/adr/ADR-0001..0005` |
-| **Frozen Database Dictionary (`50` tables / `45` groups)** | 50 tables | **Spec 100% frozen** | SQL `Build 2–5` | [`05-data-model-final.md`](./05-data-model-final.md) |
-| **Frozen API & FCM Contracts (`W1 + W2 + W3`)** | 73 route groups | **Spec 100% frozen** | Code `Build 6–11` | [`06-api-contract-final.md`](./06-api-contract-final.md) |
-| **Frozen Super Admin Registry (`C1–C132`)** | 132 P0 | **132/132 mapped** | UI `Build 25–28` | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
-| **Design System Tokens (`File 25` TS + CSS + Dart)** | Light + Dark + WCAG | **DONE ✓ (`0` `#D70F64`)** | Components `Build 1` | `packages/shared_ts/src/tokens.*` & `undal_tokens.dart` |
-| **CI + Dry-Runnable Keystore & Admin Bootstrap Workflows** | 3 workflows | **DONE ✓ (Live Verified)** | Release workflows `Build 30` | `.github/workflows/{ci,keystore-generate,bootstrap-admin}.yml` |
+| **Visual Reference Screenshot Audit (`All 4 Surfaces`)** | **172** | **172 (`100.0%`)** | 0 | `01-customer-*` (`65`) + `04-partner-rider-*` (`107`) |
+| **Shared TS & Flutter Packages (`@undal/shared-ts` + `undal_core`)** | 2 packages | **DONE ✓ (`Build 1`)** | Extended per response | `packages/shared_ts/`, `packages/undal_core/` |
+| **Golden Math Parity (`M-1..M-8` + `F-1..F-6` + 10K Fuzz)** | TS + Dart + SQL | **TS + Dart 100% ✓** | SQL parity in `Build 4` | `money-fare-i18n.test.mjs`, `undal_core_test.dart` |
+| **Bilingual i18n Framework (`EN` + `বাংলা` Parity)** | 100% key parity | **60/60 seed keys ✓** | Expand per feature build | `shared_ts/src/i18n.ts`, `app_en.arb`, `app_bn.arb` |
+| **Monorepo App & Worker Foundation Shells** | 8 workspaces | **8/8 building & green ✓** | Feature implementation `Build 6–28` | `workers/{api,realtime,admin}`, `apps/*` |
+| **Postgres Migrations + `pgTAP` RLS Suite** | 16 migrations / 50 tables | 0 (starts next!) | **`Build 2–5`** | `supabase/migrations/0001..0016` |
+| **Super Admin Capabilities (`Appendix C`)** | 132 P0 | `72` settings + error registry seeded | **`Build 10–11, 25–28`** | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
 
 ---
 
@@ -28,10 +26,10 @@
 
 | Step | Canonical Title (`File 27`) | Repo Output | Status | Verification / CI Evidence |
 |---|---|---|---|---|
-| **Plan 1** | Understand the world & customer surfaces | `01..03`, `ADR-0001..0004`, skeleton, `ci.yml`, `verify-gates.mjs` | **DONE ✓** | GHA Run [`#39942499954`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39942499954) ✓ (`0` warnings) |
-| **Plan 2** | Understand operators, final contracts, design tokens & bootstrap CI | `04..07` (+`04a..c`), `ADR-0005`, `tokens.ts`/`css`/`dart`, `keystore-generate.yml`, `bootstrap-admin.yml` | **DONE ✓** | `npm run ci:plan` (`10/10` pass, `74` files audited) + GHA Run [`#39944870464`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39944870464) ✓ |
-| **Build 1** | Monorepo + shared packages + design tokens + i18n framework | `packages/shared_ts` (money/fare/schemas/i18n), `packages/undal_core` (ThemeData/l10n/core) | **NEXT** | CI green across all workspaces; token + `M-1..M-8` / `F-1..F-6` snapshot tests |
-| **Build 2** | Migrations I — auth/profiles/RBAC/audit/settings/taxonomy | `supabase/migrations/0001..0004` + seed | Queued | `supabase db reset` + `pgTAP` RLS suite |
+| **Plan 1** | Understand the world & customer surfaces | `01..03`, `ADR-0001..0004`, skeleton, `ci.yml`, `verify-gates.mjs` | **DONE ✓** | GHA Run [`#39942499954`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39942499954) ✓ |
+| **Plan 2** | Understand operators, final contracts, design tokens & bootstrap CI | `04..07` (+`04a..c`), `ADR-0005`, `tokens.ts`/`css`/`dart`, `keystore-generate.yml`, `bootstrap-admin.yml` | **DONE ✓** | GHA Run [`#39944956870`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39944956870) ✓ |
+| **Build 1** | **Monorepo + shared packages + design tokens + i18n framework** | Complete `packages/shared_ts` (`tokens`, `rational`, `money`, `fare`, `errors`, `i18n`, `settings`, `schemas`), complete `packages/undal_core` (`undal_tokens`, `undal_theme`, `undal_money`, `undal_fare`, `undal_localizations`, `undal_responsive_scaffold`), all 8 worker/web/Flutter app shells building & green | **DONE ✓** | `npm run ci:all` (`21/21` Node tests + `10,000` basket fuzz + `2` Vite production builds + `0` gate violations) + live 3-job GHA CI (incl. `flutter analyze` + `flutter test` across all 4 Flutter packages) ✓ |
+| **Build 2** | **Migrations I — auth/profiles/RBAC/audit/settings/taxonomy** | `supabase/migrations/0001..0004` + seed + `pgTAP` RLS suite | **NEXT** | `supabase db reset` / real Postgres 16 + `pgTAP` RLS suite green |
 | **Build 3** | Migrations II — vendors, menus, variants, bundles, zones | `supabase/migrations/0005..0008` + geo RPCs | Queued | RPC tests: zone resolve, menu read, hours |
 | **Build 4** | Migrations III — carts, orders, events, offers, batches | `supabase/migrations/0009..0012` + money RPC | Queued | **Appendix F money vectors `M-1…M-8` pass in SQL** |
 | **Build 5** | Migrations IV — ledger, invoices, remittances, reviews, chat, support | `supabase/migrations/0013..0016` + triggers + cron funcs | Queued | Ledger append-only test; invoice idempotency test |
