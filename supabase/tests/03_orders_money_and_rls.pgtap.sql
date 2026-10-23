@@ -18,13 +18,13 @@ SELECT results_eq(
         'campaigns', 'campaign_vendors', 'vouchers', 'voucher_redemptions',
         'carts', 'cart_items', 'idempotency_keys',
         'order_batches', 'orders', 'order_items', 'order_events', 'order_offers'
-      ) AND c.relrowsecurity = true AND c.relforcerowsecurity = true)::int,
-      count(*) FILTER (WHERE NOT (c.relrowsecurity = true AND c.relforcerowsecurity = true))::int
+      ) AND c.relrowsecurity = true AND c.relforcerowsecurity = true)::int AS matched,
+      count(*) FILTER (WHERE NOT (c.relrowsecurity = true AND c.relforcerowsecurity = true))::int AS unprotected
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public' AND c.relkind = 'r'
   $$,
-  $$ VALUES (16, 0) $$,
+  $$ VALUES (16::int, 0::int) $$,
   'All 16 Build 4 tables enforce ENABLE + FORCE RLS with 0 unprotected tables in schema'
 );
 
@@ -213,25 +213,25 @@ SELECT throws_ok(
   'place_order rejects stale client total mismatch with SQLSTATE 40001 (CART_STALE)'
 );
 
--- Valid `place_order` produces exact `M-3` numbers (`cod = 32500`, `vendor_net = 30500`) and replays idempotently!
+-- Execute first `place_order` call + idempotent retry in distinct MVCC statements, then assert exact M-3 + 1 order row!
+CREATE TEMP TABLE _b04_place_results AS
+SELECT public.place_order('95555555-5555-4555-8555-555555555555', 'idem-live-order-0001', 32500, 2000, 500, false, '2026-10-23 19:30:00+06'::timestamptz) AS r1;
+
+ALTER TABLE _b04_place_results ADD COLUMN r2 jsonb;
+UPDATE _b04_place_results
+SET r2 = public.place_order('95555555-5555-4555-8555-555555555555', 'idem-live-order-0001', 32500, 2000, 500, false, '2026-10-23 19:30:05+06'::timestamptz);
+
 SELECT results_eq(
   $$
-    WITH first_call AS (
-      SELECT public.place_order('95555555-5555-4555-8555-555555555555', 'idem-live-order-0001', 32500, 2000, 500, false, '2026-10-23 19:30:00+06'::timestamptz) AS r1
-    ),
-    replay_call AS (
-      SELECT public.place_order('95555555-5555-4555-8555-555555555555', 'idem-live-order-0001', 32500, 2000, 500, false, '2026-10-23 19:30:05+06'::timestamptz) AS r2
-      FROM first_call
-    )
     SELECT
-      (r1 ->> 'cod_collect_poisha')::bigint,
-      (r1 ->> 'vendor_net_poisha')::bigint,
-      ((r1 ->> 'order_id') = (r2 ->> 'order_id')),
-      (r2 ->> 'idempotent_replay')::boolean,
-      (SELECT count(*)::int FROM public.orders WHERE customer_id = '95555555-5555-4555-8555-555555555555')
-    FROM first_call, replay_call
+      (r1 ->> 'cod_collect_poisha')::bigint AS cod_poisha,
+      (r1 ->> 'vendor_net_poisha')::bigint AS vendor_net_poisha,
+      ((r1 ->> 'order_id') = (r2 ->> 'order_id')) AS same_order_id,
+      (r2 ->> 'idempotent_replay')::boolean AS is_replay,
+      (SELECT count(*)::int FROM public.orders WHERE customer_id = '95555555-5555-4555-8555-555555555555') AS order_rows
+    FROM _b04_place_results
   $$,
-  $$ VALUES (32500::bigint, 30500::bigint, true, true, 1) $$,
+  $$ VALUES (32500::bigint, 30500::bigint, true, true, 1::int) $$,
   'place_order executes exact M-3 waterfall and returns exact idempotent replay with 1 order row'
 );
 
@@ -266,6 +266,12 @@ SELECT results_eq(
 );
 
 RESET ROLE;
+
+-- Rider arrives at kitchen counter (`RIDER_ASSIGNED -> RIDER_AT_VENDOR`); forged QR fails (42501); real QR -> `PICKED_UP`!
+SELECT public.transition_order(
+  (SELECT id FROM public.orders WHERE customer_id = '95555555-5555-4555-8555-555555555555'),
+  '93333333-3333-4333-8333-333333333333', 'rider', 'RIDER_AT_VENDOR', '{}'::jsonb
+);
 
 -- Forged QR token is rejected; real SHA-256 QR token completes handover -> `PICKED_UP`!
 SELECT throws_ok(

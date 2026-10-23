@@ -18,14 +18,14 @@ SELECT results_eq(
         'vendor_pauses', 'vendor_documents', 'vendor_payout_accounts',
         'menu_categories', 'menu_items', 'variant_groups', 'variants',
         'option_groups', 'options', 'bundle_slots', 'bundle_slot_choices'
-      ) AND c.relrowsecurity = true AND c.relforcerowsecurity = true)::int,
-      count(*) FILTER (WHERE NOT (c.relrowsecurity = true AND c.relforcerowsecurity = true))::int
+      ) AND c.relrowsecurity = true AND c.relforcerowsecurity = true)::int AS matched,
+      count(*) FILTER (WHERE NOT (c.relrowsecurity = true AND c.relforcerowsecurity = true))::int AS unprotected
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public'
       AND c.relkind = 'r'
   $$,
-  $$ VALUES (15, 0) $$,
+  $$ VALUES (15::int, 0::int) $$,
   'All 15 Build 3 tables exist and 100% of public tables enforce ENABLE + FORCE ROW LEVEL SECURITY'
 );
 
