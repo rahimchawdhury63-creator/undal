@@ -1,0 +1,120 @@
+/**
+ * packages/shared_ts/src/tokens.css
+ * Canonical UNDAL CSS Custom Properties (Master Guide File 25 & Decision D-15).
+ * No web surface (`customer_web` or `admin_web`) may hardcode a raw hex outside this token sheet.
+ */
+
+:root,
+[data-theme='light'] {
+  /* Brand & surface palette (File 25 §25.2) */
+  --undal-green: #007A4D;
+  --undal-green-deep: #04402A;
+  --undal-on-green: #FFFFFF;
+  --undal-flame: #FF6B2C;
+  --undal-on-flame: #14201B;
+  --undal-sun: #FFC53D;
+  --undal-on-sun: #14201B;
+  --undal-ink: #14201B;
+  --undal-slate: #5A6B63;
+  --undal-cream: #FFF9F2;
+  --undal-surface-subtle: #F5EDE3;
+  --undal-card: #FFFFFF;
+  --undal-border: #E2DACE;
+
+  /* Semantic status colours — always pair with icon + text label (File 02 Law 4) */
+  --undal-success: #12805C;
+  --undal-success-soft: #E6F5EF;
+  --undal-warning: #B7791F;
+  --undal-warning-soft: #FEF3C7;
+  --undal-danger: #C92A2A;
+  --undal-danger-soft: #FFE8E8;
+  --undal-info: #1971C2;
+  --undal-info-soft: #E7F5FF;
+
+  /* Typography (File 25 §25.3) */
+  --undal-font-display: 'Baloo Da 2', 'Hind Siliguri', system-ui, sans-serif;
+  --undal-font-body: 'Hind Siliguri', system-ui, -apple-system, sans-serif;
+  --undal-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --undal-text-xs: 0.75rem;   /* 12px */
+  --undal-text-sm: 0.875rem;  /* 14px */
+  --undal-text-base: 1rem;    /* 16px */
+  --undal-text-md: 1.125rem;  /* 18px */
+  --undal-text-lg: 1.375rem;  /* 22px */
+  --undal-text-xl: 1.75rem;   /* 28px */
+  --undal-text-xxl: 2.25rem;  /* 36px */
+  --undal-leading-body: 1.5;
+
+  /* 4-pt spacing scale & radii (File 25 §25.6) */
+  --undal-space-xxs: 2px;
+  --undal-space-xs: 4px;
+  --undal-space-sm: 8px;
+  --undal-space-md: 12px;
+  --undal-space-lg: 16px;
+  --undal-space-xl: 24px;
+  --undal-space-xxl: 32px;
+  --undal-space-xxxl: 48px;
+  --undal-space-section: 64px;
+
+  --undal-radius-xs: 4px;
+  --undal-radius-sm: 8px;
+  --undal-radius-card: 12px;
+  --undal-radius-sheet: 16px;
+  --undal-radius-modal: 24px;
+  --undal-radius-pill: 9999px;
+
+  /* Warm elevation shadows & motion (File 25 §25.4) */
+  --undal-shadow-card: 0 2px 8px rgba(20, 32, 27, 0.06);
+  --undal-shadow-sheet: 0 -4px 24px rgba(20, 32, 27, 0.12);
+  --undal-shadow-popover: 0 8px 28px rgba(20, 32, 27, 0.14);
+  --undal-duration-fast: 150ms;
+  --undal-duration-normal: 200ms;
+  --undal-duration-gentle: 250ms;
+  --undal-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme='dark'] {
+  --undal-green: #2FBF8F;
+  --undal-green-deep: #04402A;
+  --undal-on-green: #0E1512;
+  --undal-flame: #FF6B2C;
+  --undal-on-flame: #14201B;
+  --undal-sun: #FFC53D;
+  --undal-on-sun: #14201B;
+  --undal-ink: #F4F7F5;
+  --undal-slate: #A3B5AC;
+  --undal-cream: #0E1512;
+  --undal-surface-subtle: #1A2923;
+  --undal-card: #14201B;
+  --undal-border: #24352E;
+
+  --undal-success: #2FBF8F;
+  --undal-success-soft: #123328;
+  --undal-warning: #F6AD55;
+  --undal-warning-soft: #362712;
+  --undal-danger: #FF6B6B;
+  --undal-danger-soft: #3B1818;
+  --undal-info: #4DABF7;
+  --undal-info-soft: #132A3E;
+
+  --undal-shadow-card: 0 2px 10px rgba(0, 0, 0, 0.36);
+  --undal-shadow-sheet: 0 -4px 28px rgba(0, 0, 0, 0.48);
+  --undal-shadow-popover: 0 10px 32px rgba(0, 0, 0, 0.52);
+}
+
+:lang(bn) {
+  --undal-leading-body: 1.56;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  [data-theme='light'],
+  [data-theme='dark'] {
+    --undal-duration-fast: 0ms;
+    --undal-duration-normal: 0ms;
+    --undal-duration-gentle: 0ms;
+  }
+}
+
+.undal-tabular-nums {
+  font-variant-numeric: tabular-nums lining-nums;
+}

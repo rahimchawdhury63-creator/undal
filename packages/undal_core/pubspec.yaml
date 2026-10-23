@@ -1,0 +1,14 @@
+name: undal_core
+description: Canonical UNDAL shared Flutter foundation package (design tokens, theme, localization, core models).
+version: 0.2.0
+publish_to: none
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+flutter:
+  assets:
+    - assets/brand/undal-logo-primary.svg
+    - assets/brand/undal-icon.svg
+    - assets/brand/undal-mono.svg
+    - assets/sounds/undal_order_alert_loop.wav

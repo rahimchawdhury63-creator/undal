@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Undal mark (mono)">
+  <!-- Single-colour Undal mark for receipts / thermal print / watermarks. Recolour via `color` (uses currentColor). -->
+  <g fill="currentColor">
+    <path d="M120 34c14 20 26 30 26 46a26 26 0 1 1-52 0c0-16 12-26 26-46z"/>
+    <rect x="52" y="122" width="136" height="12" rx="6"/>
+    <path d="M58 134h124c-4 36-26 62-62 62s-58-26-62-62z"/>
+  </g>
+  <circle cx="120" cy="82" r="10" fill="#FFFFFF"/>
+  <path d="M92 150c4 16 14 24 28 24" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" fill="none"/>
+</svg>

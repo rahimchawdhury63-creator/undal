@@ -1,0 +1,53 @@
+name: Bootstrap Super Admin
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run validation only (set false once Supabase secrets are populated in GitHub Settings)'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-admin-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bootstrap-super-admin:
+    name: Bootstrap Super Admin (${{ inputs.dry_run && 'DRY RUN' || 'LIVE' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Execute idempotent super-admin bootstrap
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPER_ADMIN_EMAIL: ${{ secrets.SUPER_ADMIN_EMAIL }}
+          SUPER_ADMIN_PASSWORD: ${{ secrets.SUPER_ADMIN_PASSWORD }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            node infra/scripts/bootstrap-admin.mjs --dry-run | tee /tmp/bootstrap.out
+          else
+            node infra/scripts/bootstrap-admin.mjs --execute | tee /tmp/bootstrap.out
+          fi
+          {
+            echo "## Super Admin Bootstrap Summary"
+            echo ""
+            echo '```text'
+            cat /tmp/bootstrap.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -8,7 +8,7 @@
  *   3. Competitor brand & forbidden hex (#D70F64) purity check in product code (File 25).
  *   4. Zero placeholders (TODO/FIXME) & zero dead UI handlers in product code (File 26).
  *   5. Strict data-only FCM structural rule — zero `notification:` keys in FCM builders (ALM-01).
- *   6. Required architecture & ledger documents present and non-empty (File 27).
+ *   6. All Plan Response 1 & Plan Response 2 deliverables present and non-empty (File 27).
  */
 
 import fs from 'node:fs';
@@ -124,8 +124,21 @@ export function verifyRepository(repoRoot) {
     'docs/understanding/01-customer-surface-analysis.md',
     'docs/understanding/02-architecture-understanding.md',
     'docs/understanding/03-risk-register.md',
+    'docs/understanding/04-partner-rider-analysis.md',
+    'docs/understanding/04a-partner-screens-01-32.md',
+    'docs/understanding/04b-partner-screens-33-63.md',
+    'docs/understanding/04c-rider-screens-01-44.md',
+    'docs/understanding/05-data-model-final.md',
+    'docs/understanding/06-api-contract-final.md',
+    'docs/understanding/07-admin-registry-final.md',
     'docs/understanding/BUILD-LEDGER.md',
+    'docs/adr/ADR-0005-operator-workflow-refinements.md',
+    'packages/shared_ts/src/tokens.ts',
+    'packages/shared_ts/src/tokens.css',
+    'packages/undal_core/lib/src/tokens/undal_tokens.dart',
     '.github/workflows/ci.yml',
+    '.github/workflows/keystore-generate.yml',
+    '.github/workflows/bootstrap-admin.yml',
   ];
 
   for (const reqFile of requiredFiles) {

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Undal app icon">
+  <!-- Undal app icon: bowl-U + flame-pin on Deep Green squircle. Palette: guide file 25. -->
+  <rect width="240" height="240" rx="56" fill="#04402A"/>
+  <!-- Steam-flame (location-pin teardrop) -->
+  <path d="M120 34c14 20 26 30 26 46a26 26 0 1 1-52 0c0-16 12-26 26-46z" fill="#FF6B2C"/>
+  <circle cx="120" cy="82" r="10" fill="#FFF9F2"/>
+  <!-- Bowl rim -->
+  <rect x="52" y="122" width="136" height="12" rx="6" fill="#FFC53D"/>
+  <!-- Bowl body forming the U -->
+  <path d="M58 134h124c-4 36-26 62-62 62s-58-26-62-62z" fill="#FFF9F2"/>
+  <path d="M92 150c4 16 14 24 28 24" stroke="#007A4D" stroke-width="9" stroke-linecap="round" fill="none"/>
+</svg>

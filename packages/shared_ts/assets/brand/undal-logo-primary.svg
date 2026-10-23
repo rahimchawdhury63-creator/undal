@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 240" role="img" aria-label="Undal — Food Delivery and Pickup">
+  <!-- Undal primary logo (mark + wordmark). For production print, outline the text in your vector editor.
+       Font: Baloo Da 2 (Google Fonts, free) with system rounded-sans fallback. Palette: guide file 25. -->
+  <rect width="680" height="240" rx="48" fill="#FFF9F2"/>
+  <!-- Mark -->
+  <path d="M120 30c14 20 26 30 26 46a26 26 0 1 1-52 0c0-16 12-26 26-46z" fill="#FF6B2C"/>
+  <circle cx="120" cy="78" r="10" fill="#FFF9F2"/>
+  <rect x="52" y="118" width="136" height="12" rx="6" fill="#FFC53D"/>
+  <path d="M58 130h124c-4 36-26 62-62 62s-58-26-62-62z" fill="#007A4D"/>
+  <path d="M92 146c4 16 14 24 28 24" stroke="#FFF9F2" stroke-width="9" stroke-linecap="round" fill="none"/>
+  <!-- Wordmark -->
+  <text x="215" y="128" font-family="'Baloo Da 2','Hind Siliguri',sans-serif" font-size="96" font-weight="800" fill="#04402A">undal</text>
+  <text x="218" y="168" font-family="'Hind Siliguri',sans-serif" font-size="27" font-weight="600" letter-spacing="4" fill="#007A4D">FOOD DELIVERY &amp; PICKUP</text>
+</svg>

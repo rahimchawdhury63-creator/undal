@@ -1,47 +1,86 @@
-name: Undal CI
+name: UNDAL Constitutional CI
 
 on:
   push:
-    branches: ['**']
+    branches:
+      - main
+      - 'arena/**'
   pull_request:
-    branches: ['**']
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: undal-ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   constitutional-gates:
-    name: Constitutional Quality Gates & Self-Tests
+    name: Gates, Design Tokens, Typecheck & Secret Scan
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Setup Node.js 22 LTS
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-
-      - name: Run quality-gate unit suite & full repository audit
-        run: npm run ci:plan
-
-  secret-hygiene:
-    name: Secret Scan (Gitleaks SEC-02)
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout full git history
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks binary scan across commits & tree
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install workspace dev tooling
+        run: npm ci
+
+      - name: Typecheck shared design tokens & run automated unit suites + constitutional gates
+        run: npm run ci:plan
+
+      - name: Scan git history & working tree for leaked secrets (gitleaks)
         run: |
-          GITLEAKS_VER="8.21.2"
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz" \
-            | tar -xz -C /usr/local/bin gitleaks
-          gitleaks detect --source . --verbose
+          GITLEAKS_VERSION="8.21.2"
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --verbose --redact
+
+  bootstrap-dry-run:
+    name: Keystore & Super-Admin Bootstrap Dry-Run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Set up Temurin JDK 21 (for keytool ceremony verification)
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Dry-run RSA-2048 keystore ceremony & Base64 round-trip check
+        run: |
+          set -euo pipefail
+          TMP_CEREMONY="$(mktemp -d)"
+          trap 'rm -rf "$TMP_CEREMONY"' EXIT
+          PASS="$(openssl rand -hex 24)"
+          echo "::add-mask::$PASS"
+          keytool -genkeypair -keystore "$TMP_CEREMONY/release.jks" -storetype PKCS12 \
+            -alias undal-release -keyalg RSA -keysize 2048 -validity 9125 \
+            -storepass "$PASS" -keypass "$PASS" \
+            -dname "CN=UNDAL Food Delivery, OU=Mobile Engineering, O=UNDAL, L=Sylhet, S=Sylhet, C=BD" >/dev/null 2>&1
+          base64 -w 0 "$TMP_CEREMONY/release.jks" > "$TMP_CEREMONY/release.b64"
+          base64 -d "$TMP_CEREMONY/release.b64" > "$TMP_CEREMONY/decoded.jks"
+          FP="$(keytool -list -v -keystore "$TMP_CEREMONY/decoded.jks" -storepass "$PASS" -alias undal-release | awk '/SHA256:/{print $2; exit}')"
+          test -n "$FP"
+          echo "[keystore-dry-run] PASS — PKCS12 RSA-2048 9125d base64 round-trip & SHA-256 fingerprint verified."
+
+      - name: Dry-run idempotent Super Admin bootstrap
+        run: node infra/scripts/bootstrap-admin.mjs --dry-run

@@ -1,0 +1,16 @@
+{
+  "name": "@undal/shared-ts",
+  "version": "0.2.0",
+  "private": true,
+  "description": "UNDAL shared TypeScript & CSS design tokens, WCAG contrast verifier, and core domain types (File 25)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens": "./src/tokens.ts",
+    "./tokens.css": "./src/tokens.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs"
+  }
+}
