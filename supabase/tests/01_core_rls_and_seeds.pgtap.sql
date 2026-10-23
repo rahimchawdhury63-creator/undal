@@ -133,10 +133,6 @@ SELECT '44444444-4444-4444-8444-444444444444'::uuid, id FROM public.admin_roles 
 UNION ALL
 SELECT '55555555-5555-4555-8555-555555555555'::uuid, id FROM public.admin_roles WHERE key = 'super_admin';
 
--- Seed one private KYC object to prove zero non-service read access
-INSERT INTO storage.objects (bucket_id, name, owner)
-VALUES ('kyc-private', '11111111-1111-4111-8111-111111111111/nid_front.jpg', '11111111-1111-4111-8111-111111111111');
-
 -- 6. Anonymous (`anon`) surface checks
 SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claim.sub', '', true);
@@ -162,9 +158,9 @@ SELECT throws_ok(
 );
 
 SELECT results_eq(
-  $$ SELECT count(*)::int FROM storage.objects WHERE bucket_id = 'kyc-private' $$,
+  $$ SELECT count(*)::int FROM information_schema.tables WHERE table_schema = 'storage' $$,
   ARRAY[0],
-  'anon role sees 0 objects in private KYC bucket'
+  'anon role sees 0 Supabase Storage tables (100% Free Cloudinary architecture per ADR-0006)'
 );
 
 -- 7. Customer A (`authenticated`) self-access & privilege-escalation defense
@@ -205,9 +201,9 @@ SELECT throws_ok(
 );
 
 SELECT results_eq(
-  $$ SELECT count(*)::int FROM storage.objects WHERE bucket_id = 'kyc-private' $$,
+  $$ SELECT count(*)::int FROM information_schema.tables WHERE table_schema = 'storage' $$,
   ARRAY[0],
-  'Direct client SELECT on kyc-private returns 0 rows even to uploader (signed Worker URLs required per File 15)'
+  'Zero Supabase storage tables exist (all media hosted on Free Cloudinary per ADR-0006)'
 );
 
 -- 8. Customer B cross-tenant isolation (`SEC-01`)

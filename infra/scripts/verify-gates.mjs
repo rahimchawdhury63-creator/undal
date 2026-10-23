@@ -117,6 +117,15 @@ export function evaluateFileContent(relPath, content) {
     if (/fcm/i.test(relPath) && /['"]?notification['"]?\s*:/.test(content)) {
       errors.push(`[FCM-DATA-ONLY] ${relPath} defines forbidden 'notification:' key (must be data-only).`);
     }
+
+    // Gate 6: ADR-0006 Zero-Supabase-Storage rule — all public & private assets use Free Cloudinary.
+    const isStorageZeroAssertion = relPath.startsWith('supabase/test');
+    if (
+      !isStorageZeroAssertion &&
+      /\bsupabase\.storage\b|\bstorage\.buckets\b|\bstorage\.objects\b/i.test(content)
+    ) {
+      errors.push(`[NO-SUPABASE-STORAGE] ${relPath} references forbidden Supabase Storage (use Free Cloudinary per ADR-0006).`);
+    }
   }
 
   return errors;

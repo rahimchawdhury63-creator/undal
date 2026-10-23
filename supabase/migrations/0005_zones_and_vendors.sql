@@ -315,7 +315,7 @@ CREATE TABLE IF NOT EXISTS public.vendor_documents (
 CREATE INDEX IF NOT EXISTS vendor_documents_vendor_status_idx ON public.vendor_documents (vendor_id, review_status);
 CREATE INDEX IF NOT EXISTS vendor_documents_expiry_idx ON public.vendor_documents (expires_on) WHERE expires_on IS NOT NULL AND review_status = 'approved';
 COMMENT ON TABLE public.vendor_documents IS
-  'Private KYC documents in kyc-private bucket; accessed strictly via 10-min Worker signed URLs + audit log (File 15 §15.3).';
+  'Private KYC documents on Cloudinary authenticated tier (ADR-0006); accessed strictly via short-lived Worker s-- signature URLs + audit log.';
 DROP TRIGGER IF EXISTS vendor_documents_set_updated_at ON public.vendor_documents;
 CREATE TRIGGER vendor_documents_set_updated_at BEFORE UPDATE ON public.vendor_documents FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 

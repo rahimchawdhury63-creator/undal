@@ -147,9 +147,6 @@ test('B02-SQL-03: Immutability triggers, geo/phone SQL helpers, cross-tenant RLS
       SELECT '33333333-3333-4333-8333-333333333333'::uuid, id FROM public.admin_roles WHERE key = 'dispatcher'
       UNION ALL
       SELECT '55555555-5555-4555-8555-555555555555'::uuid, id FROM public.admin_roles WHERE key = 'super_admin';
-
-      INSERT INTO storage.objects (bucket_id, name, owner)
-      VALUES ('kyc-private', '11111111-1111-4111-8111-111111111111/nid.jpg', '11111111-1111-4111-8111-111111111111');
     `);
 
     // Customer A creates address & fails self-escalation to admin
@@ -175,7 +172,7 @@ test('B02-SQL-03: Immutability triggers, geo/phone SQL helpers, cross-tenant RLS
     );
     await db.exec('ROLLBACK;');
 
-    // Customer B sees 0 of Customer A's addresses and 0 private KYC objects
+    // Customer B sees 0 of Customer A's addresses and 0 Supabase storage tables exist (`ADR-0006`)
     const custBCheck = await db.exec(`
       BEGIN;
       SET LOCAL ROLE authenticated;
@@ -183,11 +180,11 @@ test('B02-SQL-03: Immutability triggers, geo/phone SQL helpers, cross-tenant RLS
       SELECT
         (SELECT count(*)::int FROM public.customer_addresses) AS addrs,
         (SELECT count(*)::int FROM public.profiles) AS visible_profiles,
-        (SELECT count(*)::int FROM storage.objects WHERE bucket_id = 'kyc-private') AS private_objs;
+        (SELECT count(*)::int FROM information_schema.tables WHERE table_schema = 'storage') AS storage_tables;
       COMMIT;
     `);
     const summaryRow = custBCheck.find((r) => r.rows.length > 0 && 'addrs' in r.rows[0]).rows[0];
-    assert.deepEqual(summaryRow, { addrs: 0, visible_profiles: 1, private_objs: 0 });
+    assert.deepEqual(summaryRow, { addrs: 0, visible_profiles: 1, storage_tables: 0 });
 
     // Suspended admin immediately loses permissions
     await db.exec(`UPDATE public.profiles SET status = 'suspended' WHERE id = '55555555-5555-4555-8555-555555555555'`);

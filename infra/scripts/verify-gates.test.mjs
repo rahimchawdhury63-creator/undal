@@ -42,6 +42,11 @@ test('evaluateFileContent blocks competitor brand leaks, raw app hexes, dead UI 
   const fcmErrs = evaluateFileContent('workers/realtime/src/fcm.ts', badFcm);
   assert.equal(fcmErrs.length, 1);
   assert.match(fcmErrs[0], /\[FCM-DATA-ONLY\]/);
+
+  const badStorage = 'const u = await supabase.storage.from("kyc-private").createSignedUrl("a.jpg", 300);';
+  const storageErrs = evaluateFileContent('workers/api/src/media.ts', badStorage);
+  assert.equal(storageErrs.length, 1);
+  assert.match(storageErrs[0], /\[NO-SUPABASE-STORAGE\]/);
 });
 
 test('verifyRepository passes cleanly against the live Undal repository workspace', () => {

@@ -1,7 +1,7 @@
 /**
  * @file workers/api/src/index.ts
  * @description Entrypoint shell for `W1 undal-api` Cloudflare Worker (`Build Response 1`).
- * Full catalog, search, ImgBB proxy, signed URLs, cart & COD order routes land in `Build Responses 6–7`.
+ * Full catalog, search, Free Cloudinary media tickets & signed URLs (`ADR-0006`), cart & COD order routes land in `Build Responses 6–7`.
  */
 
 import { errEnvelope, okEnvelope } from '@undal/shared-ts';

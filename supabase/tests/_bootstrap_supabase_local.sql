@@ -77,32 +77,3 @@ AS $$
 $$;
 
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA auth TO PUBLIC, anon, authenticated, service_role;
-
-CREATE SCHEMA IF NOT EXISTS storage;
-GRANT USAGE ON SCHEMA storage TO PUBLIC, anon, authenticated, service_role;
-
-CREATE TABLE IF NOT EXISTS storage.buckets (
-  id text PRIMARY KEY,
-  name text NOT NULL UNIQUE,
-  public boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
-);
-
-CREATE TABLE IF NOT EXISTS storage.objects (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  bucket_id text NOT NULL REFERENCES storage.buckets(id) ON DELETE CASCADE,
-  name text NOT NULL,
-  owner uuid DEFAULT auth.uid(),
-  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-  UNIQUE (bucket_id, name)
-);
-
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE storage.objects FORCE ROW LEVEL SECURITY;
-
-GRANT SELECT ON storage.buckets TO anon, authenticated, service_role;
-GRANT SELECT, INSERT, UPDATE, DELETE ON storage.objects TO anon, authenticated, service_role;
-
-DROP POLICY IF EXISTS storage_service_all ON storage.objects;
-CREATE POLICY storage_service_all ON storage.objects
-  FOR ALL TO service_role USING (true) WITH CHECK (true);

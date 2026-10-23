@@ -1,6 +1,6 @@
-# Runbook 01 · Android Tablet Browser Setup — Signing Keystore & Super Admin Bootstrap
+# Runbook 01 · Android Tablet Browser Setup — Keystore, Super Admin & Free Cloudinary (`ADR-0006`)
 
-> **Designed 100% for Chrome on an Android Tablet — Zero PC or CLI Required (`File 24 §24.2–24.3`).**
+> **Designed 100% for Chrome on an Android Tablet — Zero PC or CLI Required (`File 24 §24.2–24.3`, `ADR-0006`).**
 
 ## 1. Mint Your Android Release Keystore (`5 taps`)
 
@@ -23,3 +23,26 @@
    - `SUPER_ADMIN_PASSWORD` *(minimum 16 characters — rotate after first login + TOTP 2FA enrolment)*
 2. Open **Actions → Bootstrap Super Admin → Run workflow ▾**, uncheck **`dry_run` (`false`)**, and tap **Run workflow**.
 3. Re-running **Bootstrap Super Admin** later is 100% safe and idempotent — it never duplicates users.
+
+## 3. Configure Free Cloudinary Storage (`Zero Supabase Storage — ADR-0006`, `5 minutes`, `$0/mo`)
+
+Undal stores **zero files in Supabase Storage**. All public dishes (`AVIF/WebP` auto-optimized) and all private compliance files (`KYC`, `TrxID` cash remittances, shift selfies, dispute evidence, weekly invoice PDFs) run on **Cloudinary Free Plan (`25` free credits every month = up to `25 GB`)**:
+
+1. Sign up free (no credit card) at `https://cloudinary.com/users/register_free` on Chrome on your tablet.
+2. On your **Dashboard → Programmable Media**, copy:
+   - **`Cloud Name`** → add as GitHub Repository Variable **`UNDAL_CLOUDINARY_CLOUD_NAME`** (and Worker variable `CLOUDINARY_CLOUD_NAME`).
+   - **`API Key`** & **`API Secret`** → add strictly as GitHub Actions Secrets & Cloudflare Worker Secrets **`CLOUDINARY_API_KEY`** and **`CLOUDINARY_API_SECRET`** (**never** commit or paste into client variables).
+3. Tap **Settings (gear icon) → Upload → Upload Presets → Add upload preset** twice:
+   - **Preset 1 (`undal_public_unsigned`):**
+     - **Signing Mode:** `Unsigned`
+     - **Folder:** `undal/public`
+     - **Allowed formats:** `jpg,png,webp,avif`
+     - **Incoming Transformation:** `c_limit,w_1600,h_1600/q_auto:good,fl_strip_profile` *(automatically strips EXIF GPS location from home-chef dishes!)*
+     - Save → set variable **`UNDAL_CLOUDINARY_UNSIGNED_PRESET_PUBLIC=undal_public_unsigned`**.
+   - **Preset 2 (`undal_secure_unsigned`):**
+     - **Signing Mode:** `Unsigned`
+     - **Folder:** `undal/private`
+     - **Unique filename:** `Enabled` · **Overwrite:** `Disabled`
+     - **Incoming Transformation:** `fl_strip_profile`
+     - Save → set variable **`UNDAL_CLOUDINARY_UNSIGNED_PRESET_SECURE=undal_secure_unsigned`**.
+   - In **Settings → Security**, enable **Strict transformations / Signed URL SHA-256 (`8` chars)** so all `type = authenticated` KYC, remittance, and invoice files require short-lived Worker `s--XXXXXXXX--` signatures.

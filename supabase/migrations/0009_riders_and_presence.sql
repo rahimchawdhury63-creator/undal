@@ -78,7 +78,7 @@ CREATE INDEX IF NOT EXISTS rider_documents_rider_status_idx ON public.rider_docu
 CREATE INDEX IF NOT EXISTS rider_documents_expiry_idx
   ON public.rider_documents (expires_on) WHERE expires_on IS NOT NULL AND review_status = 'approved';
 COMMENT ON TABLE public.rider_documents IS
-  'Private KYC and vehicle documents stored in kyc-private bucket; accessed strictly via signed URLs.';
+  'Private KYC and vehicle documents on Cloudinary authenticated tier (ADR-0006); accessed strictly via signed Worker URLs.';
 DROP TRIGGER IF EXISTS rider_documents_set_updated_at ON public.rider_documents;
 CREATE TRIGGER rider_documents_set_updated_at BEFORE UPDATE ON public.rider_documents
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();

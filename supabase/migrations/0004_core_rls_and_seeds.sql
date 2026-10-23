@@ -1,11 +1,11 @@
 -- =============================================================================
 -- Migration: 0004_core_rls_and_seeds.sql
--- Milestone: Build Response 2 (Migrations I — Core RLS Policies, Storage & Seeds)
--- References: Master Guide File 05 (§5.2), File 09 (§9.2), File 15, Appendix C/D/M
+-- Milestone: Build Response 2 (Migrations I — Core RLS Policies & Canonical Seeds)
+-- References: Master Guide File 05 (§5.2), File 09 (§9.2), ADR-0006 (Zero Supabase Storage), Appendix C/D/M
 -- Notes:
 --   * Zero demo/fake records: seeds strictly canonical RBAC roles/permissions,
 --     72 platform_settings defaults, 117 Appendix D cuisines, and cancel/feedback vocabularies.
---   * Enforces deny-by-default RLS across all 12 core tables + Supabase Storage buckets.
+--   * Zero Supabase Storage buckets (all public & authenticated assets hosted on Free Cloudinary per ADR-0006).
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
@@ -215,36 +215,10 @@ CREATE POLICY feedback_tags_admin_manage ON public.feedback_tags
   WITH CHECK (public.has_admin_permission('1.settings.edit'));
 
 -- -----------------------------------------------------------------------------
--- 3. Private vs Public Storage Bucket Provisioning & RLS (File 05 §5.2, File 15)
+-- 3. Media Architecture Note (ADR-0006 — Zero Supabase Storage)
+--    All public food photos & private/authenticated KYC, remittance & invoice assets
+--    live on Free Cloudinary (`undal/public/*` + `undal/private/*`), tracked in `public.media_assets`.
 -- -----------------------------------------------------------------------------
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'storage' AND table_name = 'buckets'
-  ) THEN
-    INSERT INTO storage.buckets (id, name, public)
-    VALUES
-      ('public-avatars', 'public-avatars', true),
-      ('kyc-private', 'kyc-private', false),
-      ('proofs-private', 'proofs-private', false),
-      ('invoices-private', 'invoices-private', false)
-    ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
-
-    EXECUTE 'DROP POLICY IF EXISTS storage_public_avatars_read ON storage.objects';
-    EXECUTE 'CREATE POLICY storage_public_avatars_read ON storage.objects
-      FOR SELECT TO anon, authenticated USING (bucket_id = ''public-avatars'')';
-
-    EXECUTE 'DROP POLICY IF EXISTS storage_own_folder_upload ON storage.objects';
-    EXECUTE 'CREATE POLICY storage_own_folder_upload ON storage.objects
-      FOR INSERT TO authenticated
-      WITH CHECK (
-        bucket_id IN (''public-avatars'', ''kyc-private'', ''proofs-private'')
-        AND split_part(name, ''/'', 1) = auth.uid()::text
-      )';
-  END IF;
-END;
-$$;
 
 -- -----------------------------------------------------------------------------
 -- 4. Canonical System RBAC Roles & Domain Permission Grants (File 09, Appendix C)

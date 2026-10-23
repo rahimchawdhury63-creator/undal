@@ -41,6 +41,17 @@ CREATE OR REPLACE FUNCTION public.ok(p_cond boolean, p_desc text DEFAULT '') RET
   SELECT public._tap_bump(p_cond, p_desc, 'condition was not true');
 $$;
 
+CREATE OR REPLACE FUNCTION public.has_table(p_schema name, p_table name, p_desc text DEFAULT '') RETURNS text LANGUAGE sql AS $$
+  SELECT public._tap_bump(
+    EXISTS (
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = p_schema::text AND table_name = p_table::text
+    ),
+    p_desc,
+    format('table %s.%s not found', p_schema, p_table)
+  );
+$$;
+
 CREATE OR REPLACE FUNCTION public.is(p_got anyelement, p_want anyelement, p_desc text DEFAULT '') RETURNS text LANGUAGE sql AS $$
   SELECT public._tap_bump(p_got IS NOT DISTINCT FROM p_want, p_desc, format('got=%s want=%s', p_got, p_want));
 $$;

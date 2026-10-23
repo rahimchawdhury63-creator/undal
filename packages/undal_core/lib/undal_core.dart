@@ -9,6 +9,7 @@
 /// - `undal_responsive_scaffold.dart`: `240px -> 3840px` adaptive scaffold (`Decision D-15`).
 library undal_core;
 
+export 'src/cloudinary_url.dart';
 export 'src/fare/undal_fare.dart';
 export 'src/i18n/undal_localizations.dart';
 export 'src/money/undal_money.dart';

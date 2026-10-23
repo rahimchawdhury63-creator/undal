@@ -4,7 +4,7 @@ project_id = "undal"
 [api]
 enabled = true
 port = 54321
-schemas = ["public", "storage"]
+schemas = ["public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
@@ -12,9 +12,9 @@ max_rows = 1000
 port = 54322
 major_version = 15
 
+# Zero Supabase Storage per ADR-0006 — all public & authenticated assets run on Free Cloudinary CDN
 [storage]
-enabled = true
-file_size_limit = "10MiB"
+enabled = false
 
 [auth]
 enabled = true
