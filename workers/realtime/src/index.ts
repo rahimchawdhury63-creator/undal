@@ -1,51 +1,149 @@
 /**
  * @file workers/realtime/src/index.ts
- * @description Entrypoint shell for `W2 undal-realtime` Cloudflare Worker + `ZoneDispatchDO`
- * SQLite Durable Object (`Build Response 1`). Full dispatch, RTDB lease & data-only FCM routes
- * land in `Build Responses 8–9`.
+ * @description Complete `W2 undal-realtime` Cloudflare Worker entrypoint (`Build Response 8`):
+ * - Per-zone serialized `ZoneDispatchDO` (`SQLite`/KV atomic single & batched dispatch + `D-23`)
+ * - Operator presence (`POST /v1/presence/ping`) & Rider pre-flight sessions (`start` / `end` + Cash Gate)
+ * - Cross-Worker `HMAC-SHA256` `POST /v1/dispatch/order-placed` + atomic `POST /v1/offers/:id/accept|reject`
+ * - `60s`-cached `GET /v1/zone/:id/sdr` Supply/Demand Ratio, weather & geohash hotspot heatmap
+ * - Throttled & cached `POST /v1/geo/{geocode,reverse,route}` (`Nominatim <= 1 req/s`, `OSRM`, Plus Codes)
+ * - Every-5-minute Cron sweep (`weather_cache` refresh via `api.met.no` / `Open-Meteo` + offer expiry cascade)
  */
 
-import { errEnvelope, okEnvelope } from '@undal/shared-ts';
+import { createRealtimePostgrestAdapter } from './db-postgrest.ts';
+import { resolveZoneWeather } from './geo.ts';
+import {
+  authenticateRealtimeRequest,
+  CORS_HEADERS,
+  jsonErr,
+  jsonOk,
+} from './http.ts';
+import { handleDispatchAndGeoRoutes } from './routes/dispatch-geo.ts';
+import { handlePresenceAndSessionRoutes } from './routes/presence-session.ts';
+import type { RealtimeWorkerEnv } from './types.ts';
+import { createLocalZoneDispatchNamespace, ZoneDispatchDO } from './zone-dispatch-do.ts';
 
-export interface RealtimeWorkerEnv {
-  readonly SERVICE_NAME?: string;
-  readonly RTDB_LEASE_HARD_CAP?: string;
-}
+export * from './assignment.ts';
+export * from './batcher.ts';
+export * from './db-postgrest.ts';
+export * from './geo.ts';
+export * from './http.ts';
+export * from './presence.ts';
+export * from './types.ts';
+export { createLocalZoneDispatchNamespace, ZoneDispatchDO };
 
-/** Per-zone SQLite Durable Object shell expanded into full dispatch state machine in `Build 8`. */
-export class ZoneDispatchDO {
-  readonly state: unknown;
-  readonly env: RealtimeWorkerEnv;
+let fallbackLocalNamespace: ReturnType<typeof createLocalZoneDispatchNamespace> | null = null;
+let latestEnvRef: RealtimeWorkerEnv = {};
 
-  constructor(state: unknown, env: RealtimeWorkerEnv) {
-    this.state = state;
-    this.env = env;
+function getZoneDispatchNamespace(env: RealtimeWorkerEnv) {
+  latestEnvRef = env;
+  if (env.ZONE_DISPATCH) return env.ZONE_DISPATCH;
+  if (!fallbackLocalNamespace) {
+    fallbackLocalNamespace = createLocalZoneDispatchNamespace(
+      () => latestEnvRef,
+      (currentEnv) => currentEnv.dbAdapter ?? createRealtimePostgrestAdapter(currentEnv),
+    );
   }
-
-  async fetch(request: Request): Promise<Response> {
-    const requestId = request.headers.get('cf-ray') ?? crypto.randomUUID();
-    return Response.json(okEnvelope({ durableObject: 'ZoneDispatchDO', status: 'ready' }, requestId));
-  }
+  return fallbackLocalNamespace;
 }
 
 export default {
   async fetch(request: Request, env: RealtimeWorkerEnv): Promise<Response> {
     const requestId = request.headers.get('cf-ray') ?? crypto.randomUUID();
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
     const url = new URL(request.url);
+    const nowMs = env.nowMs ? env.nowMs() : Date.now();
+    const db = env.dbAdapter ?? createRealtimePostgrestAdapter(env);
+
     if (request.method === 'GET' && url.pathname === '/healthz') {
-      return Response.json(
-        okEnvelope(
-          {
-            service: env.SERVICE_NAME ?? 'undal-realtime',
-            rtdbLeaseCap: Number(env.RTDB_LEASE_HARD_CAP ?? '85'),
-            status: 'ok',
-          },
-          requestId,
-        ),
+      const cap = Number(env.RTDB_LEASE_HARD_CAP ?? '85');
+      const activeLeases = env.dbAdapter ? await db.getActiveRtdbLeaseCount(nowMs) : 0;
+      return jsonOk(
+        {
+          service: env.SERVICE_NAME ?? 'undal-realtime',
+          rtdbLeaseCap: cap,
+          activeRtdbLeases: activeLeases,
+          status: 'ok',
+        },
+        requestId,
       );
     }
 
-    const notFound = errEnvelope('VALIDATION_FAILED', requestId, { path: url.pathname });
-    return Response.json(notFound.body, { status: 404 });
+    const auth = await authenticateRealtimeRequest(request, env, db, nowMs);
+    if (auth.errorCode) {
+      return jsonErr(auth.errorCode, requestId);
+    }
+
+    try {
+      const presenceRes = await handlePresenceAndSessionRoutes({
+        request,
+        pathname: url.pathname,
+        requestId,
+        principal: auth.principal,
+        db,
+        nowMs,
+      });
+      if (presenceRes) return presenceRes;
+
+      const dispatchGeoRes = await handleDispatchAndGeoRoutes({
+        request,
+        pathname: url.pathname,
+        requestId,
+        principal: auth.principal,
+        env,
+        db,
+        zoneDispatchNs: getZoneDispatchNamespace(env),
+        nowMs,
+      });
+      if (dispatchGeoRes) return dispatchGeoRes;
+
+      return jsonErr('VALIDATION_FAILED', requestId, { path: url.pathname }, undefined, 404);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unexpected realtime worker error';
+      return jsonErr('SERVER_BUSY', requestId, { detail: message });
+    }
+  },
+
+  // Cron trigger (`every 5 minutes`): refreshes zone weather & sweeps offer expiries across active zones.
+  async scheduled(_controller: unknown, env: RealtimeWorkerEnv): Promise<{
+    readonly sweptZones: number;
+    readonly expiredOffers: number;
+    readonly vendorUnreachableCancelled: number;
+  }> {
+    const nowMs = env.nowMs ? env.nowMs() : Date.now();
+    const db = env.dbAdapter ?? createRealtimePostgrestAdapter(env);
+    const ns = getZoneDispatchNamespace(env);
+    const zones = await db.listZones();
+    let expiredOffers = 0;
+    let vendorUnreachableCancelled = 0;
+    let sweptZones = 0;
+
+    for (const zone of zones.filter((z) => z.isActive)) {
+      sweptZones += 1;
+      await resolveZoneWeather({
+        zoneId: zone.id,
+        center: zone.ring[0] ?? { lat: 24.8949, lng: 91.8687 },
+        db,
+        fetchImpl: env.fetchImpl ?? fetch,
+        metNorwayBaseUrl: env.MET_NORWAY_BASE_URL ?? 'https://api.met.no',
+        openMeteoBaseUrl: env.OPEN_METEO_BASE_URL ?? 'https://api.open-meteo.com',
+        contactEmail: env.NOMINATIM_CONTACT_EMAIL ?? 'ops@undal.app',
+        nowMs,
+      });
+      const stub = ns.get(ns.idFromName(zone.id));
+      const res = await stub.fetch('https://zone-dispatch/sweep', { method: 'POST' });
+      if (res.ok) {
+        const summary = (await res.json()) as {
+          expiredOffers?: number;
+          vendorUnreachableCancelled?: number;
+        };
+        expiredOffers += summary.expiredOffers ?? 0;
+        vendorUnreachableCancelled += summary.vendorUnreachableCancelled ?? 0;
+      }
+    }
+
+    return { sweptZones, expiredOffers, vendorUnreachableCancelled };
   },
 };

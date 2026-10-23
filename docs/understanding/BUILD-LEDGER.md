@@ -1,9 +1,9 @@
-# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.7)
+# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.8)
 
 > **Single Living Progress Ledger (`UNDAL-MASTER-GUIDE/27-builder-protocol-32-responses.md`)**  
 > **Repository:** `rahimchawdhury63-creator/undal` · **Branch:** `arena/f81366de-undal`  
-> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 7 — COMPLETE (`W1 undal-api` 100% Complete — Carts, Vouchers, COD Orders, QR Handover, Cash Gate, Chat, Reviews & Partner/Rider Ops)`**  
-> **Next Scheduled Milestone:** **`Build Response 8`** (`W2 undal-realtime` Part 1 — `ZoneDispatchDO` SQLite Durable Object, live presence, Appendix F `F-1..F-6` dynamic fare engine, multi-order batcher & `D-23` solo-rider offer lock, awaiting Founder `"continue"`)
+> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 8 — COMPLETE (`W2 undal-realtime` Part 1 — `ZoneDispatchDO`, Live Presence, `F-1..F-6` Fare Engine, Multi-Order Batcher, `D-23` Solo-Rider Lock & Geo Proxies)`**  
+> **Next Scheduled Milestone:** **`Build Response 9`** (`W2 undal-realtime` Part 2 — Data-Only FCM HTTP v1 Sender, Firebase RTDB `database.rules.json` + `85/100` Spark Lease Token Broker, Self-Test Alarm & Cash-Gate Config, awaiting Founder `"continue"`)
 
 ---
 
@@ -18,6 +18,7 @@
 | **Golden Math Parity (`M-1..M-8` + `F-1..F-6` + 10K Fuzz)** | **TS + Dart + SQL** | **TS + Dart + SQL `100%` ✓** | **0 poisha drift across all 3 engines + ledger!** | `03` & `04` `pgTAP` + `migrations-b04/b05.test.mjs` |
 | **Postgres Migrations + `pgTAP` RLS Suite (`0001..0016`)** | **16 migrations / 50+ tables** | **`16 / 16` (`62` tables, `100.0%` DONE!) ✓** | **0 remaining migrations — DB engine 100% complete!** | `supabase/migrations/0001..0016`, **`109 / 109` `pg_prove` assertions** |
 | **`W1 undal-api` Edge Worker (`workers/api`)** | Part 1 + Part 2 (`File 06 §1`) | **`100.0%` DONE ✓ (`Build 6–7`)** | **0 remaining routes — `W1` 100% complete!** | `workers/api/src/**`, `5 / 5` real PG16 E2E suites |
+| **`W2 undal-realtime` Edge Worker (`workers/realtime`)** | Part 1 + Part 2 (`File 06 §2`) | **Part 1 DONE ✓ (`Build 8`)** | **Part 2 (`FCM + RTDB rules/token`) in `Build 9`** | `workers/realtime/src/**`, `3 / 3` vector + real PG16 `ZoneDispatchDO` suites |
 | **Super Admin Capabilities (`Appendix C`)** | 132 P0 | **All 62 DB tables + RLS + RPCs ready ✓** | **`Build 10–11, 25–28`** | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
 
 ---
@@ -35,8 +36,8 @@
 | **Build 5** | **Migrations IV (`16/16` Complete!) + `ADR-0006` Zero-Supabase-Storage Free Cloudinary** | `supabase/migrations/0013..0016` (**`19` new RLS-forced tables = `62 / 62` cumulative tables**, `0` Supabase Storage tables, ACID `DELIVERED -> ledger_entries` zero-drift conserved writer, `৳3,000` cycle / `৳5,000` bike COD ceiling gate + `TrxID` remittance auto-unlock, Fri/Sat dual-path idempotent `invoices` + `1.85%` bKash cash-out cover, verified-buyer `reviews` + auto rating sync, `24h` chat lock, Cloudinary EXIF-stripped `media_assets` registry, `prune_ephemeral_rows`, TS `cloudinary.ts` + Dart `cloudinary_url.dart` + CI `[NO-SUPABASE-STORAGE]` gate) | **DONE ✓** | GHA Run [`#39962784485`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39962784485) (`4/4` jobs green · **`107 / 107` `pg_prove` assertions**) ✓ |
 | **Build 6** | **W1 API Part 1 + `ADR-0006 v2` Dual Free Media (`ImgBB` Unlimited Public + `Cloudinary` Private Vault)** | `workers/api/src/**` (`index`, `http`, `db-postgrest`, `routes/{catalog,media,account}`), `imgbb.ts` EXIF/GPS byte scrubber, `cloudinary.ts` sensitive-only vault (`s--XXXXXXXX--` `120s` signed URLs + `audit_logs`), `0015` `media_assets_dual_provider_law` DB `CHECK` constraint, `pglite-api-harness.mjs` + `api-part1.test.mjs` | **DONE ✓** | GHA Run [`#39975975763`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39975975763) (`4/4` jobs green · **`109 / 109` `pg_prove`** + PG16 `W1` E2E) ✓ |
 | **Build 7** | **W1 API Part 2 — carts, vouchers, COD `place_order`, 14-state lifecycle, QR handover, Cash Gate, chat, reviews & Partner/Rider ops (`W1` 100% Complete!)** | `workers/api/src/{domain-errors,db-postgrest-ops,db-postgrest-social-ops}.ts`, `routes/{account,cart,orders,social,operators}.ts`, `test/api-part2-{orders,social-ops}.test.mjs` | **DONE ✓** | GHA Run [`#39981685058`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39981685058) (`4/4` jobs green · `5/5` real PG16 `W1` suites + `109/109` `pg_prove`) ✓ |
-| **Build 8** | **W2 Realtime — presence, fare engine, assignment, batcher** | `workers/realtime` part 1 (`ZoneDispatchDO`) | **NEXT** | **Appendix F fare vectors `F-1…F-6` pass in TS** |
-| **Build 9** | W2 Realtime — FCM sender, RTDB rooms+tokens, cascade, cron | `workers/realtime` part 2 + `firebase/database.rules.json` | Queued | Firebase emulator **rules security suite** + data-only FCM test green |
+| **Build 8** | **W2 Realtime Part 1 — `ZoneDispatchDO`, live presence, `F-1..F-6` fare engine, multi-order batcher (`DSP-03`), `D-23` solo-rider lock (`DSP-02`), `ORD-02` & Nominatim/OSRM geo proxies** | `workers/realtime/src/{presence,geo,assignment,batcher,zone-dispatch-do,http,db-postgrest*,routes/*}.ts`, `test/{realtime-cores,realtime-e2e-pg16}.test.mjs` | **DONE ✓** | `3/3` suites green (`F-1..F-6`, `DSP-01..04`, `ORD-02`, `CSH-01` on real PG16 + `ZoneDispatchDO`) ✓ |
+| **Build 9** | **W2 Realtime Part 2 — FCM data-only sender, RTDB rooms + custom tokens (`< 85/100` lease broker), `database.rules.json` & cash-gate config** | `workers/realtime` part 2 + `firebase/database.rules.json` | **NEXT** | Firebase RTDB rules security suite + `ALM-01` data-only FCM + `RT-01` 30-order lease audit green |
 | **Build 10** | W3 Admin — auth/RBAC/settings/zones/KYC/audit | `workers/admin` part 1 | Queued | RBAC matrix test (every role × every route) |
 | **Build 11** | W3 Admin — invoices/remittances/moderation/campaigns/reports | `workers/admin` part 2 | Queued | Settlement cycle end-to-end test |
 | **Build 12** | Customer App — shell, auth, address+map, home feed, search | `apps/customer_app` part 1 (`c-01..c-12`) | Queued | Widget tests + golden responsive screenshots |
