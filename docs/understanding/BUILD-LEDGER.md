@@ -1,9 +1,9 @@
-# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.5)
+# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.6)
 
 > **Single Living Progress Ledger (`UNDAL-MASTER-GUIDE/27-builder-protocol-32-responses.md`)**  
 > **Repository:** `rahimchawdhury63-creator/undal` · **Branch:** `arena/f81366de-undal`  
-> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 5 — COMPLETE (`16 / 16` DB Migrations + `ADR-0006` 100% Free Cloudinary)`**  
-> **Next Scheduled Milestone:** **`Build Response 6`** (`W1 API Part 1 — auth/profile/addresses/catalog/search/Free Cloudinary unsigned+authenticated tickets & signed URLs + OSM tile cache`, awaiting Founder `"continue"`)
+> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 6 — COMPLETE (`W1 undal-api` Part 1 + `ADR-0006 v2` Unlimited ImgBB Public CDN + Sensitive-Only Cloudinary Vault)`**  
+> **Next Scheduled Milestone:** **`Build Response 7`** (`W1 API Part 2 — cart/voucher/place-order/transitions/QR handover/chat/reviews`, awaiting Founder `"continue"`)
 
 ---
 
@@ -13,11 +13,11 @@
 |---|---:|---:|---:|---|
 | **Master Guide Files Read (`00–28` + `App A–N`)** | 43 | **43 (`100%`)** | 0 | Restated across `docs/understanding/01..07` |
 | **Visual Reference Screenshot Audit (`All 4 Surfaces`)** | **172** | **172 (`100.0%`)** | 0 | `01-customer-*` (`65`) + `04-partner-rider-*` (`107`) |
-| **Zero-Supabase-Storage Free Cloudinary Engine (`ADR-0006`)** | TS + Dart + SQL + Gate | **DONE ✓ (`Build 5`)** | Wired into `W1`/`W3` routes in `Build 6 & 10` | `ADR-0006`, `cloudinary.ts`, `cloudinary_url.dart`, `[NO-SUPABASE-STORAGE]` |
-| **Shared TS & Flutter Packages (`@undal/shared-ts` + `undal_core`)** | 2 packages | **DONE ✓ (`Build 1 & 5`)** | Extended per response | `packages/shared_ts/`, `packages/undal_core/` |
+| **Dual Free Media Law (`ADR-0006 v2`: Unlimited ImgBB Public + Private Cloudinary Vault)** | TS + Dart + SQL + `W1` + Gate | **DONE ✓ (`Build 5–6`)** | Admin review view routes wired in `Build 10` | `ADR-0006`, `imgbb.ts`, `cloudinary.ts`, `routes/media.ts`, `[NO-SUPABASE-STORAGE]` |
+| **Shared TS & Flutter Packages (`@undal/shared-ts` + `undal_core`)** | 2 packages | **DONE ✓ (`Build 1, 5 & 6`)** | Extended per response | `packages/shared_ts/`, `packages/undal_core/` |
 | **Golden Math Parity (`M-1..M-8` + `F-1..F-6` + 10K Fuzz)** | **TS + Dart + SQL** | **TS + Dart + SQL `100%` ✓** | **0 poisha drift across all 3 engines + ledger!** | `03` & `04` `pgTAP` + `migrations-b04/b05.test.mjs` |
-| **Postgres Migrations + `pgTAP` RLS Suite (`0001..0016`)** | **16 migrations / 50+ tables** | **`16 / 16` (`62` tables, `100.0%` DONE!) ✓** | **0 remaining migrations — DB engine 100% complete!** | `supabase/migrations/0001..0016`, **`107 / 107` `pg_prove` assertions** |
-| **Order State Machine, Cash Gate, Ledger & Weekly Settlement** | 14 states + COD Float + Fri/Sat Invoices | **DONE ✓ (`Build 4–5`)** | Exposed via `W1`/`W2`/`W3` HTTP & Cron in `Build 6–11` | `record_order_delivered_ledger`, `sync_rider_cash_gate`, `generate_weekly_invoices` |
+| **Postgres Migrations + `pgTAP` RLS Suite (`0001..0016`)** | **16 migrations / 50+ tables** | **`16 / 16` (`62` tables, `100.0%` DONE!) ✓** | **0 remaining migrations — DB engine 100% complete!** | `supabase/migrations/0001..0016`, **`109 / 109` `pg_prove` assertions** |
+| **`W1 undal-api` Edge Worker (`workers/api`)** | Part 1 + Part 2 | **Part 1 DONE ✓ (`Build 6`)** | **Part 2 (`Build 7` NEXT)** | `workers/api/src/**`, `workers/api/test/api-part1.test.mjs` |
 | **Super Admin Capabilities (`Appendix C`)** | 132 P0 | **All 62 DB tables + RLS + RPCs ready ✓** | **`Build 10–11, 25–28`** | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
 
 ---
@@ -33,8 +33,8 @@
 | **Build 3** | Migrations II — vendors, menus, variants, bundles, zones | `supabase/migrations/0005..0008` (`15` new RLS-forced tables = `27` cumulative, `Sylhet Sadar` + `Kulaura`, `HOME_KITCHEN` privacy, `rank_v1` RPCs) + `54` `pgTAP` tests | **DONE ✓** | GHA Run [`#39954932571`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39954932571) (`4/4` jobs green) ✓ |
 | **Build 4** | Migrations III — carts, orders, events, offers, batches | `supabase/migrations/0009..0012` (`16` new RLS-forced tables = `43` cumulative, `UNLOGGED presence_live`, `price_order` `M-1..M-8` + 250 random baskets, `place_order`, QR handover) + `81` `pg_prove` assertions | **DONE ✓** | GHA Run [`#39958924561`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39958924561) (`4/4` jobs green) ✓ |
 | **Build 5** | **Migrations IV (`16/16` Complete!) + `ADR-0006` Zero-Supabase-Storage Free Cloudinary** | `supabase/migrations/0013..0016` (**`19` new RLS-forced tables = `62 / 62` cumulative tables**, `0` Supabase Storage tables, ACID `DELIVERED -> ledger_entries` zero-drift conserved writer, `৳3,000` cycle / `৳5,000` bike COD ceiling gate + `TrxID` remittance auto-unlock, Fri/Sat dual-path idempotent `invoices` + `1.85%` bKash cash-out cover, verified-buyer `reviews` + auto rating sync, `24h` chat lock, Cloudinary EXIF-stripped `media_assets` registry, `prune_ephemeral_rows`, TS `cloudinary.ts` + Dart `cloudinary_url.dart` + CI `[NO-SUPABASE-STORAGE]` gate) | **DONE ✓** | GHA Run [`#39962784485`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39962784485) (`4/4` jobs green · **`107 / 107` `pg_prove` assertions**) ✓ |
-| **Build 6** | **W1 API — auth/profile/catalog/search/Free Cloudinary media & signed URLs** | `workers/api` routes part 1 (`ADR-0006` unsigned preset descriptors, `authenticated` upload tickets, `s--XXXXXXXX--` signed URLs, catalog, Banglish search, OSM tile cache) | **NEXT** | Miniflare integration suite + `[NO-SUPABASE-STORAGE]` + secret-leak scan clean |
-| **Build 7** | W1 API — cart/voucher/place-order/transitions/chat/reviews | `workers/api` routes part 2 | Queued | Full order happy-path + cancel matrix tests |
+| **Build 6** | **W1 API Part 1 + `ADR-0006 v2` Dual Free Media (`ImgBB` Unlimited Public + `Cloudinary` Private Vault)** | `workers/api/src/**` (`index`, `http`, `db-postgrest`, `routes/{catalog,media,account}`), `imgbb.ts` EXIF/GPS byte scrubber, `cloudinary.ts` sensitive-only vault (`s--XXXXXXXX--` `120s` signed URLs + `audit_logs`), `0015` `media_assets_dual_provider_law` DB `CHECK` constraint, `pglite-api-harness.mjs` + `api-part1.test.mjs` | **DONE ✓** | Real PG16 E2E `api-part1` (`3/3` green) + **`109 / 109` `pg_prove`** + `173` files gate `0` violations ✓ |
+| **Build 7** | **W1 API — cart/voucher/place-order/transitions/chat/reviews** | `workers/api` routes part 2 | **NEXT** | Full order happy-path + cancel matrix tests |
 | **Build 8** | W2 Realtime — presence, fare engine, assignment, batcher | `workers/realtime` part 1 (`ZoneDispatchDO`) | Queued | **Appendix F fare vectors `F-1…F-6` pass in TS** |
 | **Build 9** | W2 Realtime — FCM sender, RTDB rooms+tokens, cascade, cron | `workers/realtime` part 2 + `firebase/database.rules.json` | Queued | Firebase emulator **rules security suite** + data-only FCM test green |
 | **Build 10** | W3 Admin — auth/RBAC/settings/zones/KYC/audit | `workers/admin` part 1 | Queued | RBAC matrix test (every role × every route) |

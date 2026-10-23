@@ -1,51 +1,82 @@
-/// Zero-Supabase-Storage Free Cloudinary URL & upload helper (`ADR-0006`).
-///
-/// Builds bandwidth-saving responsive AVIF/WebP URLs (`fl_strip_profile,f_auto,q_auto`)
-/// and `< 500B` LQIP blur placeholders across `customer_app`, `partner_app`, and `rider_app`.
+/// Zero-Supabase-Storage Dual-Provider Media Helpers (`ADR-0006` v2):
+/// - **All Public & Platform Images (`menu_item`, `vendor_logo`, `vendor_cover`, `profile_avatar`,
+///   `banner`, `review_photo`) -> `ImgBB` Unlimited Free CDN** (`POST /v1/images/public` via `W1`).
+/// - **Sensitive Compliance Files ONLY (`vendor_kyc`, `rider_kyc`, `rider_shift_selfie`,
+///   `cash_remittance_proof`, `dispute_evidence`, `chat_attachment`, `invoice_pdf`) ->
+///   `Cloudinary Free Private Vault`** (`undal/private/<category>/<ownerId>`).
 library;
 
-/// Cloudinary upload preset descriptor consumed by mobile multipart uploaders.
-class CloudinaryUnsignedPresetTarget {
-  /// Creates an unsigned upload descriptor for `cloudName` + `uploadPreset`.
-  const CloudinaryUnsignedPresetTarget({
+/// Canonical sensitive categories permitted on private Cloudinary storage.
+const Set<String> sensitiveCloudinaryCategories = <String>{
+  'vendor_kyc',
+  'rider_kyc',
+  'rider_shift_selfie',
+  'cash_remittance_proof',
+  'dispute_evidence',
+  'chat_attachment',
+  'invoice_pdf',
+};
+
+/// Canonical public categories served on Unlimited Free ImgBB CDN.
+const Set<String> publicImgbbCategories = <String>{
+  'menu_item',
+  'vendor_logo',
+  'vendor_cover',
+  'profile_avatar',
+  'banner',
+  'review_photo',
+};
+
+/// Restricted Cloudinary Unsigned Upload Preset target strictly for sensitive compliance media.
+class CloudinarySensitiveUploadTarget {
+  /// Creates a sensitive-only upload target; throws [ArgumentError] on any public category.
+  CloudinarySensitiveUploadTarget({
     required this.cloudName,
-    required this.uploadPreset,
-    required this.folder,
-  });
+    required this.secureUploadPreset,
+    required this.category,
+    required this.ownerProfileId,
+  }) {
+    if (!sensitiveCloudinaryCategories.contains(category)) {
+      throw ArgumentError.value(
+        category,
+        'category',
+        'Public images must use W1 /v1/images/public (Unlimited ImgBB); Cloudinary is strictly for sensitive private media.',
+      );
+    }
+  }
 
   /// Cloudinary cloud name (`UNDAL_CLOUDINARY_CLOUD_NAME`).
   final String cloudName;
 
-  /// Scoped unsigned upload preset name configured in Cloudinary Console.
-  final String uploadPreset;
+  /// Restricted secure unsigned upload preset (`UNDAL_CLOUDINARY_UNSIGNED_PRESET_SECURE`).
+  final String secureUploadPreset;
 
-  /// Logical folder prefix (`undal/public/...` or `undal/private/...`).
-  final String folder;
+  /// Sensitive category (`vendor_kyc`, `rider_kyc`, `cash_remittance_proof`, etc.).
+  final String category;
+
+  /// Authenticated owner profile UUID.
+  final String ownerProfileId;
+
+  /// Private isolated folder path inside Cloudinary.
+  String get folder => 'undal/private/$category/$ownerProfileId';
 
   /// HTTPS upload endpoint receiving `multipart/form-data`.
   Uri get uploadEndpoint =>
       Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
 }
 
-/// Builds an EXIF-stripped auto-AVIF/WebP public Cloudinary URL.
-String buildCloudinaryPublicUrl({
-  required String cloudName,
-  required String publicId,
-  required int width,
-  int? height,
-  bool blurPlaceholder = false,
+/// Resolves the best responsive Unlimited ImgBB URL for a target logical viewport width (`<= 200` thumb, `<= 720` medium, else full).
+String selectResponsiveImgbbUrl({
+  required String fullUrl,
+  String? mediumUrl,
+  String? thumbUrl,
+  required double logicalWidthPx,
 }) {
-  final cleanId = publicId.replaceAll(RegExp(r'^/+'), '');
-  final transforms = <String>['fl_strip_profile'];
-  if (blurPlaceholder) {
-    transforms.addAll(<String>['c_scale', 'w_32', 'e_blur:1000', 'q_auto:low', 'f_auto']);
-  } else {
-    transforms.add(height != null ? 'c_fill,g_auto' : 'c_limit');
-    transforms.add('w_$width');
-    if (height != null) {
-      transforms.add('h_$height');
-    }
-    transforms.addAll(<String>['q_auto', 'f_auto']);
+  if (logicalWidthPx <= 200 && thumbUrl != null && thumbUrl.isNotEmpty) {
+    return thumbUrl;
   }
-  return 'https://res.cloudinary.com/$cloudName/image/upload/${transforms.join(",")}/$cleanId';
+  if (logicalWidthPx <= 720 && mediumUrl != null && mediumUrl.isNotEmpty) {
+    return mediumUrl;
+  }
+  return fullUrl;
 }

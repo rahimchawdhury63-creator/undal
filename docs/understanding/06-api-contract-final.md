@@ -22,9 +22,9 @@
 | **B06** | `GET` | `/v1/vendors/{slug}/reviews` | `anon` | `60/min/ip` | Cursor-paginated verified reviews + vendor replies |
 | **B06** | `GET` | `/v1/search` | `anon` | `60/min/ip` | `?q=&zone_id=&scope=all\|dishes\|vendors` (Banglish synonym expansion + trigram match) |
 | **B06** | `GET` | `/v1/seo/sitemap-data` | `public` | `12/min/ip` | Active zones, cuisines, and approved vendor slugs for SSG prerender + `sitemap.xml` |
-| **B06** | `POST` | `/v1/images/public` | `vendor \| customer \| admin` | `30/day/vendor` | Magic-byte verified `JPEG/PNG/WebP <= 5MB` → proxied to **ImgBB** using server secret (`D-03`) |
-| **B06** | `POST` | `/v1/images/private-upload-url` | `authenticated` | `20/min/user` | Mints 5-min signed upload URL to private Supabase bucket (`kyc-*`, `remittances`, `disputes`, `chats`) |
-| **B06** | `POST` | `/v1/images/private-view-url` | `owner \| admin-perm` | `20/min/user` | Mints 120-sec signed view URL **and writes mandatory `audit_logs` entry** |
+| **B06** | `POST` | `/v1/images/public` | `vendor \| customer \| admin` | `30/day/vendor` | Magic-byte verified `JPEG/PNG/WebP <= 5MB` + Edge JPEG/PNG EXIF/GPS strip → **Unlimited Free ImgBB** (`D-03` + `ADR-0006` — **100% of public & platform images**) |
+| **B06** | `POST` | `/v1/images/private-upload-url` | `authenticated` | `20/min/user` | Mints `authenticated` / secure-preset ticket strictly on **Cloudinary Private Vault** (**ONLY sensitive compliance media**: `kyc`, `remittance`, `selfie`, `dispute`, `chat`, `invoice_pdf`; `0` Supabase Storage bytes) |
+| **B06** | `POST` | `/v1/images/private-view-url` | `owner \| admin-perm` | `20/min/user` | Mints `120s` SHA-256 `s--XXXXXXXX--` signed Cloudinary URL **and writes mandatory `audit_logs` entry** |
 | **B06** | `POST` | `/v1/devices/token` | `authenticated` | `10/min/user` | Registers FCM token + `oem_brand` + `alarm_ready` flag in `device_tokens` |
 | **B06** | `GET` | `/v1/notifications` | `authenticated` | `60/min/user` | Cursor-paginated bilingual inbox (`PATCH /v1/notifications/read` marks read) |
 | **B07** | `GET/POST/PATCH/DELETE` | `/v1/addresses` (`/{id}`) | `customer` | `30/min/user` | Resolves `zone_id` on save; enforces single default address |

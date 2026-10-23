@@ -2,35 +2,43 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:undal_core/undal_core.dart';
 
 void main() {
-  test('Cloudinary Dart helper strips EXIF and emits smart crop & blur LQIP URLs (ADR-0006)', () {
-    final cardUrl = buildCloudinaryPublicUrl(
-      cloudName: 'undal-bd',
-      publicId: 'undal/public/menu_item/kacchi_01',
-      width: 400,
-      height: 300,
-    );
+  test('ADR-0006 v2: ImgBB handles all responsive public images while Cloudinary strictly isolates sensitive compliance files', () {
     expect(
-      cardUrl,
-      'https://res.cloudinary.com/undal-bd/image/upload/fl_strip_profile,c_fill,g_auto,w_400,h_300,q_auto,f_auto/undal/public/menu_item/kacchi_01',
+      () => CloudinarySensitiveUploadTarget(
+        cloudName: 'undal-bd',
+        secureUploadPreset: 'undal_secure_unsigned',
+        category: 'menu_item',
+        ownerProfileId: '11111111-1111-4111-8111-111111111111',
+      ),
+      throwsArgumentError,
     );
 
-    final blurUrl = buildCloudinaryPublicUrl(
+    final kycTarget = CloudinarySensitiveUploadTarget(
       cloudName: 'undal-bd',
-      publicId: 'undal/public/menu_item/kacchi_01',
-      width: 32,
-      blurPlaceholder: true,
+      secureUploadPreset: 'undal_secure_unsigned',
+      category: 'rider_kyc',
+      ownerProfileId: '33333333-3333-4333-8333-333333333333',
     );
-    expect(blurUrl, contains('e_blur:1000'));
-    expect(blurUrl, contains('fl_strip_profile'));
+    expect(kycTarget.folder, 'undal/private/rider_kyc/33333333-3333-4333-8333-333333333333');
+    expect(kycTarget.uploadEndpoint.toString(), 'https://api.cloudinary.com/v1_1/undal-bd/image/upload');
 
-    const preset = CloudinaryUnsignedPresetTarget(
-      cloudName: 'undal-bd',
-      uploadPreset: 'undal_public_unsigned',
-      folder: 'undal/public/menu_item',
+    expect(
+      selectResponsiveImgbbUrl(
+        fullUrl: 'https://i.ibb.co/full/dish.jpg',
+        mediumUrl: 'https://i.ibb.co/medium/dish.jpg',
+        thumbUrl: 'https://i.ibb.co/thumb/dish.jpg',
+        logicalWidthPx: 140,
+      ),
+      'https://i.ibb.co/thumb/dish.jpg',
     );
     expect(
-      preset.uploadEndpoint.toString(),
-      'https://api.cloudinary.com/v1_1/undal-bd/image/upload',
+      selectResponsiveImgbbUrl(
+        fullUrl: 'https://i.ibb.co/full/dish.jpg',
+        mediumUrl: 'https://i.ibb.co/medium/dish.jpg',
+        thumbUrl: 'https://i.ibb.co/thumb/dish.jpg',
+        logicalWidthPx: 420,
+      ),
+      'https://i.ibb.co/medium/dish.jpg',
     );
   });
 }

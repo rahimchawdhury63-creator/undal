@@ -10,7 +10,7 @@
 CREATE TABLE IF NOT EXISTS public.media_assets (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_profile_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  provider text NOT NULL DEFAULT 'cloudinary' CHECK (provider IN ('cloudinary', 'imgbb')),
+  provider text NOT NULL CHECK (provider IN ('imgbb', 'cloudinary')),
   category text NOT NULL CHECK (category IN (
     'menu_item', 'vendor_logo', 'vendor_cover', 'profile_avatar', 'banner', 'review_photo',
     'vendor_kyc', 'rider_kyc', 'rider_shift_selfie', 'cash_remittance_proof',
@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS public.media_assets (
   resource_type text NOT NULL DEFAULT 'image' CHECK (resource_type IN ('image', 'raw', 'video')),
   cloudinary_public_id text NOT NULL UNIQUE CHECK (char_length(btrim(cloudinary_public_id)) BETWEEN 4 AND 320),
   public_cdn_url text,
+  medium_url text,
+  thumb_url text,
+  imgbb_delete_url text,
   bytes integer NOT NULL CHECK (bytes > 0 AND bytes <= 20971520),
   width integer CHECK (width IS NULL OR width > 0),
   height integer CHECK (height IS NULL OR height > 0),
@@ -30,8 +33,21 @@ CREATE TABLE IF NOT EXISTS public.media_assets (
     CHECK (moderation_status IN ('pending', 'approved', 'flagged', 'deleted')),
   retention_until timestamptz,
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-  CONSTRAINT media_assets_private_no_public_url CHECK (
-    (delivery_type = 'upload') OR (public_cdn_url IS NULL)
+  CONSTRAINT media_assets_dual_provider_law CHECK (
+    (
+      category IN ('menu_item', 'vendor_logo', 'vendor_cover', 'profile_avatar', 'banner', 'review_photo')
+      AND provider = 'imgbb'
+      AND delivery_type = 'upload'
+      AND public_cdn_url IS NOT NULL
+    )
+    OR
+    (
+      category IN ('vendor_kyc', 'rider_kyc', 'rider_shift_selfie', 'cash_remittance_proof', 'dispute_evidence', 'chat_attachment', 'invoice_pdf')
+      AND provider = 'cloudinary'
+      AND delivery_type IN ('authenticated', 'private')
+      AND public_cdn_url IS NULL
+      AND imgbb_delete_url IS NULL
+    )
   )
 );
 

@@ -10,7 +10,7 @@
 
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
-SELECT plan(26);
+SELECT plan(28);
 
 -- 1. All Build 5 tables exist & EVERY regular public table (62/62) has ENABLE + FORCE RLS (`0` Supabase storage tables)
 SELECT has_table('public', 'ledger_entries', 'ledger_entries table exists');
@@ -248,6 +248,25 @@ SELECT throws_ok(
   NULL,
   'media_assets DB constraint forbids authenticated private KYC assets from storing any public_cdn_url'
 );
+
+SELECT throws_ok(
+  $$ INSERT INTO public.media_assets (owner_profile_id, provider, category, delivery_type, cloudinary_public_id, public_cdn_url, bytes)
+     VALUES ('bbbb2222-2222-4222-8222-222222222222', 'cloudinary', 'menu_item', 'upload', 'undal/public/menu_item/leak', 'https://res.cloudinary.com/leak.jpg', 92000) $$,
+  '23514',
+  NULL,
+  'media_assets DB constraint blocks public menu_item images from touching Cloudinary (MUST use Unlimited ImgBB)'
+);
+
+SELECT throws_ok(
+  $$ INSERT INTO public.media_assets (owner_profile_id, provider, category, delivery_type, cloudinary_public_id, public_cdn_url, bytes)
+     VALUES ('bbbb3333-3333-4333-8333-333333333333', 'imgbb', 'rider_kyc', 'upload', 'imgbb:leak', 'https://i.ibb.co/leak.jpg', 84000) $$,
+  '23514',
+  NULL,
+  'media_assets DB constraint blocks sensitive rider_kyc images from ever being stored on public ImgBB'
+);
+
+INSERT INTO public.media_assets (owner_profile_id, provider, category, delivery_type, cloudinary_public_id, public_cdn_url, bytes)
+VALUES ('bbbb2222-2222-4222-8222-222222222222', 'imgbb', 'menu_item', 'upload', 'imgbb:mezban01', 'https://i.ibb.co/full/mezban.jpg', 92000);
 
 INSERT INTO public.media_assets (owner_profile_id, provider, category, delivery_type, cloudinary_public_id, bytes)
 VALUES ('bbbb3333-3333-4333-8333-333333333333', 'cloudinary', 'rider_kyc', 'authenticated', 'undal/private/rider_kyc/nid1', 84000);
