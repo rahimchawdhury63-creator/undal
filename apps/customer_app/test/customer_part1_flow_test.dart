@@ -60,6 +60,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('c04-confirm-pin-btn')),
         );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('c04-confirm-pin-btn')));
         await tester.pumpAndSettle();
 
@@ -89,9 +90,11 @@ void main() {
         await tester.pumpAndSettle();
 
         // Tap heart on Panchini as guest -> opens c-06 Auth Hub with context notice
-        await tester.tap(
-          find.byKey(const ValueKey<String>('fav-btn-panchini-sylhet-kitchen')),
-        );
+        final Finder panchiniFav =
+            find.byKey(const ValueKey<String>('fav-btn-panchini-sylhet-kitchen'));
+        await tester.ensureVisible(panchiniFav);
+        await tester.pumpAndSettle();
+        await tester.tap(panchiniFav);
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey<String>('screen-c-06')), findsOneWidget);
 
@@ -115,9 +118,9 @@ void main() {
         expect(ctrl.signUpDraft.stepIndex, 1);
 
         // Re-trigger favourite -> c-06 shows "Resume saved Sign-Up (Step 2/3)"
-        await tester.tap(
-          find.byKey(const ValueKey<String>('fav-btn-panchini-sylhet-kitchen')),
-        );
+        await tester.ensureVisible(panchiniFav);
+        await tester.pumpAndSettle();
+        await tester.tap(panchiniFav);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('c06-open-signup-btn')));
         await tester.pumpAndSettle();
@@ -161,6 +164,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('cuisine-chip-sweets_pitha')),
         );
+        await tester.pumpAndSettle();
         await tester.tap(
           find.byKey(const ValueKey<String>('cuisine-chip-sweets_pitha')),
         );
@@ -172,6 +176,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('sparse-clear-filters-cta')),
         );
+        await tester.pumpAndSettle();
         await tester.tap(
           find.byKey(const ValueKey<String>('sparse-clear-filters-cta')),
         );
@@ -181,6 +186,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('mode-pickup-chip')),
         );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('mode-pickup-chip')));
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey<String>('screen-c-09')), findsOneWidget);

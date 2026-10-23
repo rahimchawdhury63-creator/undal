@@ -45,6 +45,7 @@ class CustomerHomeFeedView extends StatelessWidget {
 
         return CustomScrollView(
           key: ValueKey<String>(isPickup ? 'screen-c-09' : 'screen-c-08'),
+          cacheExtent: 1600,
           slivers: <Widget>[
             SliverPadding(
               padding: const EdgeInsets.all(UndalSpacingTokens.md),

@@ -102,7 +102,8 @@ jobs:
             LOG_FILE="$(mktemp)"
             if ! (cd "$pkg" && flutter pub get && flutter analyze && flutter test --reporter expanded) >"$LOG_FILE" 2>&1; then
               cat "$LOG_FILE"
-              SUMMARY="$(tail -n 35 "$LOG_FILE" | tr '\n' ' ' | sed 's/%/%25/g')"
+              EXCEPTIONS="$(grep -B 2 -A 18 'EXCEPTION CAUGHT' "$LOG_FILE" || tail -n 45 "$LOG_FILE")"
+              SUMMARY="$(printf '%s' "$EXCEPTIONS" | tr '\n' ' ' | sed 's/%/%25/g')"
               echo "::error title=Flutter failure in $pkg::$SUMMARY"
               FAILED=1
             else
