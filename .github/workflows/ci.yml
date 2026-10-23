@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   ts-web-workers-gates:
-    name: TypeScript, Web Builds, Worker Tests, Fuzz & Gates
+    name: TypeScript, Web Builds, PGlite SQL, Fuzz & Gates
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -44,6 +44,39 @@ jobs:
           curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | tar -xz -C /tmp gitleaks
           /tmp/gitleaks detect --source . --verbose --redact
+
+  postgres-migrations-and-pgtap:
+    name: PostgreSQL 16 Migrations Reset & pgTAP Security Suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Start PostgreSQL 16 & install pgTAP + pg_prove
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-16 postgresql-16-pgtap libtap-parser-sourcehandler-pgtap-perl
+          sudo systemctl start postgresql
+          sudo -u postgres createdb undal_test
+
+      - name: Apply Supabase local bootstrap + ordered migrations (clean + idempotency pass)
+        run: |
+          set -euo pipefail
+          sudo -u postgres psql -d undal_test -v ON_ERROR_STOP=1 -f supabase/tests/_bootstrap_supabase_local.sql
+          for pass in 1 2; do
+            echo "=== Applying ordered migrations (pass #${pass}) ==="
+            for mig in supabase/migrations/*.sql; do
+              echo "  -> $mig"
+              sudo -u postgres psql -d undal_test -v ON_ERROR_STOP=1 -f "$mig"
+            done
+          done
+
+      - name: Run pgTAP RLS, RBAC & immutability suite via pg_prove
+        run: |
+          set -euo pipefail
+          sudo -u postgres pg_prove -d undal_test --verbose supabase/tests/*.pgtap.sql
 
   flutter-packages-and-apps:
     name: Flutter Analyze & Widget/Golden Math Tests (4 Packages)

@@ -2,15 +2,16 @@
 /**
  * @file infra/scripts/bootstrap-admin.mjs
  * @description Idempotent Super-Admin bootstrap runner backing `.github/workflows/bootstrap-admin.yml`
- * (`Master Guide File 24 §24.1–24.2`).
+ * (`Master Guide File 24 §24.1–24.2`, `Migrations 0002–0004`).
  *
  * Modes:
  * - `--dry-run` (default safe CI check): validates environment schema, password strength rules,
- *   and simulates the exact idempotent Supabase Auth Admin + `profiles` + `admin_user_roles` sequence
- *   without requiring live secrets or leaking any credential value to stdout/stderr.
+ *   and verifies the 5-step idempotent Supabase Auth Admin + `profiles` + `admin_user_roles` + `audit_logs`
+ *   sequence without requiring live secrets or leaking any credential value to stdout/stderr.
  * - `--execute`: provisions or updates the founder `super_admin` user idempotently via Supabase REST/Auth Admin API.
  */
 
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -32,7 +33,7 @@ export function validateBootstrapConfig(env, { dryRun }) {
   if (dryRun) {
     const sampleUrl = supabaseUrl || 'https://dry-run-project.supabase.co';
     const sampleEmail = adminEmail || 'founder@undal.example';
-    if (! sampleUrl.startsWith('https://')) {
+    if (!sampleUrl.startsWith('https://')) {
       throw new Error('SUPABASE_URL must begin with https://');
     }
     if (!EMAIL_RE.test(sampleEmail)) {
@@ -44,7 +45,9 @@ export function validateBootstrapConfig(env, { dryRun }) {
     return {
       supabaseUrl: sampleUrl.replace(/\/+$/, ''),
       adminEmail: sampleEmail,
-      readyForLive: Boolean(supabaseUrl && serviceRoleKey && adminEmail && adminPassword.length >= MIN_PASSWORD_LENGTH),
+      readyForLive: Boolean(
+        supabaseUrl && serviceRoleKey && adminEmail && adminPassword.length >= MIN_PASSWORD_LENGTH,
+      ),
     };
   }
 
@@ -69,7 +72,7 @@ export function validateBootstrapConfig(env, { dryRun }) {
 }
 
 /**
- * Executes or dry-runs the idempotent super-admin bootstrap sequence.
+ * Executes or dry-runs the full 5-step idempotent super-admin bootstrap sequence.
  *
  * @param {{ env?: Record<string, string | undefined>, dryRun?: boolean, fetchImpl?: typeof fetch }} params
  */
@@ -86,10 +89,10 @@ export async function runBootstrapAdmin({
     secretsConfigured: validated.readyForLive,
     steps: [
       '1. Look up existing Auth user via GET /auth/v1/admin/users (idempotency guard)',
-      '2. Create or confirm email-verified Auth user with role metadata = admin',
+      '2. Create or confirm email-verified Auth user with app_metadata.role = admin',
       '3. Upsert public.profiles (role = admin, status = active)',
-      '4. Upsert public.admin_user_roles binding profile -> super_admin role',
-      '5. Append audit_logs entry action = admin.bootstrap',
+      '4. Upsert public.admin_user_roles binding profile -> super_admin system role',
+      '5. Append immutable public.audit_logs record action = admin.bootstrap',
     ],
   };
 
@@ -103,7 +106,7 @@ export async function runBootstrapAdmin({
     'Content-Type': 'application/json',
   };
 
-  // Step 1: Check existing users page to keep execution 100% idempotent on repeated taps
+  // Step 1 & 2: Find or create Supabase Auth user idempotently
   const listRes = await fetchImpl(`${validated.supabaseUrl}/auth/v1/admin/users?page=1&per_page=200`, {
     method: 'GET',
     headers,
@@ -138,7 +141,7 @@ export async function runBootstrapAdmin({
     createdUser = true;
   }
 
-  // Step 2: Upsert profile row
+  // Step 3: Upsert `public.profiles` row
   const profileRes = await fetchImpl(`${validated.supabaseUrl}/rest/v1/profiles`, {
     method: 'POST',
     headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -152,6 +155,52 @@ export async function runBootstrapAdmin({
   });
   if (!profileRes.ok) {
     throw new Error(`Upsert profiles failed with HTTP ${profileRes.status}`);
+  }
+
+  // Step 4: Resolve `super_admin` role ID and bind `public.admin_user_roles`
+  const roleLookupRes = await fetchImpl(
+    `${validated.supabaseUrl}/rest/v1/admin_roles?select=id&key=eq.super_admin`,
+    { method: 'GET', headers },
+  );
+  if (!roleLookupRes.ok) {
+    throw new Error(`Lookup admin_roles(super_admin) failed with HTTP ${roleLookupRes.status}`);
+  }
+  const roleRows = await roleLookupRes.json();
+  const superRoleId = roleRows?.[0]?.id;
+  if (!superRoleId) {
+    throw new Error('System role super_admin missing — run database migrations 0001..0004 first.');
+  }
+
+  const grantRes = await fetchImpl(`${validated.supabaseUrl}/rest/v1/admin_user_roles`, {
+    method: 'POST',
+    headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({
+      profile_id: userId,
+      role_id: superRoleId,
+      granted_by: userId,
+    }),
+  });
+  if (!grantRes.ok) {
+    throw new Error(`Upsert admin_user_roles failed with HTTP ${grantRes.status}`);
+  }
+
+  // Step 5: Append immutable genesis audit entry in `public.audit_logs`
+  const auditRes = await fetchImpl(`${validated.supabaseUrl}/rest/v1/audit_logs`, {
+    method: 'POST',
+    headers: { ...headers, Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      actor_id: userId,
+      actor_role: 'admin',
+      action: 'admin.bootstrap',
+      entity_type: 'profile',
+      entity_id: userId,
+      diff: { created_user: createdUser, role_granted: 'super_admin' },
+      reason: 'GitHub Actions workflow bootstrap-admin.yml',
+      request_id: `bootstrap-${crypto.randomUUID()}`,
+    }),
+  });
+  if (!auditRes.ok) {
+    throw new Error(`Insert audit_logs failed with HTTP ${auditRes.status}`);
   }
 
   return { ok: true, createdUser, userId, plan };

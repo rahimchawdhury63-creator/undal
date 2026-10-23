@@ -1,9 +1,9 @@
-# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.1)
+# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.2)
 
 > **Single Living Progress Ledger (`UNDAL-MASTER-GUIDE/27-builder-protocol-32-responses.md`)**  
 > **Repository:** `rahimchawdhury63-creator/undal` · **Branch:** `arena/f81366de-undal`  
-> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 1 — COMPLETE`**  
-> **Next Scheduled Milestone:** **`Build Response 2`** (`Migrations I — auth/profiles/RBAC/audit/settings/taxonomy`, awaiting Founder `"continue"`)
+> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 2 — COMPLETE`**  
+> **Next Scheduled Milestone:** **`Build Response 3`** (`Migrations II — vendors, menus, variants, bundles, zones`: `supabase/migrations/0005..0008` + geo/catalog/search RPCs + `pgTAP`, awaiting Founder `"continue"`)
 
 ---
 
@@ -15,10 +15,9 @@
 | **Visual Reference Screenshot Audit (`All 4 Surfaces`)** | **172** | **172 (`100.0%`)** | 0 | `01-customer-*` (`65`) + `04-partner-rider-*` (`107`) |
 | **Shared TS & Flutter Packages (`@undal/shared-ts` + `undal_core`)** | 2 packages | **DONE ✓ (`Build 1`)** | Extended per response | `packages/shared_ts/`, `packages/undal_core/` |
 | **Golden Math Parity (`M-1..M-8` + `F-1..F-6` + 10K Fuzz)** | TS + Dart + SQL | **TS + Dart 100% ✓** | SQL parity in `Build 4` | `money-fare-i18n.test.mjs`, `undal_core_test.dart` |
-| **Bilingual i18n Framework (`EN` + `বাংলা` Parity)** | 100% key parity | **60/60 seed keys ✓** | Expand per feature build | `shared_ts/src/i18n.ts`, `app_en.arb`, `app_bn.arb` |
-| **Monorepo App & Worker Foundation Shells** | 8 workspaces | **8/8 building & green ✓** | Feature implementation `Build 6–28` | `workers/{api,realtime,admin}`, `apps/*` |
-| **Postgres Migrations + `pgTAP` RLS Suite** | 16 migrations / 50 tables | 0 (starts next!) | **`Build 2–5`** | `supabase/migrations/0001..0016` |
-| **Super Admin Capabilities (`Appendix C`)** | 132 P0 | `72` settings + error registry seeded | **`Build 10–11, 25–28`** | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
+| **Postgres Migrations + `pgTAP` RLS Suite (`0001..0016`)** | 16 migrations / 50 tables | **`4 / 16` (`12 / 50` tables) ✓** | **`Build 3–5` (`0005..0016`)** | `supabase/migrations/0001..0004`, `01_core_rls_and_seeds.pgtap.sql` |
+| **Canonical Taxonomies & Settings Seeded in SQL** | `72` settings + `117` cuisines | **`72 / 72` + `117 / 117` ✓** | Sylhet/Kulaura zones in `Build 3` | `0004_core_rls_and_seeds.sql` + parity tests |
+| **Super Admin Capabilities (`Appendix C`)** | 132 P0 | RBAC roles/grants + settings/audit DDL ready | **`Build 10–11, 25–28`** | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
 
 ---
 
@@ -28,9 +27,9 @@
 |---|---|---|---|---|
 | **Plan 1** | Understand the world & customer surfaces | `01..03`, `ADR-0001..0004`, skeleton, `ci.yml`, `verify-gates.mjs` | **DONE ✓** | GHA Run [`#39942499954`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39942499954) ✓ |
 | **Plan 2** | Understand operators, final contracts, design tokens & bootstrap CI | `04..07` (+`04a..c`), `ADR-0005`, `tokens.ts`/`css`/`dart`, `keystore-generate.yml`, `bootstrap-admin.yml` | **DONE ✓** | GHA Run [`#39944956870`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39944956870) ✓ |
-| **Build 1** | **Monorepo + shared packages + design tokens + i18n framework** | Complete `packages/shared_ts` (`tokens`, `rational`, `money`, `fare`, `errors`, `i18n`, `settings`, `schemas`), complete `packages/undal_core` (`undal_tokens`, `undal_theme`, `undal_money`, `undal_fare`, `undal_localizations`, `undal_responsive_scaffold`), all 8 worker/web/Flutter app shells building & green | **DONE ✓** | GHA Run [`#39950498010`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39950498010) (`3/3` jobs green: Flutter 3.29.2 analyze+test × 4 pkgs + TS/Vite/10K-fuzz/gates + keystore/bootstrap dry-run) ✓ |
-| **Build 2** | **Migrations I — auth/profiles/RBAC/audit/settings/taxonomy** | `supabase/migrations/0001..0004` + seed + `pgTAP` RLS suite | **NEXT** | `supabase db reset` / real Postgres 16 + `pgTAP` RLS suite green |
-| **Build 3** | Migrations II — vendors, menus, variants, bundles, zones | `supabase/migrations/0005..0008` + geo RPCs | Queued | RPC tests: zone resolve, menu read, hours |
+| **Build 1** | Monorepo + shared packages + design tokens + i18n framework | `@undal/shared-ts`, `package:undal_core`, all 8 worker/web/Flutter shells building & green | **DONE ✓** | GHA Run [`#39950731556`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39950731556) (`3/3` jobs green) ✓ |
+| **Build 2** | **Migrations I — auth/profiles/RBAC/audit/settings/taxonomy** | `supabase/config.toml`, `supabase/migrations/0001..0004` (`12` RLS-forced tables, `7` RBAC roles, `72` settings, `117` `Appendix D` cuisines, `cancel_reasons`, `feedback_tags`, private/public Storage RLS), `01_core_rls_and_seeds.pgtap.sql` (`30` `pg_prove` assertions) + `PGlite` suite | **DONE ✓** | Live 4-job GHA CI (`PostgreSQL 16 + pgTAP pg_prove` + `PGlite` + `Flutter 3.29.2 × 4` + `TS/Vite/Fuzz/Gates` + `Bootstrap Dry-Run`) ✓ |
+| **Build 3** | **Migrations II — vendors, menus, variants, bundles, zones** | `supabase/migrations/0005..0008` (**Sylhet Sadar** active + **Kulaura** paused seeds, 3-track vendors, private `HOME_KITCHEN` address guard, menus/variants/options/bundles, `resolve_zone`, `is_vendor_open_now`, `get_home_feed`, `get_vendor_storefront`, `search_catalog` `rank_v1`) | **NEXT** | RPC tests: zone resolve, menu read, hours + `pgTAP` vendor/public RLS matrix |
 | **Build 4** | Migrations III — carts, orders, events, offers, batches | `supabase/migrations/0009..0012` + money RPC | Queued | **Appendix F money vectors `M-1…M-8` pass in SQL** |
 | **Build 5** | Migrations IV — ledger, invoices, remittances, reviews, chat, support | `supabase/migrations/0013..0016` + triggers + cron funcs | Queued | Ledger append-only test; invoice idempotency test |
 | **Build 6** | W1 API — auth/profile/catalog/search/ImgBB proxy | `workers/api` routes part 1 | Queued | Vitest Miniflare; secret-leak scan clean |

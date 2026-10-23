@@ -3,7 +3,7 @@
  * @description Automated unit tests for `infra/scripts/bootstrap-admin.mjs` covering:
  * - Safe secret-free CI `--dry-run` execution
  * - Password length & HTTPS validation rules
- * - Idempotent live execution across first-run creation and repeat-run detection
+ * - Full 5-step idempotent execution (`auth.users`, `profiles`, `admin_user_roles`, `audit_logs`)
  */
 
 import test from 'node:test';
@@ -47,6 +47,9 @@ test('bootstrap-admin execute mode is idempotent across first create and repeat 
       store.push(created);
       return new Response(JSON.stringify(created), { status: 200 });
     }
+    if (init.method === 'GET' && url.includes('/rest/v1/admin_roles')) {
+      return new Response(JSON.stringify([{ id: '99999999-9999-4999-8999-999999999999' }]), { status: 200 });
+    }
     return new Response('', { status: 201 });
   };
 
@@ -64,4 +67,6 @@ test('bootstrap-admin execute mode is idempotent across first create and repeat 
   assert.equal(second.createdUser, false);
   assert.equal(second.userId, first.userId);
   assert.equal(calls.filter((c) => c.startsWith('POST https://undal-test.supabase.co/auth')).length, 1);
+  assert.equal(calls.filter((c) => c.endsWith('/rest/v1/admin_user_roles')).length, 2);
+  assert.equal(calls.filter((c) => c.endsWith('/rest/v1/audit_logs')).length, 2);
 });
