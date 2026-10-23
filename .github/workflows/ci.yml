@@ -17,13 +17,13 @@ concurrency:
 jobs:
   constitutional-gates:
     name: Constitutional Quality Gates & Self-Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+      - name: Setup Node.js 22 LTS
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
 
@@ -32,10 +32,10 @@ jobs:
 
   secret-hygiene:
     name: Secret Scan (Gitleaks SEC-02)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout full git history
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 

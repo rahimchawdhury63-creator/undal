@@ -45,7 +45,7 @@
 
 | # | Phase / Response Title | Key Repo Deliverables | Status | CI / Test Evidence |
 |---:|---|---|:-:|---|
-| **P1** | **Plan 1 — Understand the World** | `01-customer-surface-analysis.md` (+`01a..c`), `02-architecture-understanding.md`, `ADR-0001..0004`, `03-risk-register.md`, `BUILD-LEDGER.md` v1, monorepo skeleton, `ci.yml` + `verify-gates.mjs` | **DONE ✓** | `node --test` + GitHub Actions `ci.yml` green |
+| **P1** | **Plan 1 — Understand the World** | `01-customer-surface-analysis.md` (+`01a..c`), `02-architecture-understanding.md`, `ADR-0001..0004`, `03-risk-register.md`, `BUILD-LEDGER.md` v1, monorepo skeleton, `ci.yml` + `verify-gates.mjs` | **DONE ✓** | `npm run ci:plan` (`4/4` pass, `45` files audited) + GHA Run [`#39942422376`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39942422376) ✓ |
 | **P2** | **Plan 2 — Operators & Final Contracts** | Inspect all **107** `PARTNER_APP (63) + RIDER_APP (44)` images → `04-partner-rider-analysis.md`, `05-data-model-final.md`, `06-api-contract-final.md`, `07-admin-registry-final.md`, design tokens (`File 25`), keystore/bootstrap workflows | **NEXT** | Awaiting `"continue"` |
 | **B01** | **Build 1 — DB Core, RBAC, Geo, Settings, Taxonomies** | Migrations: `profiles`, `roles`, `permissions`, `audit_log`, `delivery_zones` (Sylhet seed), `platform_settings` (62 keys), `cuisine_taxonomy` (117 EN/BN), `i18n_strings`, `error_codes` | Pending | — |
 | **B02** | **Build 2 — DB Catalogue, Carts, Orders, Ledger, Math** | Migrations: `vendors`, `menu_*`, `carts`, `orders`, `ledger_entries`, `invoices`, `cash_gate_state`, `price_order()`, `M-1..M-8` SQL tests | Pending | — |
