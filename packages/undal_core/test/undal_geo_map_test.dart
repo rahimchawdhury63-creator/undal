@@ -74,7 +74,7 @@ void main() {
     expect(markerTapped, isTrue);
 
     final GeoPoint beforeDrag = currentCenter;
-    await tester.dragFrom(const Offset(40, 40), const Offset(-120, -90));
+    await tester.dragFrom(const Offset(260, 220), const Offset(-120, -90));
     await tester.pump();
     expect(currentCenter, isNot(equals(beforeDrag)));
   });

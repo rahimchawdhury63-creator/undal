@@ -119,7 +119,6 @@ class _UndalOsmMapState extends State<UndalOsmMap> {
                 'OpenStreetMap (${widget.center.lat.toStringAsFixed(4)}, ${widget.center.lng.toStringAsFixed(4)})',
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onDoubleTap: () => _stepZoom(1.0),
               onScaleStart: (_) => _baseScaleZoom = _zoom,
               onScaleUpdate: (ScaleUpdateDetails d) {
                 if ((d.scale - 1.0).abs() > 0.02) {

@@ -96,6 +96,7 @@ jobs:
       - name: Analyze & test package:undal_core + all 3 Flutter apps
         run: |
           set -euo pipefail
+          FAILED=0
           for pkg in packages/undal_core apps/customer_app apps/partner_app apps/rider_app; do
             echo "=== Testing Flutter workspace: $pkg ==="
             LOG_FILE="$(mktemp)"
@@ -103,10 +104,12 @@ jobs:
               cat "$LOG_FILE"
               SUMMARY="$(tail -n 35 "$LOG_FILE" | tr '\n' ' ' | sed 's/%/%25/g')"
               echo "::error title=Flutter failure in $pkg::$SUMMARY"
-              exit 1
+              FAILED=1
+            else
+              cat "$LOG_FILE"
             fi
-            cat "$LOG_FILE"
           done
+          exit "$FAILED"
 
   bootstrap-dry-run:
     name: Keystore & Super-Admin Bootstrap Dry-Run
