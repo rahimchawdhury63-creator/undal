@@ -12,6 +12,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { DEFAULT_FARE_POLICY } from '@undal/shared-ts';
 import { buildPgliteAdminOpsMethods } from './pglite-admin-harness-ops.mjs';
+import { buildPgliteAdminPart2Methods } from './pglite-admin-harness-part2.mjs';
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 export const EXAMPLE_ADMIN_JWT_SECRET = 'example-undal-w3-jwt-secret-32-chars!!';
@@ -399,5 +400,6 @@ export function createPgliteAdminAdapter(db) {
     },
 
     ...buildPgliteAdminOpsMethods(db),
+    ...buildPgliteAdminPart2Methods(db),
   };
 }

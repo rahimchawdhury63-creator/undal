@@ -1,14 +1,23 @@
 /**
  * @file workers/admin/src/index.ts
- * @description Production `W3 undal-admin` Cloudflare Worker Entrypoint (`Build Response 10` —
- * Capabilities `C1..C70` across Domains `1–4`):
+ * @description Production `W3 undal-admin` Cloudflare Worker Entrypoint (**100.0% COMPLETE** —
+ * `Build Responses 10–11` · **All `132 / 132` P0 Super Admin Capabilities (`C1..C132`) across
+ * Domains `1–9` + All `4` Scheduled Cron Triggers**):
  *   - 4-Gate Security Middleware (`JWT` -> `admin + active + TOTP enrolled` -> `RBAC` -> `5m Step-Up`)
- *   - Domain 1 (`C1–C21`): Admin Users, Roles Matrix + Diff Preview, Sessions, Audit CSV, Settings + Rollback, Kill Switches, Health & Quotas
- *   - Domain 2 (`C22–C40`): Live Dispatch Map/Board, Assign/Reassign/Unassign/Cancel/Force-Complete/ETA, Fleet Cash, Batches & SLA
- *   - Domain 3 (`C41–C54`): Zones, Circle Generator, Polygon Validator, **Kulaura 1-Tap Launch**, Fees, Weather Override & Fare Simulator
+ *   - Domain 1 (`C1–C21`): Governance, Admin Users/Roles, Session Revocation, Audit CSV, Settings Rollback, Kill Switches, Quotas
+ *   - Domain 2 (`C22–C40`): Live Dispatch Map/Board, Assign/Reassign/Unassign/Cancel/Force-Complete/ETA, Fleet Cash, Batches
+ *   - Domain 3 (`C41–C54`): Zones, Circle Generator, Polygon Validator, **Kulaura 1-Tap Launch**, Fees, Weather Override & Fare Sim
  *   - Domain 4 (`C55–C70`): 3-Track KYC Queue, **`ADR-0006 v2` 120s Private Signed URL + Audit**, Vendor 360, Moderation & Taxonomy
+ *   - Domain 5 (`C71–C89`): Weekly Settlement Invoices (strict verifier ≠ payer dual-control), TrxID Cash Remittances, Adjustments & Reports
+ *   - Domain 6 (`C90–C101`): Order 360 Deep Replay, Automated Exceptions, Mid-Order Modify, Goodwill Vouchers & Global Search
+ *   - Domain 7 (`C102–C113`): Zero-Ads Growth Engine (`D-11` Flash Box, Campaigns, Vouchers, `ImgBB` Banners, Referrals & Nudges)
+ *   - Domain 8 (`C114–C124`): Unified Support Inbox, Live Chats, Root-Cause Disputes, Review Moderation & Customer 360
+ *   - Domain 9 (`C125–C132`): Executive KPI Cockpit, Multi-Zone BI, Funnels/Cohorts/Demand, Saved CSV Reports & Zero-Drift Quality
+ *   - Scheduled Crons (`scheduled`): `5 18 * * 4` (Fri Rider Settlement), `5 18 * * 5` (Sat Vendor Settlement),
+ *     `30 20 * * *` (Nightly Free-Tier Quota Prune), `0 * * * *` (Hourly MET Norway Weather Sync)
  */
 
+import { type AdminCronRunResult, runAdminScheduledCron } from './cron.ts';
 import { createAdminPostgrestAdapter } from './db-postgrest.ts';
 import {
   ADMIN_CORS_HEADERS,
@@ -17,17 +26,22 @@ import {
   authenticateAdminRequest,
 } from './http.ts';
 import { handleDispatchControlRoutes } from './routes/dispatch-control.ts';
+import { handleFinanceSettlementRoutes } from './routes/finance-settlement.ts';
 import { handleGovernanceRoutes } from './routes/governance.ts';
+import { handleOrdersGrowthRoutes } from './routes/orders-growth.ts';
+import { handleSupportBiRoutes } from './routes/support-bi.ts';
 import { handleVendorsKycAndCatalogRoutes } from './routes/vendors-kyc.ts';
 import { handleZonesAndPricingRoutes } from './routes/zones-pricing.ts';
 import type { AdminWorkerEnv } from './types.ts';
 
+export * from './cron.ts';
 export * from './db-postgrest.ts';
 export * from './geo-polygon.ts';
 export * from './http.ts';
 export * from './rbac.ts';
 export * from './totp.ts';
 export * from './types.ts';
+export * from './types-part2.ts';
 
 export default {
   async fetch(request: Request, env: AdminWorkerEnv): Promise<Response> {
@@ -42,7 +56,8 @@ export default {
         {
           service: env.SERVICE_NAME ?? 'undal-admin',
           capabilitiesTarget: 132,
-          capabilitiesImplemented: 70,
+          capabilitiesImplemented: 132,
+          scheduledCrons: 4,
           status: 'ok',
         },
         requestId,
@@ -74,22 +89,36 @@ export default {
         nowMs,
       };
 
-      const gov = await handleGovernanceRoutes(ctx);
-      if (gov) return gov;
-
-      const dispatch = await handleDispatchControlRoutes(ctx);
-      if (dispatch) return dispatch;
-
-      const zones = await handleZonesAndPricingRoutes(ctx);
-      if (zones) return zones;
-
-      const vendors = await handleVendorsKycAndCatalogRoutes(ctx);
-      if (vendors) return vendors;
+      for (const handler of [
+        handleGovernanceRoutes,
+        handleDispatchControlRoutes,
+        handleZonesAndPricingRoutes,
+        handleVendorsKycAndCatalogRoutes,
+        handleFinanceSettlementRoutes,
+        handleOrdersGrowthRoutes,
+        handleSupportBiRoutes,
+      ]) {
+        const res = await handler(ctx);
+        if (res) return res;
+      }
 
       return adminJsonErr('AUTH_FORBIDDEN_PERMISSION', requestId, { path: url.pathname });
     } catch (err) {
       const detail = err instanceof Error ? err.message : 'Unexpected admin worker error';
       return adminJsonErr('SERVER_BUSY', requestId, { detail });
     }
+  },
+
+  async scheduled(
+    controller: { readonly cron: string; readonly scheduledTime?: number },
+    env: AdminWorkerEnv,
+  ): Promise<AdminCronRunResult> {
+    const db = env.dbAdapter ?? createAdminPostgrestAdapter(env);
+    return runAdminScheduledCron({
+      cron: controller.cron,
+      scheduledTimeMs: controller.scheduledTime,
+      db,
+      env,
+    });
   },
 };

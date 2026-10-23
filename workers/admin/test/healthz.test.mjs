@@ -9,6 +9,8 @@ test('W3 undal-admin /healthz responds 200 and denies unauthenticated admin path
   assert.equal(ok.status, 200);
   const body = await ok.json();
   assert.equal(body.data.capabilitiesTarget, 132);
+  assert.equal(body.data.capabilitiesImplemented, 132);
+  assert.equal(body.data.scheduledCrons, 4);
 
   const denied = await worker.fetch(new Request('https://admin-api.undal.example/v1/admin/users'), {});
   assert.equal(denied.status, 403);

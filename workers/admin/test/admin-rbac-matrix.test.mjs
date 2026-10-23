@@ -155,6 +155,34 @@ test('W3 RBAC Matrix (all 7 system roles × all Domain 1–4 routes) + 4-Gate TO
       path: '/v1/admin/taxonomy',
       allow: ['super_admin', 'ops_manager', 'vendor_onboarding'],
     },
+    {
+      path: '/v1/admin/invoices',
+      allow: ['super_admin', 'finance'],
+    },
+    {
+      path: '/v1/admin/ledger',
+      allow: ['super_admin', 'finance', 'compliance_auditor'],
+    },
+    {
+      path: '/v1/admin/orders/search?q=UD',
+      allow: ['super_admin', 'ops_manager', 'dispatcher'],
+    },
+    {
+      path: '/v1/admin/campaigns',
+      allow: ['super_admin', 'ops_manager'],
+    },
+    {
+      path: '/v1/admin/support/threads',
+      allow: ['super_admin', 'support'],
+    },
+    {
+      path: '/v1/admin/dashboard/kpis',
+      allow: ['super_admin', 'ops_manager', 'finance', 'compliance_auditor'],
+    },
+    {
+      path: '/v1/admin/bi/quality',
+      allow: ['super_admin', 'ops_manager', 'finance', 'compliance_auditor'],
+    },
   ];
 
   for (const probe of matrixProbes) {

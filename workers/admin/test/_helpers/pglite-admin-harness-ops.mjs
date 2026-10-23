@@ -301,5 +301,66 @@ export function buildPgliteAdminOpsMethods(db) {
         await db.query('SELECT * FROM public.menu_items WHERE name_en ILIKE $1 LIMIT 50', [`%${query}%`])
       ).rows;
     },
+
+    async getExecutiveBiSnapshot(nowMs) {
+      const zones = (
+        await db.query(
+          `SELECT z.slug, count(o.id)::int AS orders_count,
+                  coalesce(sum(o.items_poisha), 0)::bigint AS gmv_poisha,
+                  coalesce(sum(o.undal_margin_poisha), 0)::bigint AS margin_poisha
+           FROM public.zones z
+           LEFT JOIN public.orders o ON o.zone_id = z.id AND o.status = 'DELIVERED'
+           GROUP BY z.slug ORDER BY z.slug ASC`,
+        )
+      ).rows;
+      return { sampledAtMs: nowMs, zoneBreakdown: zones };
+    },
+
+    async getDataQualityReport() {
+      const ordRow = (
+        await db.query(
+          `SELECT count(*)::int AS cnt, coalesce(sum(vendor_net_poisha), 0)::bigint AS sum_net
+           FROM public.orders WHERE status = 'DELIVERED'`,
+        )
+      ).rows[0];
+      const ledRow = (
+        await db.query(
+          `SELECT coalesce(sum(amount_poisha), 0)::bigint AS sum_led
+           FROM public.ledger_entries WHERE actor_type = 'vendor' AND order_id IS NOT NULL`,
+        )
+      ).rows[0];
+      const ordersVendorNetSumPoisha = Number(ordRow.sum_net);
+      const ledgerVendorSumPoisha = Number(ledRow.sum_led);
+      const vendorLedgerDriftPoisha = ledgerVendorSumPoisha - ordersVendorNetSumPoisha;
+      return {
+        deliveredOrdersCount: Number(ordRow.cnt),
+        ordersVendorNetSumPoisha,
+        ledgerVendorSumPoisha,
+        vendorLedgerDriftPoisha,
+        orphanExpiredOffersCount: 0,
+        healthy: vendorLedgerDriftPoisha === 0,
+      };
+    },
+
+    async runNightlyQuotaPrune(nowMs) {
+      const r = (await db.query('SELECT public.prune_ephemeral_rows($1::timestamptz) AS res', [new Date(nowMs).toISOString()])).rows[0];
+      return r.res;
+    },
+
+    async refreshActiveZoneWeather(zoneId, condition, source, nowMs) {
+      const existing = (await db.query('SELECT * FROM public.weather_cache WHERE zone_id = $1 LIMIT 1', [zoneId])).rows[0];
+      if (existing?.source === 'admin_override' && new Date(existing.expires_at).getTime() > nowMs) {
+        return { updated: false, preservedAdminOverride: true };
+      }
+      await db.query(
+        `INSERT INTO public.weather_cache (zone_id, condition, source, fetched_at, expires_at)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (zone_id) DO UPDATE SET
+           condition = EXCLUDED.condition, source = EXCLUDED.source,
+           fetched_at = EXCLUDED.fetched_at, expires_at = EXCLUDED.expires_at`,
+        [zoneId, condition, source, new Date(nowMs).toISOString(), new Date(nowMs + 3_600_000).toISOString()],
+      );
+      return { updated: true, preservedAdminOverride: false };
+    },
   };
 }

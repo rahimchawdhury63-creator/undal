@@ -7,6 +7,7 @@
 
 import { DEFAULT_FARE_POLICY, type FarePolicyConfig } from '@undal/shared-ts';
 import { createPostgrestAdminOps } from './db-postgrest-ops.ts';
+import { buildAdminPart2PostgrestMethods } from './db-postgrest-part2.ts';
 import type { LngLatPair } from './geo-polygon.ts';
 import type { AdminDbAdapter, AdminWorkerEnv } from './types.ts';
 
@@ -375,5 +376,6 @@ export function createAdminPostgrestAdapter(
     },
 
     ...createPostgrestAdminOps(t),
+    ...buildAdminPart2PostgrestMethods(t),
   };
 }

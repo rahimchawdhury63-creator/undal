@@ -7,6 +7,7 @@
 
 import type { FarePolicyConfig } from '@undal/shared-ts';
 import type { LngLatPair } from './geo-polygon.ts';
+import type { AdminPart2DbMethods } from './types-part2.ts';
 
 export interface AdminPrincipal {
   readonly profileId: string;
@@ -33,7 +34,7 @@ export interface AuditWriteInput {
   readonly nowMs: number;
 }
 
-export interface AdminDbAdapter {
+export interface AdminDbAdapter extends AdminPart2DbMethods {
   // --- Auth, Admin Users, Roles & Sessions (`C1–C9`) ---
   getAdminPrincipal(profileId: string): Promise<Omit<AdminPrincipal, 'sessionId'> | null>;
   enrollAdminTotp(profileId: string, nowMs: number): Promise<void>;
