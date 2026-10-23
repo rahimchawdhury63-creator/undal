@@ -1,9 +1,9 @@
-# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.2)
+# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.3)
 
 > **Single Living Progress Ledger (`UNDAL-MASTER-GUIDE/27-builder-protocol-32-responses.md`)**  
 > **Repository:** `rahimchawdhury63-creator/undal` · **Branch:** `arena/f81366de-undal`  
-> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 2 — COMPLETE`**  
-> **Next Scheduled Milestone:** **`Build Response 3`** (`Migrations II — vendors, menus, variants, bundles, zones`: `supabase/migrations/0005..0008` + geo/catalog/search RPCs + `pgTAP`, awaiting Founder `"continue"`)
+> **Last Updated:** `2026-10-23` · **Current Completed Milestone:** **`Build Response 3 — COMPLETE`**  
+> **Next Scheduled Milestone:** **`Build Response 4`** (`Migrations III — riders, presence, promos, carts, orders, events, offers, batches + SQL money RPCs M-1..M-8`: `supabase/migrations/0009..0012`, awaiting Founder `"continue"`)
 
 ---
 
@@ -14,10 +14,10 @@
 | **Master Guide Files Read (`00–28` + `App A–N`)** | 43 | **43 (`100%`)** | 0 | Restated across `docs/understanding/01..07` |
 | **Visual Reference Screenshot Audit (`All 4 Surfaces`)** | **172** | **172 (`100.0%`)** | 0 | `01-customer-*` (`65`) + `04-partner-rider-*` (`107`) |
 | **Shared TS & Flutter Packages (`@undal/shared-ts` + `undal_core`)** | 2 packages | **DONE ✓ (`Build 1`)** | Extended per response | `packages/shared_ts/`, `packages/undal_core/` |
-| **Golden Math Parity (`M-1..M-8` + `F-1..F-6` + 10K Fuzz)** | TS + Dart + SQL | **TS + Dart 100% ✓** | SQL parity in `Build 4` | `money-fare-i18n.test.mjs`, `undal_core_test.dart` |
-| **Postgres Migrations + `pgTAP` RLS Suite (`0001..0016`)** | 16 migrations / 50 tables | **`4 / 16` (`12 / 50` tables) ✓** | **`Build 3–5` (`0005..0016`)** | `supabase/migrations/0001..0004`, `01_core_rls_and_seeds.pgtap.sql` |
-| **Canonical Taxonomies & Settings Seeded in SQL** | `72` settings + `117` cuisines | **`72 / 72` + `117 / 117` ✓** | Sylhet/Kulaura zones in `Build 3` | `0004_core_rls_and_seeds.sql` + parity tests |
-| **Super Admin Capabilities (`Appendix C`)** | 132 P0 | RBAC roles/grants + settings/audit DDL ready | **`Build 10–11, 25–28`** | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
+| **Golden Math Parity (`M-1..M-8` + `F-1..F-6` + 10K Fuzz)** | TS + Dart + SQL | **TS + Dart 100% ✓** | **SQL `M-1..M-8` next (`Build 4`)!** | `money-fare-i18n.test.mjs`, `undal_core_test.dart` |
+| **Postgres Migrations + `pgTAP` RLS Suite (`0001..0016`)** | 16 migrations / 50 tables | **`8 / 16` (`27 / 50` tables) ✓** | **`Build 4–5` (`0009..0016`)** | `supabase/migrations/0001..0008`, `54` `pg_prove` assertions |
+| **Launch Zones & Privacy-Safe Catalog/Search RPCs** | Sylhet Sadar + Kulaura + `rank_v1` | **DONE ✓ (`Build 3`)** | Consumed by `W1` in `Build 6` | `0005..0008`, `02_zones_vendors_menus_rpcs.pgtap.sql` |
+| **Super Admin Capabilities (`Appendix C`)** | 132 P0 | RBAC + Zones + Vendor/Menu DDL ready | **`Build 10–11, 25–28`** | [`07-admin-registry-final.md`](./07-admin-registry-final.md) |
 
 ---
 
@@ -28,9 +28,9 @@
 | **Plan 1** | Understand the world & customer surfaces | `01..03`, `ADR-0001..0004`, skeleton, `ci.yml`, `verify-gates.mjs` | **DONE ✓** | GHA Run [`#39942499954`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39942499954) ✓ |
 | **Plan 2** | Understand operators, final contracts, design tokens & bootstrap CI | `04..07` (+`04a..c`), `ADR-0005`, `tokens.ts`/`css`/`dart`, `keystore-generate.yml`, `bootstrap-admin.yml` | **DONE ✓** | GHA Run [`#39944956870`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39944956870) ✓ |
 | **Build 1** | Monorepo + shared packages + design tokens + i18n framework | `@undal/shared-ts`, `package:undal_core`, all 8 worker/web/Flutter shells building & green | **DONE ✓** | GHA Run [`#39950731556`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39950731556) (`3/3` jobs green) ✓ |
-| **Build 2** | **Migrations I — auth/profiles/RBAC/audit/settings/taxonomy** | `supabase/config.toml`, `supabase/migrations/0001..0004` (`12` RLS-forced tables, `7` RBAC roles, `72` settings, `117` `Appendix D` cuisines, `cancel_reasons`, `feedback_tags`, private/public Storage RLS), `01_core_rls_and_seeds.pgtap.sql` (`30` `pg_prove` assertions) + `PGlite` suite | **DONE ✓** | GHA Run [`#39952710240`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39952710240) (`4/4` jobs green: PostgreSQL 16 `pg_prove` `30/30` + `PGlite` + Flutter `3.29.2 × 4` + TS/Vite/Fuzz/Gates) ✓ |
-| **Build 3** | **Migrations II — vendors, menus, variants, bundles, zones** | `supabase/migrations/0005..0008` (**Sylhet Sadar** active + **Kulaura** paused seeds, 3-track vendors, private `HOME_KITCHEN` address guard, menus/variants/options/bundles, `resolve_zone`, `is_vendor_open_now`, `get_home_feed`, `get_vendor_storefront`, `search_catalog` `rank_v1`) | **NEXT** | RPC tests: zone resolve, menu read, hours + `pgTAP` vendor/public RLS matrix |
-| **Build 4** | Migrations III — carts, orders, events, offers, batches | `supabase/migrations/0009..0012` + money RPC | Queued | **Appendix F money vectors `M-1…M-8` pass in SQL** |
+| **Build 2** | Migrations I — auth/profiles/RBAC/audit/settings/taxonomy | `supabase/migrations/0001..0004` (`12` RLS-forced tables, `72` settings, `117` cuisines, Storage RLS) + `30` `pgTAP` tests | **DONE ✓** | GHA Run [`#39952938406`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39952938406) (`4/4` jobs green) ✓ |
+| **Build 3** | **Migrations II — vendors, menus, variants, bundles, zones** | `supabase/migrations/0005..0008` (`15` new RLS-forced tables = `27/50` cumulative, `Sylhet Sadar` active + `Kulaura` paused polygon seeds, `HOME_KITCHEN` privacy view & coarse geohash, split/overnight `Asia/Dhaka` hours + `>=4h×5d` compliance, combo availability, `rank_v1` `get_home_feed` / `get_vendor_storefront` / `search_catalog`) + `54` cumulative `pg_prove` assertions | **DONE ✓** | Live 4-job GHA CI (`PostgreSQL 16 + pg_prove 54/54` + `PGlite` + `Flutter 3.29.2 × 4` + `TS/Vite/Fuzz/Gates`) ✓ |
+| **Build 4** | **Migrations III — carts, orders, events, offers, batches** | `supabase/migrations/0009..0012` (`riders`, `rider_documents`, `rider_shifts`, `UNLOGGED presence_live`, `campaigns`, `campaign_vendors`, `vouchers`, `voucher_redemptions`, `carts`, `cart_items`, `idempotency_keys`, `order_batches`, `orders`, `order_items`, `order_events`, `order_offers` + SQL `price_order`, `place_order`, `transition_order`, `verify_pickup_qr`) | **NEXT** | **Appendix F money vectors `M-1…M-8` pass in SQL (`0` poisha drift) + `pgTAP`** |
 | **Build 5** | Migrations IV — ledger, invoices, remittances, reviews, chat, support | `supabase/migrations/0013..0016` + triggers + cron funcs | Queued | Ledger append-only test; invoice idempotency test |
 | **Build 6** | W1 API — auth/profile/catalog/search/ImgBB proxy | `workers/api` routes part 1 | Queued | Vitest Miniflare; secret-leak scan clean |
 | **Build 7** | W1 API — cart/voucher/place-order/transitions/chat/reviews | `workers/api` routes part 2 | Queued | Full order happy-path + cancel matrix tests |
