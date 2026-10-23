@@ -66,51 +66,54 @@ class _CustomerSearchViewState extends State<CustomerSearchView> {
     final String lang = Localizations.localeOf(context).languageCode;
     final bool hasQuery = ctrl.searchQuery.trim().isNotEmpty;
 
-    return ListView(
+    return SingleChildScrollView(
       key: ValueKey<String>(hasQuery ? 'screen-c-12' : 'screen-c-11'),
       padding: const EdgeInsets.all(UndalSpacingTokens.md),
-      children: <Widget>[
-        TextField(
-          key: const ValueKey<String>('search-query-input'),
-          controller: _inputCtrl,
-          textInputAction: TextInputAction.search,
-          onChanged: (String v) => ctrl.setSearchQuery(v),
-          onSubmitted: (String v) =>
-              ctrl.setSearchQuery(v, recordRecent: true),
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search),
-            suffixIcon: hasQuery
-                ? IconButton(
-                    key: const ValueKey<String>('search-clear-btn'),
-                    tooltip: UndalLocalizations.of(context).t('common.cancel'),
-                    onPressed: () {
-                      _inputCtrl.clear();
-                      ctrl.setSearchQuery('');
-                    },
-                    icon: const Icon(Icons.clear),
-                  )
-                : null,
-            hintText: cText(
-              context,
-              'Search in English, বাংলা or Banglish (biriyani, shutki)...',
-              'ইংরেজি, বাংলা বা বাংলিশে খুঁজুন (বিরিয়ানি, shutki)...',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          TextField(
+            key: const ValueKey<String>('search-query-input'),
+            controller: _inputCtrl,
+            textInputAction: TextInputAction.search,
+            onChanged: (String v) => ctrl.setSearchQuery(v),
+            onSubmitted: (String v) =>
+                ctrl.setSearchQuery(v, recordRecent: true),
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: hasQuery
+                  ? IconButton(
+                      key: const ValueKey<String>('search-clear-btn'),
+                      tooltip: UndalLocalizations.of(context).t('common.cancel'),
+                      onPressed: () {
+                        _inputCtrl.clear();
+                        ctrl.setSearchQuery('');
+                      },
+                      icon: const Icon(Icons.clear),
+                    )
+                  : null,
+              hintText: cText(
+                context,
+                'Search in English, বাংলা or Banglish (biriyani, shutki)...',
+                'ইংরেজি, বাংলা বা বাংলিশে খুঁজুন (বিরিয়ানি, shutki)...',
+              ),
+              border: const OutlineInputBorder(),
             ),
-            border: const OutlineInputBorder(),
           ),
-        ),
-        const SizedBox(height: UndalSpacingTokens.md),
-        if (!hasQuery)
-          ..._buildPreQueryLanding(context, ctrl, theme, scheme, lang)
-        else
-          ..._buildSearchResults(
-            context: context,
-            ctrl: ctrl,
-            theme: theme,
-            scheme: scheme,
-            semantic: semantic,
-            lang: lang,
-          ),
-      ],
+          const SizedBox(height: UndalSpacingTokens.md),
+          if (!hasQuery)
+            ..._buildPreQueryLanding(context, ctrl, theme, scheme, lang)
+          else
+            ..._buildSearchResults(
+              context: context,
+              ctrl: ctrl,
+              theme: theme,
+              scheme: scheme,
+              semantic: semantic,
+              lang: lang,
+            ),
+        ],
+      ),
     );
   }
 

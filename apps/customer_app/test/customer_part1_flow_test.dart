@@ -99,6 +99,10 @@ void main() {
         expect(find.byKey(const ValueKey<String>('screen-c-06')), findsOneWidget);
 
         // Enter c-07 3-step Sign-Up, save Step 1, pause via Resume Later, then complete!
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('c06-open-signup-btn')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('c06-open-signup-btn')));
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey<String>('screen-c-07')), findsOneWidget);
@@ -107,11 +111,19 @@ void main() {
           find.byKey(const ValueKey<String>('c07-phone-input')),
           '০১৮১২৩৪৫৬৭৮',
         );
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('c07-step-next-btn')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('c07-step-next-btn')));
         await tester.pumpAndSettle();
         expect(ctrl.signUpDraft.stepIndex, 1);
 
         // Save progress & browse first -> returns to c-08 preserving step 2/3
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('c07-resume-later-btn')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('c07-resume-later-btn')));
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey<String>('screen-c-08')), findsOneWidget);
@@ -122,6 +134,10 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(panchiniFav);
         await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('c06-open-signup-btn')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('c06-open-signup-btn')));
         await tester.pumpAndSettle();
 
@@ -129,10 +145,18 @@ void main() {
           find.byKey(const ValueKey<String>('c07-fullname-input')),
           'Tahmid Ahmed',
         );
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('c07-step-next-btn')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('c07-step-next-btn')));
         await tester.pumpAndSettle();
         expect(ctrl.signUpDraft.stepIndex, 2);
 
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('c07-step-next-btn')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('c07-step-next-btn')));
         await tester.pumpAndSettle();
 
@@ -194,6 +218,10 @@ void main() {
         expect(find.textContaining('Farhanar Rannaghor'), findsNothing);
 
         // Open c-10 Full-Screen Pickup Map
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('open-pickup-map-c10-btn')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(
           find.byKey(const ValueKey<String>('open-pickup-map-c10-btn')),
         );
@@ -217,6 +245,10 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey<String>('screen-c-12')), findsOneWidget);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('add-dish-dish-farhana-shutki')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(
           find.byKey(const ValueKey<String>('add-dish-dish-farhana-shutki')),
         );
@@ -224,6 +256,10 @@ void main() {
         expect(ctrl.totalBasketItems, 1);
 
         // Bengali script query "সাতকরা" matches Shatkora Beef Bhuna
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('search-query-input')),
+        );
+        await tester.pumpAndSettle();
         await tester.enterText(
           find.byKey(const ValueKey<String>('search-query-input')),
           'সাতকরা',
@@ -241,6 +277,10 @@ void main() {
           find.byKey(const ValueKey<String>('c12-did-you-mean-btn')),
           findsOneWidget,
         );
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('c12-did-you-mean-btn')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(
           find.byKey(const ValueKey<String>('c12-did-you-mean-btn')),
         );

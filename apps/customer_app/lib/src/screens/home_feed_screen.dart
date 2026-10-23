@@ -43,88 +43,84 @@ class CustomerHomeFeedView extends StatelessWidget {
             ? 3
             : (width >= UndalBreakpointTokens.tablet768 ? 2 : 1);
 
-        return CustomScrollView(
+        return SingleChildScrollView(
           key: ValueKey<String>(isPickup ? 'screen-c-09' : 'screen-c-08'),
-          cacheExtent: 1600,
-          slivers: <Widget>[
-            SliverPadding(
-              padding: const EdgeInsets.all(UndalSpacingTokens.md),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate(<Widget>[
-                  _buildHeader(context, theme, scheme, l10n),
+          padding: const EdgeInsets.all(UndalSpacingTokens.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              _buildHeader(context, theme, scheme, l10n),
+              const SizedBox(height: UndalSpacingTokens.md),
+              _buildShortcutRail(context),
+              const SizedBox(height: UndalSpacingTokens.md),
+              _buildCuisineRail(context, scheme, lang),
+              const SizedBox(height: UndalSpacingTokens.sm),
+              _buildFilterRow(context),
+              const SizedBox(height: UndalSpacingTokens.md),
+              if (!controller.activeAddress.verdict.inServiceArea)
+                OutsideServiceAreaCard(controller: controller)
+              else ...<Widget>[
+                HomeHeroBannerCard(controller: controller),
+                const SizedBox(height: UndalSpacingTokens.md),
+                HomeFlashBoxStrip(
+                  secondsLeft: controller.flashSecondsLeft,
+                ),
+                if (isPickup) ...<Widget>[
                   const SizedBox(height: UndalSpacingTokens.md),
-                  _buildShortcutRail(context),
-                  const SizedBox(height: UndalSpacingTokens.md),
-                  _buildCuisineRail(context, scheme, lang),
+                  _buildPickupMapPreviewCard(context, theme, scheme),
+                ],
+                if (controller.filters.activeCount == 0 &&
+                    controller.orderAgainVendors.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: UndalSpacingTokens.lg),
+                  Text(
+                    l10n.t('home.order_again'),
+                    style: theme.textTheme.titleLarge,
+                  ),
                   const SizedBox(height: UndalSpacingTokens.sm),
-                  _buildFilterRow(context),
-                  const SizedBox(height: UndalSpacingTokens.md),
-                  if (!controller.activeAddress.verdict.inServiceArea)
-                    OutsideServiceAreaCard(controller: controller)
-                  else ...<Widget>[
-                    HomeHeroBannerCard(controller: controller),
-                    const SizedBox(height: UndalSpacingTokens.md),
-                    HomeFlashBoxStrip(
-                      secondsLeft: controller.flashSecondsLeft,
-                    ),
-                    if (isPickup) ...<Widget>[
-                      const SizedBox(height: UndalSpacingTokens.md),
-                      _buildPickupMapPreviewCard(context, theme, scheme),
-                    ],
-                    if (controller.filters.activeCount == 0 &&
-                        controller.orderAgainVendors.isNotEmpty) ...<Widget>[
-                      const SizedBox(height: UndalSpacingTokens.lg),
-                      Text(
-                        l10n.t('home.order_again'),
-                        style: theme.textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: UndalSpacingTokens.sm),
-                      _buildOrderAgainShelf(lang),
-                    ],
-                    const SizedBox(height: UndalSpacingTokens.lg),
-                    Wrap(
-                      alignment: WrapAlignment.spaceBetween,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: UndalSpacingTokens.sm,
-                      children: <Widget>[
-                        Text(
-                          isPickup
-                              ? cText(
-                                  context,
-                                  'Pick up hot at kitchen counter',
-                                  'কাউন্টার থেকে গরম খাবার নিন',
-                                )
-                              : l10n.t('home.explore_nearby'),
-                          style: theme.textTheme.titleLarge,
-                        ),
-                        TextButton.icon(
-                          key: const ValueKey<String>('how-ranking-works-btn'),
-                          onPressed: () => showRankingExplainerSheet(context),
-                          icon: const Icon(Icons.verified_outlined, size: 16),
-                          label: Text(
-                            cText(
+                  _buildOrderAgainShelf(lang),
+                ],
+                const SizedBox(height: UndalSpacingTokens.lg),
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: UndalSpacingTokens.sm,
+                  children: <Widget>[
+                    Text(
+                      isPickup
+                          ? cText(
                               context,
-                              'rank_v1 · 0 Ads',
-                              'rank_v1 · বিজ্ঞাপনমুক্ত',
-                            ),
-                          ),
-                        ),
-                      ],
+                              'Pick up hot at kitchen counter',
+                              'কাউন্টার থেকে গরম খাবার নিন',
+                            )
+                          : l10n.t('home.explore_nearby'),
+                      style: theme.textTheme.titleLarge,
                     ),
-                    const SizedBox(height: UndalSpacingTokens.sm),
-                    _buildResponsiveVendorGrid(ranked, columns),
-                    if (ranked.length < 3 &&
-                        controller.filters.activeCount > 0) ...<Widget>[
-                      const SizedBox(height: UndalSpacingTokens.lg),
-                      SparseFilterRecoveryCard(
-                        onResetFilters: controller.resetAllFilters,
+                    TextButton.icon(
+                      key: const ValueKey<String>('how-ranking-works-btn'),
+                      onPressed: () => showRankingExplainerSheet(context),
+                      icon: const Icon(Icons.verified_outlined, size: 16),
+                      label: Text(
+                        cText(
+                          context,
+                          'rank_v1 · 0 Ads',
+                          'rank_v1 · বিজ্ঞাপনমুক্ত',
+                        ),
                       ),
-                    ],
+                    ),
                   ],
-                ]),
-              ),
-            ),
-          ],
+                ),
+                const SizedBox(height: UndalSpacingTokens.sm),
+                _buildResponsiveVendorGrid(ranked, columns),
+                if (ranked.length < 3 &&
+                    controller.filters.activeCount > 0) ...<Widget>[
+                  const SizedBox(height: UndalSpacingTokens.lg),
+                  SparseFilterRecoveryCard(
+                    onResetFilters: controller.resetAllFilters,
+                  ),
+                ],
+              ],
+            ],
+          ),
         );
       },
     );
