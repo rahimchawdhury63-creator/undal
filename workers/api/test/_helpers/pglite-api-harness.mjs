@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { createPgliteOpsMethods } from './pglite-api-ops.mjs';
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 export const TEST_JWT_SECRET = 'undal-test-jwt-hmac-secret-32-chars-minimum!!';
@@ -48,7 +49,9 @@ export async function bootRealApiPostgres() {
 
 /** Wraps real PostgreSQL 16 (`PGlite`) as `ApiDbAdapter` for `W1 undal-api`. */
 export function createPgliteAdapter(db) {
+  const resolveZone = async (lat, lng) => (await db.query('SELECT * FROM public.resolve_zone($1, $2)', [lat, lng])).rows[0];
   return {
+    ...createPgliteOpsMethods(db, resolveZone),
     async ping() {
       return (await db.query('SELECT 1 AS ok')).rows.length === 1;
     },

@@ -4,8 +4,10 @@
  * Calls hosted Supabase `/rest/v1/*` and `/rest/v1/rpc/*` using native Worker `fetch()`.
  */
 
+import { createPostgrestOpsMethods } from './db-postgrest-ops.ts';
 import type { ApiDbAdapter, ApiWorkerEnv, AuthPrincipal, StoredMediaAssetRow } from './types.ts';
 
+/** Creates the production zero-SDK Supabase PostgREST + RPC adapter for `W1 undal-api`. */
 export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
   const fetcher = env.__fetchImpl ?? fetch;
   const baseUrl = (env.SUPABASE_URL ?? '').replace(/\/+$/, '');
@@ -20,10 +22,29 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
     };
   }
 
+  async function parseErrorDetail(res: Response, fallback: string): Promise<never> {
+    const errJson = (await res.json().catch(() => null)) as { message?: string; details?: string } | null;
+    throw new Error(errJson?.message ? `${fallback}: ${errJson.message}` : `${fallback} (${res.status})`);
+  }
+
   async function getJson<T>(pathAndQuery: string): Promise<T> {
     const res = await fetcher(`${baseUrl}/rest/v1/${pathAndQuery}`, { headers: restHeaders() });
-    if (!res.ok) throw new Error(`Supabase GET ${pathAndQuery} failed (${res.status})`);
+    if (!res.ok) return parseErrorDetail(res, `Supabase GET ${pathAndQuery} failed`);
     return (await res.json()) as T;
+  }
+
+  async function sendJson<T>(
+    method: 'POST' | 'PATCH' | 'DELETE',
+    pathAndQuery: string,
+    body?: unknown,
+    prefer = 'return=representation',
+  ): Promise<T> {
+    const init: RequestInit = { method, headers: restHeaders({ Prefer: prefer }) };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    const res = await fetcher(`${baseUrl}/rest/v1/${pathAndQuery}`, init);
+    if (!res.ok) return parseErrorDetail(res, `Supabase ${method} ${pathAndQuery} failed`);
+    const text = await res.text();
+    return (text ? JSON.parse(text) : []) as T;
   }
 
   async function callRpc<T>(fnName: string, args: Record<string, unknown>): Promise<T> {
@@ -32,11 +53,20 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
       headers: restHeaders(),
       body: JSON.stringify(args),
     });
-    if (!res.ok) throw new Error(`Supabase RPC ${fnName} failed (${res.status})`);
+    if (!res.ok) return parseErrorDetail(res, `Supabase RPC ${fnName} failed`);
     return (await res.json()) as T;
   }
 
+  const resolveZone = async (lat: number, lng: number) => {
+    const rows = await callRpc<Record<string, unknown>[]>('resolve_zone', { p_lat: lat, p_lng: lng });
+    return rows[0] ?? { in_service_area: false };
+  };
+
+  const ops = createPostgrestOpsMethods({ getJson, sendJson, callRpc, resolveZone });
+
   return {
+    ...ops,
+
     async ping() {
       if (!baseUrl || !serviceKey) return false;
       const rows = await getJson<unknown[]>('zones?select=slug&limit=1');
@@ -58,10 +88,7 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
       return Object.fromEntries(rows.map((r) => [r.key, r.value]));
     },
 
-    async resolveZone(lat, lng) {
-      const rows = await callRpc<Record<string, unknown>[]>('resolve_zone', { p_lat: lat, p_lng: lng });
-      return rows[0] ?? { in_service_area: false };
-    },
+    resolveZone,
 
     async getHomeFeed(params) {
       const feed = await callRpc<Record<string, unknown>>('get_home_feed', {
@@ -80,7 +107,7 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
           )
         : [];
       const flashCampaigns = await getJson<Record<string, unknown>[]>(
-        'campaigns?is_active=eq.true&kind=eq.flash_box&select=id,slug,title_en,title_bn,flat_poisha,pct_bps,ends_at',
+        'campaigns?is_active=eq.true&kind=eq.flash_box&select=id,slug,title_en,title_bn,flat_poisha,percent_bps,ends_at',
       );
       return { feed, banners, flashCampaigns };
     },
@@ -113,16 +140,12 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
         p_fulfilment: params.fulfilment,
         p_limit: params.limit,
       });
-      const zone = await this.resolveZone(params.lat, params.lng);
-      await fetcher(`${baseUrl}/rest/v1/search_queries`, {
-        method: 'POST',
-        headers: restHeaders({ Prefer: 'return=minimal' }),
-        body: JSON.stringify({
-          zone_id: typeof zone.zone_id === 'string' ? zone.zone_id : null,
-          query_norm: params.query.trim().toLowerCase().slice(0, 120),
-          results_count: results.length,
-        }),
-      });
+      const zone = await resolveZone(params.lat, params.lng);
+      await sendJson('POST', 'search_queries', {
+        zone_id: typeof zone.zone_id === 'string' ? zone.zone_id : null,
+        query_norm: params.query.trim().toLowerCase().slice(0, 120),
+        results_count: results.length,
+      }, 'return=minimal');
       return results;
     },
 
@@ -143,21 +166,15 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
     },
 
     async updateOwnProfile(userId, patch) {
-      const res = await fetcher(`${baseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`, {
-        method: 'PATCH',
-        headers: restHeaders({ Prefer: 'return=representation' }),
-        body: JSON.stringify(patch),
-      });
-      if (!res.ok) throw new Error(`Profile update failed (${res.status})`);
-      const rows = (await res.json()) as Record<string, unknown>[];
+      const rows = await sendJson<Record<string, unknown>[]>('PATCH', `profiles?id=eq.${encodeURIComponent(userId)}`, patch);
       return rows[0] ?? {};
     },
 
     async upsertDeviceToken(params) {
-      const res = await fetcher(`${baseUrl}/rest/v1/device_tokens?on_conflict=fcm_token`, {
-        method: 'POST',
-        headers: restHeaders({ Prefer: 'resolution=merge-duplicates,return=representation' }),
-        body: JSON.stringify({
+      const rows = await sendJson<Record<string, unknown>[]>(
+        'POST',
+        'device_tokens?on_conflict=fcm_token',
+        {
           profile_id: params.profileId,
           fcm_token: params.fcmToken,
           app_flavor: params.appFlavor,
@@ -166,10 +183,9 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
           oem_brand: params.oemBrand,
           alarm_ready: params.alarmReady,
           last_seen_at: new Date().toISOString(),
-        }),
-      });
-      if (!res.ok) throw new Error(`Device token upsert failed (${res.status})`);
-      const rows = (await res.json()) as Record<string, unknown>[];
+        },
+        'resolution=merge-duplicates,return=representation',
+      );
       return rows[0] ?? {};
     },
 
@@ -182,16 +198,12 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
 
     async markNotificationsRead(profileId, ids) {
       const idFilter = ids && ids.length > 0 ? `&id=in.(${ids.map((i) => `"${i}"`).join(',')})` : '';
-      const res = await fetcher(
-        `${baseUrl}/rest/v1/notifications?recipient_id=eq.${encodeURIComponent(profileId)}&read_at=is.null${idFilter}`,
-        {
-          method: 'PATCH',
-          headers: restHeaders({ Prefer: 'return=representation' }),
-          body: JSON.stringify({ read_at: new Date().toISOString() }),
-        },
+      const rows = await sendJson<unknown[]>(
+        'PATCH',
+        `notifications?recipient_id=eq.${encodeURIComponent(profileId)}&read_at=is.null${idFilter}`,
+        { read_at: new Date().toISOString() },
       );
-      if (!res.ok) throw new Error(`Mark notifications failed (${res.status})`);
-      return ((await res.json()) as unknown[]).length;
+      return rows.length;
     },
 
     async countUserPublicUploadsToday(ownerProfileId) {
@@ -203,28 +215,22 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
     },
 
     async insertMediaAsset(input) {
-      const res = await fetcher(`${baseUrl}/rest/v1/media_assets`, {
-        method: 'POST',
-        headers: restHeaders({ Prefer: 'return=representation' }),
-        body: JSON.stringify({
-          owner_profile_id: input.ownerProfileId,
-          provider: input.provider,
-          category: input.category,
-          delivery_type: input.deliveryType,
-          cloudinary_public_id: input.cloudinaryPublicId,
-          public_cdn_url: input.publicCdnUrl,
-          medium_url: input.mediumUrl,
-          thumb_url: input.thumbUrl,
-          imgbb_delete_url: input.imgbbDeleteUrl,
-          bytes: input.bytes,
-          width: input.width,
-          height: input.height,
-          format: input.format,
-          exif_stripped: true,
-        }),
+      const rows = await sendJson<StoredMediaAssetRow[]>('POST', 'media_assets', {
+        owner_profile_id: input.ownerProfileId,
+        provider: input.provider,
+        category: input.category,
+        delivery_type: input.deliveryType,
+        cloudinary_public_id: input.cloudinaryPublicId,
+        public_cdn_url: input.publicCdnUrl,
+        medium_url: input.mediumUrl,
+        thumb_url: input.thumbUrl,
+        imgbb_delete_url: input.imgbbDeleteUrl,
+        bytes: input.bytes,
+        width: input.width,
+        height: input.height,
+        format: input.format,
+        exif_stripped: true,
       });
-      if (!res.ok) throw new Error(`media_assets insert failed (${res.status})`);
-      const rows = (await res.json()) as StoredMediaAssetRow[];
       return rows[0]!;
     },
 
@@ -251,20 +257,15 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
     },
 
     async insertAuditLog(entry) {
-      const res = await fetcher(`${baseUrl}/rest/v1/audit_logs`, {
-        method: 'POST',
-        headers: restHeaders({ Prefer: 'return=minimal' }),
-        body: JSON.stringify({
-          actor_id: entry.actorId,
-          actor_role: entry.actorRole,
-          action: entry.action,
-          entity_type: entry.entityType,
-          entity_id: entry.entityId,
-          diff: entry.diff,
-          request_id: entry.requestId,
-        }),
-      });
-      if (!res.ok) throw new Error(`audit_logs insert failed (${res.status})`);
+      await sendJson('POST', 'audit_logs', {
+        actor_id: entry.actorId,
+        actor_role: entry.actorRole,
+        action: entry.action,
+        entity_type: entry.entityType,
+        entity_id: entry.entityId,
+        diff: entry.diff,
+        request_id: entry.requestId,
+      }, 'return=minimal');
     },
   };
 }

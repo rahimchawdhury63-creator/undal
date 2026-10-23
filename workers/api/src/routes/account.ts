@@ -1,13 +1,14 @@
 /**
  * @file workers/api/src/routes/account.ts
- * @description Authenticated user profile (`/v1/me`), FCM native alarm device registration
- * (`/v1/devices/token`), and bilingual inbox notifications (`/v1/notifications`) for `W1 undal-api`.
+ * @description Authenticated user profile (`/v1/me`), saved delivery addresses (`/v1/addresses`),
+ * favourite kitchens (`/v1/favourites`), FCM native alarm device registration (`/v1/devices/token`),
+ * and bilingual inbox notifications (`/v1/notifications`) for `W1 undal-api` (`Build Responses 6–7`).
  */
 
 import { jsonErr, jsonOk } from '../http.ts';
 import type { ApiDbAdapter, AuthPrincipal } from '../types.ts';
 
-/** Handles `/v1/me`, `/v1/devices/token`, and `/v1/notifications*` on `W1 undal-api`. */
+/** Handles `/v1/me`, `/v1/addresses*`, `/v1/favourites*`, `/v1/devices/token`, and `/v1/notifications*`. */
 export async function handleAccountRoute(
   request: Request,
   url: URL,
@@ -16,14 +17,27 @@ export async function handleAccountRoute(
   requestId: string,
 ): Promise<Response | null> {
   const path = url.pathname;
+  const addrIdMatch = /^\/v1\/(?:me\/)?addresses\/([0-9a-f-]{36})$/i.exec(path);
+  const favMatch = /^\/v1\/favourites\/([0-9a-f-]{36})$/i.exec(path);
+  const isAddressesRoot = path === '/v1/addresses' || path === '/v1/me/addresses';
+
   const matchesAccountRoute =
     path === '/v1/me' ||
+    path === '/v1/auth/logout' ||
     path === '/v1/devices/token' ||
     path === '/v1/notifications' ||
-    path === '/v1/notifications/read';
+    path === '/v1/notifications/read' ||
+    path === '/v1/favourites' ||
+    isAddressesRoot ||
+    Boolean(addrIdMatch) ||
+    Boolean(favMatch);
 
   if (!matchesAccountRoute) return null;
   if (!principal) return jsonErr('SESSION_EXPIRED', requestId);
+
+  if (path === '/v1/auth/logout' && request.method === 'POST') {
+    return jsonOk({ logged_out: true }, requestId);
+  }
 
   if (path === '/v1/me') {
     if (request.method === 'GET') {
@@ -65,6 +79,56 @@ export async function handleAccountRoute(
       return jsonOk({ profile: updated }, requestId);
     }
     return null;
+  }
+
+  if (isAddressesRoot && request.method === 'GET') {
+    const addresses = await db.listCustomerAddresses(principal.sub);
+    return jsonOk({ addresses }, requestId, 200, { 'Cache-Control': 'private, no-store' });
+  }
+
+  if ((isAddressesRoot && request.method === 'POST') || (addrIdMatch && request.method === 'PATCH')) {
+    const body = (await request.json().catch(() => null)) as {
+      readonly label?: string;
+      readonly lat?: number;
+      readonly lng?: number;
+      readonly address_text?: string;
+      readonly delivery_instructions?: string | null;
+      readonly is_default?: boolean;
+    } | null;
+    if (
+      !body ||
+      typeof body.lat !== 'number' || !Number.isFinite(body.lat) || body.lat < -90 || body.lat > 90 ||
+      typeof body.lng !== 'number' || !Number.isFinite(body.lng) || body.lng < -180 || body.lng > 180 ||
+      typeof body.address_text !== 'string' || body.address_text.trim().length < 3 || body.address_text.trim().length > 400
+    ) {
+      return jsonErr('VALIDATION_FAILED', requestId, { required: ['lat', 'lng', 'address_text'] });
+    }
+    const saved = await db.saveCustomerAddress({
+      profileId: principal.sub,
+      addressId: addrIdMatch ? addrIdMatch[1]! : null,
+      label: typeof body.label === 'string' && body.label.trim().length > 0 ? body.label.trim().slice(0, 60) : 'Home',
+      lat: body.lat,
+      lng: body.lng,
+      addressText: body.address_text.trim(),
+      deliveryInstructions: typeof body.delivery_instructions === 'string' ? body.delivery_instructions.trim().slice(0, 300) : null,
+      isDefault: Boolean(body.is_default),
+    });
+    return jsonOk({ address: saved }, requestId, addrIdMatch ? 200 : 201);
+  }
+
+  if (addrIdMatch && request.method === 'DELETE') {
+    const deleted = await db.deleteCustomerAddress(principal.sub, addrIdMatch[1]!);
+    return jsonOk({ deleted }, requestId);
+  }
+
+  if (path === '/v1/favourites' && request.method === 'GET') {
+    const favourites = await db.listFavourites(principal.sub);
+    return jsonOk({ favourites }, requestId, 200, { 'Cache-Control': 'private, no-store' });
+  }
+
+  if (favMatch && request.method === 'POST') {
+    const toggled = await db.toggleFavourite(principal.sub, favMatch[1]!);
+    return jsonOk(toggled, requestId);
   }
 
   if (path === '/v1/devices/token' && request.method === 'POST') {
