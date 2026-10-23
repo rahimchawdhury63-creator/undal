@@ -29,7 +29,7 @@
 | Step | Canonical Title (`File 27`) | Repo Output | Status | Verification / CI Evidence |
 |---|---|---|---|---|
 | **Plan 1** | Understand the world & customer surfaces | `01..03`, `ADR-0001..0004`, skeleton, `ci.yml`, `verify-gates.mjs` | **DONE ✓** | GHA Run [`#39942499954`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39942499954) ✓ (`0` warnings) |
-| **Plan 2** | Understand operators, final contracts, design tokens & bootstrap CI | `04..07` (+`04a..c`), `ADR-0005`, `tokens.ts`/`css`/`dart`, `keystore-generate.yml`, `bootstrap-admin.yml` | **DONE ✓** | `npm run ci:plan` (`10/10` unit tests + `0` gate violations) + live dry-run CI runs ✓ |
+| **Plan 2** | Understand operators, final contracts, design tokens & bootstrap CI | `04..07` (+`04a..c`), `ADR-0005`, `tokens.ts`/`css`/`dart`, `keystore-generate.yml`, `bootstrap-admin.yml` | **DONE ✓** | `npm run ci:plan` (`10/10` pass, `74` files audited) + GHA Run [`#39944870464`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39944870464) ✓ |
 | **Build 1** | Monorepo + shared packages + design tokens + i18n framework | `packages/shared_ts` (money/fare/schemas/i18n), `packages/undal_core` (ThemeData/l10n/core) | **NEXT** | CI green across all workspaces; token + `M-1..M-8` / `F-1..F-6` snapshot tests |
 | **Build 2** | Migrations I — auth/profiles/RBAC/audit/settings/taxonomy | `supabase/migrations/0001..0004` + seed | Queued | `supabase db reset` + `pgTAP` RLS suite |
 | **Build 3** | Migrations II — vendors, menus, variants, bundles, zones | `supabase/migrations/0005..0008` + geo RPCs | Queued | RPC tests: zone resolve, menu read, hours |
