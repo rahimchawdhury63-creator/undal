@@ -62,7 +62,7 @@ class UndalOsmMap extends StatefulWidget {
 
 class _UndalOsmMapState extends State<UndalOsmMap> {
   late double _zoom = widget.zoom.clamp(10.0, 18.0);
-  Offset? _lastPanPosition;
+  double _baseScaleZoom = 14.0;
 
   @override
   void didUpdateWidget(covariant UndalOsmMap oldWidget) {
@@ -81,7 +81,7 @@ class _UndalOsmMapState extends State<UndalOsmMap> {
 
   void _panByPixels(Offset deltaPx) {
     final ValueChanged<GeoPoint>? cb = widget.onCenterChanged;
-    if (cb == null) return;
+    if (cb == null || deltaPx == Offset.zero) return;
     final (double cx, double cy) = latLngToWorldPx(widget.center, _zoom);
     cb(worldPxToLatLng(cx - deltaPx.dx, cy - deltaPx.dy, _zoom));
   }
@@ -120,14 +120,18 @@ class _UndalOsmMapState extends State<UndalOsmMap> {
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onDoubleTap: () => _stepZoom(1.0),
-              onPanStart: (DragStartDetails d) =>
-                  _lastPanPosition = d.localPosition,
-              onPanUpdate: (DragUpdateDetails d) {
-                final Offset prev = _lastPanPosition ?? d.localPosition;
-                _lastPanPosition = d.localPosition;
-                _panByPixels(d.localPosition - prev);
+              onScaleStart: (_) => _baseScaleZoom = _zoom,
+              onScaleUpdate: (ScaleUpdateDetails d) {
+                if ((d.scale - 1.0).abs() > 0.02) {
+                  final double next =
+                      (_baseScaleZoom + (d.scale - 1.0) * 2.0).clamp(10.0, 18.0);
+                  setState(() => _zoom = next);
+                  widget.onZoomChanged?.call(next);
+                }
+                if (d.focalPointDelta != Offset.zero) {
+                  _panByPixels(d.focalPointDelta);
+                }
               },
-              onPanEnd: (_) => _lastPanPosition = null,
               child: Stack(
                 fit: StackFit.expand,
                 children: <Widget>[

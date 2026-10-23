@@ -98,7 +98,14 @@ jobs:
           set -euo pipefail
           for pkg in packages/undal_core apps/customer_app apps/partner_app apps/rider_app; do
             echo "=== Testing Flutter workspace: $pkg ==="
-            (cd "$pkg" && flutter pub get && flutter analyze && flutter test)
+            LOG_FILE="$(mktemp)"
+            if ! (cd "$pkg" && flutter pub get && flutter analyze && flutter test --reporter expanded) >"$LOG_FILE" 2>&1; then
+              cat "$LOG_FILE"
+              SUMMARY="$(tail -n 35 "$LOG_FILE" | tr '\n' ' ' | sed 's/%/%25/g')"
+              echo "::error title=Flutter failure in $pkg::$SUMMARY"
+              exit 1
+            fi
+            cat "$LOG_FILE"
           done
 
   bootstrap-dry-run:

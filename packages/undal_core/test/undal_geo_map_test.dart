@@ -74,7 +74,7 @@ void main() {
     expect(markerTapped, isTrue);
 
     final GeoPoint beforeDrag = currentCenter;
-    await tester.drag(find.byType(UndalOsmMap), const Offset(-40, -30));
+    await tester.dragFrom(const Offset(40, 40), const Offset(-120, -90));
     await tester.pump();
     expect(currentCenter, isNot(equals(beforeDrag)));
   });
