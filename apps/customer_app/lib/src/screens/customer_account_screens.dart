@@ -31,7 +31,9 @@ class _CustomerVoucherWalletScreenState extends State<CustomerVoucherWalletScree
   @override
   void initState() {
     super.initState();
-    if (widget.controller.isAuthenticated) widget.controller.commerce.refreshVoucherWallet();
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (mounted && widget.controller.isAuthenticated) widget.controller.commerce.refreshVoucherWallet();
+    });
   }
 
   @override
@@ -94,7 +96,9 @@ class _CustomerNotificationsScreenState extends State<CustomerNotificationsScree
   @override
   void initState() {
     super.initState();
-    widget.controller.experience.loadNotifications();
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (mounted) widget.controller.experience.loadNotifications();
+    });
   }
 
   @override
@@ -160,7 +164,9 @@ class _CustomerProfileEditScreenState extends State<CustomerProfileEditScreen> {
   @override
   void initState() {
     super.initState();
-    widget.controller.experience.loadProfile();
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (mounted) widget.controller.experience.loadProfile();
+    });
   }
 
   @override

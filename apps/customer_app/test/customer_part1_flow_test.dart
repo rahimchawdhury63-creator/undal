@@ -84,7 +84,7 @@ void main() {
     );
 
     testWidgets(
-      'guest favourite intercepts into c-06/c-07 resumable Sign-Up and resumes favourite on completion',
+      'guest favourite intent resumes through sign-up without a local fake when W1 is unavailable',
       (WidgetTester tester) async {
         tester.view.physicalSize = const Size(412, 915);
         tester.view.devicePixelRatio = 1.0;
@@ -168,13 +168,10 @@ void main() {
         await tester.tap(find.byKey(const ValueKey<String>('c07-step-next-btn')));
         await tester.pumpAndSettle();
 
-        // Intercepted favourite was automatically saved!
+        // W1 is unavailable in this offline onboarding test, so no local fake favourite is shown.
         expect(ctrl.isAuthenticated, isTrue);
         expect(ctrl.session?.phone, '01812345678');
-        expect(
-          ctrl.favouriteVendorIds,
-          contains('22222222-2222-4222-8222-222222222201'),
-        );
+        expect(ctrl.favouriteVendorIds, isEmpty);
       },
     );
 

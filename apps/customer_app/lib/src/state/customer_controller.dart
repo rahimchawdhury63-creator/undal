@@ -360,7 +360,6 @@ final class CustomerController extends ChangeNotifier {
         method: method,
         displayNameOverride: displayName,
       );
-      if (_api.config.hasLiveWorkers) unawaited(this.hydrateCustomerExperience());
       if (optionalLandmark != null && optionalLandmark.trim().isNotEmpty) {
         _savedAddresses[_activeAddressIndex] = activeAddress.copyWith(
           landmarkNote: optionalLandmark.trim(),
@@ -370,8 +369,11 @@ final class CustomerController extends ChangeNotifier {
       final PendingAuthIntent? resumed = _pendingIntent;
       _pendingIntent = null;
       _activeOverlay = CustomerScreenId.c08HomeDelivery;
+      if (_api.config.hasLiveWorkers && resumed is! FavouriteVendorIntent) {
+        unawaited(this.hydrateCustomerExperience());
+      }
       if (resumed is FavouriteVendorIntent) {
-        unawaited(experience.toggleFavourite(resumed.vendorId));
+        if (_api.config.hasLiveWorkers) unawaited(_toggleFavouriteAndHydrate(resumed.vendorId));
         commerce.resumePreviousScreen();
       } else if (resumed is CheckoutOrderIntent) {
         commerce.resumeCheckout();
@@ -395,6 +397,11 @@ final class CustomerController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  Future<void> _toggleFavouriteAndHydrate(String vendorId) async {
+    await experience.toggleFavourite(vendorId);
+    await this.hydrateCustomerExperience();
   }
 
   void updateFilters(FeedFilterState next) {

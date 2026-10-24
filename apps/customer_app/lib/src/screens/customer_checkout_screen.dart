@@ -235,7 +235,7 @@ class CustomerCheckoutScreen extends StatelessWidget {
               ],
               if (commerce.appliedVoucherCode != null)
                 Text(cText(context, 'Voucher ${commerce.appliedVoucherCode} is included in this quote.', 'ভাউচার ${commerce.appliedVoucherCode} এই কোটে অন্তর্ভুক্ত।')),
-              if (commerce.commerceErrorCode != null)
+              if (commerce.commerceErrorCode != null && commerce.commerceErrorCode != 'ADDRESS_REQUIRED')
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: UndalSpacingTokens.sm),
                   child: Text(_commerceMessage(context, commerce.commerceErrorCode), style: TextStyle(color: theme.colorScheme.error)),

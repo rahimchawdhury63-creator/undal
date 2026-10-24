@@ -37,10 +37,13 @@ class _CustomerRatingScreenState extends State<CustomerRatingScreen> {
   @override
   void initState() {
     super.initState();
-    final CustomerOrderDetail? detail = widget.controller.experience.orderDetail;
-    if (detail != null && detail.summary.status == 'DELIVERED') {
-      widget.controller.experience.loadOrderReviews(detail.summary.id);
-    }
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (!mounted) return;
+      final CustomerOrderDetail? detail = widget.controller.experience.orderDetail;
+      if (detail != null && detail.summary.status == 'DELIVERED') {
+        widget.controller.experience.loadOrderReviews(detail.summary.id);
+      }
+    });
   }
 
   @override

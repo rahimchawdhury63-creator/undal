@@ -175,7 +175,9 @@ class _CustomerFavouritesScreenState extends State<CustomerFavouritesScreen> {
   @override
   void initState() {
     super.initState();
-    widget.controller.experience.loadFavourites();
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (mounted) widget.controller.experience.loadFavourites();
+    });
   }
 
   @override
@@ -244,7 +246,9 @@ class _CustomerAddressesScreenState extends State<CustomerAddressesScreen> {
   @override
   void initState() {
     super.initState();
-    widget.controller.experience.loadAddresses();
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (mounted) widget.controller.experience.loadAddresses();
+    });
   }
 
   Future<void> _selectAddress(CustomerAddressEntry address) async {

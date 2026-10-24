@@ -1,7 +1,10 @@
-/// Customer order, realtime, review, and routing parser tests for Build Response 15.
+/// Customer order, realtime, favourite, review, and routing tests for Build Response 15.
 import 'package:customer_app/src/config/app_config.dart';
 import 'package:customer_app/src/models/customer_experience_models.dart';
+import 'package:customer_app/src/models/customer_models.dart';
 import 'package:customer_app/src/services/customer_experience_api.dart';
+import 'package:customer_app/src/services/customer_order_realtime.dart';
+import 'package:customer_app/src/state/customer_experience_state.dart';
 import 'package:customer_app/src/services/customer_order_realtime.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:undal_core/undal_core.dart';
@@ -58,6 +61,33 @@ void main() {
     expect(decoder.addLine('event: cancel'), isNull);
   });
 
+  test('favourite IDs change only after W1 confirms and returns the public kitchen card', () async {
+    const String vendorId = '7e290000-0000-4000-8000-000000000042';
+    final _FavouriteTransport transport = _FavouriteTransport(vendorId);
+    const CustomerAppConfig config = CustomerAppConfig(apiBaseUrl: 'https://api.undal.test');
+    const CustomerSession session = CustomerSession(
+      userId: '7e290000-0000-4000-8000-000000000001',
+      fullName: 'Test customer',
+      phone: '01812345678',
+      accessToken: 'customer-access-token',
+      authMethod: 'phone',
+    );
+    final CustomerExperienceState state = CustomerExperienceState(
+      api: CustomerExperienceApi(config: config, transport: transport),
+      realtime: CustomerOrderRealtimeClient(config: config, transport: transport),
+      readSession: () => session,
+      navigate: (_) {},
+      onChanged: () {},
+    );
+    addTearDown(state.dispose);
+
+    expect(state.favouriteVendorIds, isEmpty);
+    expect(await state.toggleFavourite(vendorId), isTrue);
+    expect(state.favouriteVendorIds, contains(vendorId));
+    expect(state.favourites.single.slug, 'surma-home');
+    expect(transport.favouriteWrites, 1);
+  });
+
   test('review loader uses the authenticated customer order review route', () async {
     final _ReviewTransport transport = _ReviewTransport();
     final CustomerExperienceApi api = CustomerExperienceApi(
@@ -87,6 +117,55 @@ Map<String, Object?> _orderJson() => <String, Object?>{
       'pickup_qr_token': null,
       'pickup_code_4': null,
     };
+
+final class _FavouriteTransport implements CustomerHttpTransport {
+  _FavouriteTransport(this.vendorId);
+
+  final String vendorId;
+  int favouriteWrites = 0;
+  bool _isFavourite = false;
+
+  @override
+  Future<CustomerHttpResponse> sendJson({
+    required String method,
+    required Uri uri,
+    Map<String, String> headers = const <String, String>{},
+    Map<String, Object?>? jsonBody,
+  }) async {
+    if (uri.path == '/v1/favourites/$vendorId' && method == 'POST') {
+      favouriteWrites++;
+      _isFavourite = true;
+      return _ok(<String, Object?>{'is_favourite': true});
+    }
+    if (uri.path == '/v1/favourites' && method == 'GET') {
+      return _ok(<String, Object?>{
+        'favourites': _isFavourite
+            ? <Object?>[
+                <String, Object?>{
+                  'vendor_id': vendorId,
+                  'vendor': <String, Object?>{
+                    'id': vendorId,
+                    'slug': 'surma-home',
+                    'brand_name': 'Surma Home',
+                    'brand_name_bn': 'সুরমা হোম',
+                    'public_area_label': 'Sylhet Sadar',
+                    'public_area_label_bn': 'সিলেট সদর',
+                    'rating_avg': 4.8,
+                    'rating_count': 12,
+                  },
+                },
+              ]
+            : <Object?>[],
+      });
+    }
+    return _ok(<String, Object?>{});
+  }
+
+  CustomerHttpResponse _ok(Map<String, Object?> data) => CustomerHttpResponse(
+        statusCode: 200,
+        body: <String, Object?>{'data': data},
+      );
+}
 
 final class _ReviewTransport implements CustomerHttpTransport {
   Uri? lastUri;

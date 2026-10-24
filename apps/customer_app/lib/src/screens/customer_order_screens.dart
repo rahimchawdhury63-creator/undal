@@ -34,7 +34,9 @@ class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> {
   @override
   void initState() {
     super.initState();
-    widget.controller.experience.loadOrders();
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (mounted) widget.controller.experience.loadOrders();
+    });
   }
 
   @override

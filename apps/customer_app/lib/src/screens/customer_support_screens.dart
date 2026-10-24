@@ -32,7 +32,9 @@ class _CustomerHelpCenterScreenState extends State<CustomerHelpCenterScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.controller.isAuthenticated) widget.controller.experience.loadSupportThreads();
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (mounted && widget.controller.isAuthenticated) widget.controller.experience.loadSupportThreads();
+    });
   }
 
   Future<void> _newTicket() async {
