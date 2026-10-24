@@ -5,7 +5,6 @@ import 'package:customer_app/src/models/customer_models.dart';
 import 'package:customer_app/src/services/customer_experience_api.dart';
 import 'package:customer_app/src/services/customer_order_realtime.dart';
 import 'package:customer_app/src/state/customer_experience_state.dart';
-import 'package:customer_app/src/services/customer_order_realtime.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:undal_core/undal_core.dart';
 
