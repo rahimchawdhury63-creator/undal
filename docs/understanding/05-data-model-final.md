@@ -11,7 +11,7 @@
 |---:|---|---|---|
 | **B02** | `0001_extensions_and_helpers.sql` | `pgcrypto`, `pg_trgm`, `cube`, `earthdistance`; `set_updated_at()`, `prevent_mutation()`, `current_profile_role()`, `has_admin_permission(text)` | Helper unit tests |
 | **B02** | `0002_identity_and_rbac.sql` | `profiles`, `device_tokens`, `customer_addresses`, `admin_roles`, `admin_permissions`, `admin_user_roles`, `audit_logs` | `pgTAP` RBAC & cross-tenant isolation tests |
-| **B02** | `0003_settings_and_taxonomies.sql` | `platform_settings`, `platform_settings_history`, `cuisine_taxonomy`, `cancel_reasons`, `feedback_tags` | Seed count assertions (`62` settings, `Appendix D` cuisines) |
+| **B02** | `0003_settings_and_taxonomies.sql` | `platform_settings`, `platform_settings_history`, `cuisine_taxonomy`, `cancel_reasons`, `feedback_tags` | Seed count assertions (`72` base settings, `Appendix D` cuisines); Build 14 adds one typed runtime setting in `0020` |
 | **B02** | `0004_core_rls_and_seeds.sql` | Full RLS policies for `0002–0003` + non-demo taxonomy/settings/role seeds | `supabase db reset` + `pgTAP` green |
 | **B03** | `0005_zones_and_vendors.sql` | `zones` (**Sylhet Sadar** active + **Kulaura** paused seed), `vendors`, `vendor_staff_members`, `vendor_hours`, `vendor_pauses`, `vendor_documents`, `vendor_payout_accounts` | Point-in-polygon + home-kitchen address privacy tests |
 | **B03** | `0006_menus_variants_bundles.sql` | `menu_categories`, `menu_items`, `variant_groups`, `variants`, `option_groups`, `options`, `bundle_slots`, `bundle_slot_choices` | Constraint checks + combo availability tests |
