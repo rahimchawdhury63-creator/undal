@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:partner_app/main.dart';
 import 'package:partner_app/src/config/partner_app_config.dart';
 import 'package:partner_app/src/models/partner_models.dart';
-import 'package:partner_app/src/screens/partner_application_screen.dart';
 import 'package:partner_app/src/services/partner_api_client.dart';
 
 void main() {
@@ -189,7 +188,7 @@ void main() {
           'ticket': <String, Object?>{
             'uploadUrl': 'https://api.cloudinary.com/v1_1/undal-private-vault/image/upload',
             'apiKey': 'public-upload-key',
-            'timestamp': 1_798_000_000,
+            'timestamp': 1798000000,
             'signature': 'signed-ticket-value',
             'publicId': 'undal/private/vendor_kyc/owner/asset',
             'mode': 'signed_authenticated',

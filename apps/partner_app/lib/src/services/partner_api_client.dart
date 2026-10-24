@@ -4,7 +4,6 @@
 /// five-minute Cloudinary authenticated tickets and are bound back to the applicant through W1.
 library;
 
-import 'dart:convert';
 import 'dart:math' as math;
 
 import '../config/partner_app_config.dart';

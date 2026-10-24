@@ -137,7 +137,7 @@ class _PartnerApplicationPayoutStepState extends State<PartnerApplicationPayoutS
               key: const ValueKey<String>('partner-save-agreement'),
               onPressed: widget.busy || !widget.canEdit || !_accepted ? null : () async {
                 try {
-                  await widget.onAcceptTerms(version!);
+                  await widget.onAcceptTerms(version);
                   if (mounted) setState(() => _error = null);
                 } on Exception {
                   if (mounted) setState(() => _error = _text('Agreement could not be saved. Retry after checking your connection.', 'চুক্তি সংরক্ষণ হয়নি। সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।'));
