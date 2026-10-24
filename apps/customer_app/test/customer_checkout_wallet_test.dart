@@ -1,6 +1,7 @@
 /// Wallet model and c-19 UI coverage for Build Response 14.
 import 'package:customer_app/main.dart';
 import 'package:customer_app/src/models/customer_voucher_offer.dart';
+import 'package:customer_app/src/state/customer_commerce_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
