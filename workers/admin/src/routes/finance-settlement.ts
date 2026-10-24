@@ -121,6 +121,26 @@ export async function handleFinanceSettlementRoutes(params: {
     return adminJsonOk({ verifiedIds }, requestId);
   }
 
+  // --- Step-Up protected payout target reveal: decrypted in W3 only, and never written to audit logs. ---
+  const payoutTargetMatch = path.match(/^\/v1\/admin\/invoices\/([^/]+)\/payout-target$/);
+  if (payoutTargetMatch && method === 'GET') {
+    const deny = await authorizeAdminCapability({
+      request, requestId, principal, permission: '5.invoices', mode: 'read', requireStepUp: true, env, nowMs,
+    });
+    if (deny) return deny;
+    const privateKey = env.VENDOR_PAYOUT_PRIVATE_KEY_PKCS8_B64?.trim() ?? '';
+    if (!privateKey) return adminJsonErr('SERVER_BUSY', requestId, { reason: 'PAYOUT_DECRYPTION_NOT_CONFIGURED' });
+    const target = await db.getVendorPayoutTargetForSettlement(payoutTargetMatch[1]!, privateKey);
+    if (!target) return adminJsonErr('PAYOUT_ACCOUNT_REQUIRED', requestId, undefined, 422);
+    await db.appendAuditLog({
+      actorId: principal.profileId, actorRole: primaryRole, action: 'invoice.payout_target.view',
+      entityType: 'invoice', entityId: target.invoiceId,
+      diff: { vendor_id: target.vendorId, method: target.method, holder_name: target.holderName, masked: target.masked },
+      ip, requestId, nowMs,
+    });
+    return adminJsonOk({ payout_target: target }, requestId, 200, { 'Cache-Control': 'private, no-store' });
+  }
+
   // --- C72: Zero-Drift Recompute Check ---
   const recomputeMatch = path.match(/^\/v1\/admin\/invoices\/([^/]+)\/recompute$/);
   if (recomputeMatch && method === 'GET') {

@@ -8,6 +8,24 @@
 import type { AdminRestTransport } from './db-postgrest.ts';
 import type { AdminPart2DbMethods } from './types-part2.ts';
 
+/** Decodes the worker-only PKCS#8 RSA private-key binding from base64. */
+function decodePrivateKey(value: string): Uint8Array<ArrayBuffer> {
+  const raw = atob(value.trim());
+  const bytes = new Uint8Array(new ArrayBuffer(raw.length));
+  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
+  return bytes;
+}
+
+/** Decodes the PostgreSQL PostgREST JSON representation of a `bytea` value. */
+function decodeByteaHex(value: unknown): Uint8Array<ArrayBuffer> | null {
+  if (typeof value !== 'string') return null;
+  const hex = value.startsWith('\\x') ? value.slice(2) : value;
+  if (hex.length < 256 || hex.length > 2048 || hex.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(hex)) return null;
+  const bytes = new Uint8Array(new ArrayBuffer(hex.length / 2));
+  for (let index = 0; index < bytes.length; index += 1) bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  return bytes;
+}
+
 /** Builds Domain 5–9 + Cron PostgREST methods over shared stateless HTTP `AdminRestTransport`. */
 export function buildAdminPart2PostgrestMethods(t: AdminRestTransport): AdminPart2DbMethods {
   return {
@@ -16,6 +34,49 @@ export function buildAdminPart2PostgrestMethods(t: AdminRestTransport): AdminPar
       if (filters.payeeType) q.push(`payee_type=eq.${encodeURIComponent(filters.payeeType)}`);
       if (filters.state) q.push(`state=eq.${encodeURIComponent(filters.state)}`);
       return t.restGet<readonly Record<string, unknown>[]>(`invoices?${q.join('&')}`);
+    },
+
+    async getVendorPayoutTargetForSettlement(invoiceId, privateKeyPkcs8B64) {
+      const invoices = await t.restGet<readonly Record<string, unknown>[]>(
+        `invoices?select=id,payee_type,payee_id,state,net_payable_poisha&id=eq.${encodeURIComponent(invoiceId)}&limit=1`,
+      );
+      const invoice = invoices[0];
+      if (!invoice || invoice['payee_type'] !== 'vendor' || invoice['state'] !== 'VERIFIED') return null;
+      try {
+        if (BigInt(String(invoice['net_payable_poisha'] ?? '0')) <= 0n) return null;
+      } catch {
+        return null;
+      }
+      const vendorId = String(invoice['payee_id'] ?? '');
+      if (!vendorId) return null;
+      const [vendors, accounts] = await Promise.all([
+        t.restGet<readonly Record<string, unknown>[]>(`vendors?select=kyc_status&id=eq.${encodeURIComponent(vendorId)}&limit=1`),
+        t.restGet<readonly Record<string, unknown>[]>(`vendor_payout_accounts?select=method,holder_name,account_ref_enc,masked&vendor_id=eq.${encodeURIComponent(vendorId)}&is_primary=eq.true&limit=1`),
+      ]);
+      const account = accounts[0];
+      if (vendors[0]?.['kyc_status'] !== 'approved' || !account) return null;
+      const ciphertext = decodeByteaHex(account['account_ref_enc']);
+      const method = account['method'];
+      if (!ciphertext || (method !== 'bkash' && method !== 'nagad' && method !== 'bank')) return null;
+      const privateKey = await crypto.subtle.importKey(
+        'pkcs8',
+        decodePrivateKey(privateKeyPkcs8B64),
+        { name: 'RSA-OAEP', hash: 'SHA-256' },
+        false,
+        ['decrypt'],
+      );
+      const plaintext = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, privateKey, ciphertext);
+      const accountNumber = new TextDecoder('utf-8', { fatal: true }).decode(plaintext);
+      const validAccount = method === 'bank' ? /^\d{8,34}$/.test(accountNumber) : /^01[3-9]\d{8}$/.test(accountNumber);
+      if (!validAccount) throw new Error('PAYOUT_CIPHERTEXT_INVALID');
+      return {
+        invoiceId: String(invoice['id']),
+        vendorId,
+        method,
+        holderName: String(account['holder_name'] ?? ''),
+        accountNumber,
+        masked: String(account['masked'] ?? ''),
+      };
     },
 
     async generateWeeklyInvoicesBatch(params) {

@@ -22,6 +22,28 @@ export function buildPgliteAdminPart2Methods(db) {
       return (await db.query(`SELECT * FROM public.invoices ${where} ORDER BY created_at DESC`, vals)).rows;
     },
 
+    async getVendorPayoutTargetForSettlement(invoiceId, privateKeyPkcs8B64) {
+      const invoice = (await db.query('SELECT * FROM public.invoices WHERE id = $1 LIMIT 1', [invoiceId])).rows[0];
+      if (!invoice || invoice.payee_type !== 'vendor' || invoice.state !== 'VERIFIED' || BigInt(invoice.net_payable_poisha) <= 0n) return null;
+      const vendor = (await db.query('SELECT kyc_status FROM public.vendors WHERE id = $1 LIMIT 1', [invoice.payee_id])).rows[0];
+      const account = (await db.query('SELECT method, holder_name, account_ref_enc, masked FROM public.vendor_payout_accounts WHERE vendor_id = $1 AND is_primary = true LIMIT 1', [invoice.payee_id])).rows[0];
+      if (!vendor || vendor.kyc_status !== 'approved' || !account) return null;
+      let ciphertext;
+      if (account.account_ref_enc instanceof Uint8Array) ciphertext = account.account_ref_enc;
+      else if (typeof account.account_ref_enc === 'string') {
+        const hex = account.account_ref_enc.startsWith('\\x') ? account.account_ref_enc.slice(2) : account.account_ref_enc;
+        if (hex.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(hex)) return null;
+        ciphertext = Uint8Array.from({ length: hex.length / 2 }, (_, index) => Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16));
+      } else return null;
+      const keyBytes = Uint8Array.from(atob(privateKeyPkcs8B64), (char) => char.charCodeAt(0));
+      const key = await crypto.subtle.importKey('pkcs8', keyBytes, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']);
+      const plaintext = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, key, ciphertext);
+      const accountNumber = new TextDecoder('utf-8', { fatal: true }).decode(plaintext);
+      const valid = account.method === 'bank' ? /^\d{8,34}$/.test(accountNumber) : /^01[3-9]\d{8}$/.test(accountNumber);
+      if (!valid) throw new Error('PAYOUT_CIPHERTEXT_INVALID');
+      return { invoiceId: invoice.id, vendorId: invoice.payee_id, method: account.method, holderName: account.holder_name, accountNumber, masked: account.masked };
+    },
+
     async generateWeeklyInvoicesBatch(params) {
       return (
         await db.query('SELECT * FROM public.generate_weekly_invoices($1, $2::date, $3::date, $4::int, $5::timestamptz)', [

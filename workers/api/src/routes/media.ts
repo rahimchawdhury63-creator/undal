@@ -14,7 +14,6 @@
 
 import {
   MAX_PUBLIC_IMAGE_BYTES,
-  buildCloudinaryUnsignedUploadDescriptor,
   isPrivateCloudinaryCategory,
   isPublicImgbbCategory,
   signCloudinaryAuthenticatedUrl,
@@ -23,6 +22,7 @@ import {
   uploadPublicImageToImgbb,
   type SensitiveCloudinaryCategory,
 } from '@undal/shared-ts';
+import { requireIdempotencyKey } from '../domain-errors.ts';
 import { jsonErr, jsonOk } from '../http.ts';
 import type { ApiDbAdapter, ApiWorkerEnv, AuthPrincipal } from '../types.ts';
 
@@ -184,6 +184,7 @@ export async function handleMediaRoute(
 
   // 2. Sensitive Compliance Media ONLY -> Cloudinary Private Vault
   if (url.pathname === '/v1/images/private-upload-url') {
+    if (!requireIdempotencyKey(request)) return jsonErr('IDEMPOTENCY_KEY_REQUIRED', requestId);
     const body = (await request.json().catch(() => null)) as {
       readonly category?: string;
       readonly bytes?: number;
@@ -201,43 +202,29 @@ export async function handleMediaRoute(
     if (!Number.isInteger(declaredBytes) || declaredBytes <= 0 || declaredBytes > maxBytes) {
       return jsonErr('DOC_TOO_LARGE', requestId, { max_bytes: maxBytes });
     }
-    if (!env.CLOUDINARY_CLOUD_NAME) {
-      return jsonErr('IMAGE_UPLOAD_FAILED', requestId, { reason: 'CLOUDINARY_NOT_CONFIGURED' });
+    if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) {
+      return jsonErr('IMAGE_UPLOAD_FAILED', requestId, { reason: 'CLOUDINARY_SIGNED_UPLOAD_NOT_CONFIGURED' });
     }
 
-    const assetUuid = crypto.randomUUID();
-    const ticket =
-      env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET
-        ? await signCloudinaryUploadTicket({
-            cloudName: env.CLOUDINARY_CLOUD_NAME,
-            apiKey: env.CLOUDINARY_API_KEY,
-            apiSecret: env.CLOUDINARY_API_SECRET,
-            category,
-            ownerId: principal.sub,
-            assetUuid,
-          })
-        : null;
-
-    const unsignedFallback = env.CLOUDINARY_UNSIGNED_PRESET_SECURE
-      ? buildCloudinaryUnsignedUploadDescriptor({
-          cloudName: env.CLOUDINARY_CLOUD_NAME,
-          category,
-          ownerId: principal.sub,
-          secureUnsignedPreset: env.CLOUDINARY_UNSIGNED_PRESET_SECURE,
-        })
-      : null;
-
-    if (!ticket && !unsignedFallback) {
-      return jsonErr('IMAGE_UPLOAD_FAILED', requestId, { reason: 'CLOUDINARY_CREDENTIALS_MISSING' });
+    let ticket: Awaited<ReturnType<typeof signCloudinaryUploadTicket>>;
+    try {
+      ticket = await signCloudinaryUploadTicket({
+        cloudName: env.CLOUDINARY_CLOUD_NAME,
+        apiKey: env.CLOUDINARY_API_KEY,
+        apiSecret: env.CLOUDINARY_API_SECRET,
+        category,
+        ownerId: principal.sub,
+        assetUuid: crypto.randomUUID(),
+      });
+    } catch {
+      return jsonErr('IMAGE_UPLOAD_FAILED', requestId, { reason: 'CLOUDINARY_TICKET_FAILED' });
     }
-
-    const publicId = ticket?.publicId ?? `${unsignedFallback!.folder}/${assetUuid}`;
     const stored = await db.insertMediaAsset({
       ownerProfileId: principal.sub,
       provider: 'cloudinary',
       category,
       deliveryType: 'authenticated',
-      cloudinaryPublicId: publicId,
+      cloudinaryPublicId: ticket.publicId,
       publicCdnUrl: null,
       mediumUrl: null,
       thumbUrl: null,
@@ -247,17 +234,32 @@ export async function handleMediaRoute(
       height: null,
       format: body?.format?.slice(0, 12) ?? null,
     });
+    await db.insertAuditLog({
+      actorId: principal.sub,
+      actorRole: principal.role,
+      action: 'media.private_upload_ticket',
+      entityType: 'media_asset',
+      entityId: stored.id,
+      diff: {
+        category,
+        provider: 'cloudinary',
+        delivery_type: 'authenticated',
+        expires_at_epoch: ticket.timestamp + ticket.expiresInSeconds,
+      },
+      requestId,
+    });
 
     return jsonOk(
       {
         asset_id: stored.id,
         provider: 'cloudinary',
         category,
-        public_id: publicId,
-        ticket: ticket ?? unsignedFallback,
+        public_id: ticket.publicId,
+        ticket,
       },
       requestId,
       201,
+      { 'Cache-Control': 'private, no-store' },
     );
   }
 

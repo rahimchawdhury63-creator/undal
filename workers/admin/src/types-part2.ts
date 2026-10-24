@@ -11,6 +11,15 @@ export interface AdminPart2DbMethods {
     readonly payeeType?: 'vendor' | 'rider' | undefined;
     readonly state?: string | undefined;
   }): Promise<readonly Record<string, unknown>[]>;
+  /** Decrypts an approved vendor's verified positive-net payout target inside W3 only. */
+  getVendorPayoutTargetForSettlement(invoiceId: string, privateKeyPkcs8B64: string): Promise<{
+    readonly invoiceId: string;
+    readonly vendorId: string;
+    readonly method: 'bkash' | 'nagad' | 'bank';
+    readonly holderName: string;
+    readonly accountNumber: string;
+    readonly masked: string;
+  } | null>;
   generateWeeklyInvoicesBatch(params: {
     readonly payeeType: 'vendor' | 'rider';
     readonly periodStart: string;

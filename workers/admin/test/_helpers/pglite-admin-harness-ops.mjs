@@ -174,12 +174,22 @@ export function buildPgliteAdminOpsMethods(db) {
         }
       }
       const table = params.targetType === 'vendor' ? 'vendors' : 'riders';
-      return (
+      const decided = (
         await db.query(
           `UPDATE public.${table} SET kyc_status = $2, is_active = $3 WHERE id = $1 RETURNING *`,
           [params.targetId, params.decision, params.decision === 'approved'],
         )
-      ).rows[0] ?? null;
+      ).rows[0];
+      if (!decided) return null;
+      let ownerRolePromoted = false;
+      if (params.targetType === 'vendor' && params.decision === 'approved' && decided.owner_profile_id) {
+        const upgraded = await db.query(
+          `UPDATE public.profiles SET role = 'vendor_owner' WHERE id = $1 AND role = 'customer' AND status = 'active' RETURNING role`,
+          [decided.owner_profile_id],
+        );
+        ownerRolePromoted = upgraded.rows[0]?.role === 'vendor_owner';
+      }
+      return { ...decided, owner_role_promoted: ownerRolePromoted };
     },
 
     async listExpiringDocuments(withinDays, nowMs) {

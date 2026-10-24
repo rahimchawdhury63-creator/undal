@@ -131,18 +131,23 @@ export async function handleOperatorsRoute(
       if (op.operatorRole !== 'owner') return jsonErr('AUTH_FORBIDDEN_PERMISSION', requestId);
       if (!requireIdempotencyKey(request)) return jsonErr('IDEMPOTENCY_KEY_REQUIRED', requestId);
       const body = (await request.json().catch(() => null)) as {
+        readonly asset_id?: string;
         readonly doc_type?: string;
-        readonly storage_path?: string;
         readonly expires_on?: string | null;
+        readonly issued_on?: string | null;
       } | null;
-      if (!body?.doc_type || !body.storage_path?.startsWith('undal/private/vendor_kyc/')) {
-        return jsonErr('VALIDATION_FAILED', requestId, {
-          field: 'storage_path',
-          hint: 'Vendor KYC documents must be uploaded to Cloudinary Private Vault (undal/private/vendor_kyc/*).',
-        });
-      }
-      const doc = await db.submitVendorKycDoc(vendorId, body.doc_type, body.storage_path, body.expires_on ?? null);
-      return jsonOk({ document: doc }, requestId, 201);
+      if (!body?.doc_type || !body.asset_id) return jsonErr('VALIDATION_FAILED', requestId, { required: ['doc_type', 'asset_id'] });
+      const asset = await db.getMediaAssetById(body.asset_id);
+      const allowedTypes = new Set(['trade_license', 'nid_front', 'nid_back', 'passport_front', 'passport_back', 'tin', 'bin', 'bank_proof', 'bkash_proof', 'nagad_proof', 'utility_bill', 'kitchen_hygiene_photo', 'menu_doc', 'selfie']);
+      if (
+        !allowedTypes.has(body.doc_type) || !asset || asset.owner_profile_id !== principal.sub ||
+        asset.provider !== 'cloudinary' || asset.category !== 'vendor_kyc' || asset.delivery_type !== 'authenticated' ||
+        !asset.cloudinary_public_id.startsWith(`undal/private/vendor_kyc/${principal.sub}/`)
+      ) return jsonErr('AUTH_FORBIDDEN_PERMISSION', requestId, { reason: 'KYC_ASSET_OWNER_OR_PROVIDER_MISMATCH' });
+      const doc = await db.submitVendorKycDoc(vendorId, body.doc_type, asset.cloudinary_public_id, body.expires_on ?? null, asset.id, body.issued_on ?? null);
+      const { storage_path: _privatePath, ...safeDoc } = doc;
+      await db.insertAuditLog({ actorId: principal.sub, actorRole: principal.role, action: 'partner.kyc.document.upload', entityType: 'vendor_document', entityId: String(doc.id ?? vendorId), diff: { vendor_id: vendorId, doc_type: body.doc_type, asset_id: asset.id }, requestId });
+      return jsonOk({ document: safeDoc }, requestId, 201, { 'Cache-Control': 'private, no-store' });
     }
 
     if (path === '/v1/partner/finance/summary' && request.method === 'GET') {

@@ -1,30 +1,52 @@
-/// Entrypoint foundation shell for `apps/partner_app` (`Build Response 1`).
-/// Full 3-track KYC, native Kotlin alarm engine & screens `p-01..p-37` ship in `Build Responses 16–19`.
+/// Production Partner Applicant entry point (`p-01..p-07`, separate private vault `p-35`).
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:undal_core/undal_core.dart';
 
+import 'src/models/partner_models.dart';
+import 'src/screens/partner_application_screen.dart';
+import 'src/screens/partner_auth_screen.dart';
+import 'src/services/partner_api_client.dart';
+
+/// Starts the real GoTrue-backed applicant sign-in and KYC application experience.
 void main() {
   runApp(const UndalPartnerApp());
 }
 
-/// Root Partner App widget wired to `undal_core` Light/Dark tokens and `EN / বাংলা` i18n.
+/// Root Partner app with public `UNDAL_*` configuration, EN/বাংলা, light/dark tokens and memory-only auth.
 class UndalPartnerApp extends StatefulWidget {
-  const UndalPartnerApp({super.key});
+  /// Creates the Partner app; optional injected API/session are reserved for deterministic tests.
+  const UndalPartnerApp({super.key, this.apiClient, this.initialSession});
+
+  /// Injectable real-transport-compatible API client for tests or controlled host integration.
+  final PartnerApiClient? apiClient;
+
+  /// Optional short-lived session injected only for tests; never persisted by the app.
+  final PartnerSession? initialSession;
 
   @override
   State<UndalPartnerApp> createState() => _UndalPartnerAppState();
 }
 
 class _UndalPartnerAppState extends State<UndalPartnerApp> {
+  late final PartnerApiClient _api = widget.apiClient ?? PartnerApiClient();
+  PartnerSession? _session;
   Locale _locale = const Locale('en');
-  int _navIndex = 0;
+  ThemeMode _themeMode = ThemeMode.light;
+
+  @override
+  void initState() {
+    super.initState();
+    _session = widget.initialSession;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final bool isBangla = _locale.languageCode == 'bn';
     return MaterialApp(
+      key: const ValueKey<String>('partner-material-app'),
       debugShowCheckedModeBanner: false,
       locale: _locale,
       supportedLocales: UndalSupportedLocales.all,
@@ -34,46 +56,33 @@ class _UndalPartnerAppState extends State<UndalPartnerApp> {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      themeMode: _themeMode,
       theme: buildUndalTheme(brightness: Brightness.light, locale: _locale),
       darkTheme: buildUndalTheme(brightness: Brightness.dark, locale: _locale),
-      home: Builder(
-        builder: (BuildContext innerContext) {
-          final l10n = UndalLocalizations.of(innerContext);
-          return UndalResponsiveScaffold(
-            title: '${l10n.t('app.name')} · Partner',
-            selectedIndex: _navIndex,
-            onDestinationSelected: (int next) =>
-                setState(() => _navIndex = next),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => setState(() {
-                  _locale = _locale.languageCode == 'en'
-                      ? const Locale('bn')
-                      : const Locale('en');
-                }),
-                child: Text(l10n.t('app.switch_language')),
-              ),
-            ],
-            destinations: <UndalNavItem>[
-              UndalNavItem(
-                icon: Icons.soup_kitchen_outlined,
-                selectedIcon: Icons.soup_kitchen,
-                label: l10n.t('nav.orders'),
-              ),
-              UndalNavItem(
-                icon: Icons.restaurant_menu_outlined,
-                selectedIcon: Icons.restaurant_menu,
-                label: l10n.t('alarm.armed'),
-              ),
-            ],
-            body: Center(
-              child: Text(
-                '${l10n.t('vendor.new_order')} · ${formatBdt(183940, localeCode: _locale.languageCode)}',
-              ),
+      home: _session == null
+          ? PartnerAuthScreen(
+              api: _api,
+              isBangla: isBangla,
+              onAuthenticated: (PartnerSession session) => setState(() => _session = session),
+              onToggleLanguage: _toggleLanguage,
+            )
+          : PartnerApplicationScreen(
+              key: ValueKey<String>('partner-application-${_session!.userId}'),
+              api: _api,
+              session: _session!,
+              isBangla: isBangla,
+              onToggleLanguage: _toggleLanguage,
+              onToggleTheme: _toggleTheme,
+              onSignOut: () => setState(() => _session = null),
             ),
-          );
-        },
-      ),
     );
+  }
+
+  void _toggleLanguage() {
+    setState(() => _locale = _locale.languageCode == 'en' ? const Locale('bn') : const Locale('en'));
+  }
+
+  void _toggleTheme() {
+    setState(() => _themeMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light);
   }
 }

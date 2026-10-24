@@ -257,7 +257,19 @@ export function createPostgrestAdminOps(t: AdminRestTransport): OpsSubset {
         `${table}?id=eq.${encodeURIComponent(params.targetId)}`,
         { kyc_status: params.decision, is_active: params.decision === 'approved' },
       );
-      return rows[0] ?? null;
+      const decided = rows[0];
+      if (!decided) return null;
+      let ownerRolePromoted = false;
+      if (params.targetType === 'vendor' && params.decision === 'approved' && typeof decided['owner_profile_id'] === 'string') {
+        const ownerProfileId = encodeURIComponent(decided['owner_profile_id']);
+        const upgraded = await t.restWrite<readonly Record<string, unknown>[]>(
+          'PATCH',
+          `profiles?id=eq.${ownerProfileId}&role=eq.customer&status=eq.active`,
+          { role: 'vendor_owner' },
+        );
+        ownerRolePromoted = upgraded.some((profile) => profile['role'] === 'vendor_owner');
+      }
+      return { ...decided, owner_role_promoted: ownerRolePromoted };
     },
 
     async listExpiringDocuments(withinDays, nowMs) {

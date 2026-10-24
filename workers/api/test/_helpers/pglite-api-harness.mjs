@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { createPgliteOpsMethods } from './pglite-api-ops.mjs';
+import { createPglitePartnerMethods } from './pglite-api-onboarding.mjs';
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 export const TEST_JWT_SECRET = 'undal-test-jwt-hmac-secret-32-chars-minimum!!';
@@ -33,7 +34,7 @@ export async function mintTestJwt(sub, expOffsetSec = 3600, secret = TEST_JWT_SE
   return `${header}.${payload}.${Buffer.from(sig).toString('base64url')}`;
 }
 
-/** Boots a fresh PostgreSQL 16 (`PGlite`) instance with all `16 / 16` migrations applied. */
+/** Boots a fresh PostgreSQL 16 (`PGlite`) instance with all sorted migrations, including Partner response 16, applied. */
 export async function bootRealApiPostgres() {
   const db = new PGlite({ extensions: { pg_trgm } });
   await db.exec(fs.readFileSync(path.join(REPO_ROOT, 'supabase/tests/_bootstrap_supabase_local.sql'), 'utf8'));
@@ -52,6 +53,7 @@ export function createPgliteAdapter(db) {
   const resolveZone = async (lat, lng) => (await db.query('SELECT * FROM public.resolve_zone($1, $2)', [lat, lng])).rows[0];
   return {
     ...createPgliteOpsMethods(db, resolveZone),
+    ...createPglitePartnerMethods(db),
     async ping() {
       return (await db.query('SELECT 1 AS ok')).rows.length === 1;
     },
@@ -66,6 +68,17 @@ export function createPgliteAdapter(db) {
     },
     async resolveZone(lat, lng) {
       return (await db.query('SELECT * FROM public.resolve_zone($1, $2)', [lat, lng])).rows[0];
+    },
+    async createPartnerZoneWaitlist(input) {
+      return (
+        await db.query(
+          `INSERT INTO public.partner_zone_waitlist (profile_id, idempotency_key, vendor_type, lat, lng, public_area_label)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (profile_id, idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
+           RETURNING id, created_at`,
+          [input.profileId, input.idempotencyKey, input.vendorType, input.lat, input.lng, input.publicAreaLabel],
+        )
+      ).rows[0];
     },
     async getHomeFeed(params) {
       const feed = (

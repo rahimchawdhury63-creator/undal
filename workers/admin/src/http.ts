@@ -72,10 +72,15 @@ export function listLoginHistory(): readonly LoginAttemptEntry[] {
   return [...LOGIN_HISTORY].reverse();
 }
 
-export function adminJsonOk<T>(data: T, requestId: string, status = 200): Response {
+export function adminJsonOk<T>(
+  data: T,
+  requestId: string,
+  status = 200,
+  extraHeaders?: Readonly<Record<string, string>>,
+): Response {
   return Response.json(okEnvelope(data, requestId), {
     status,
-    headers: ADMIN_CORS_HEADERS,
+    headers: { ...ADMIN_CORS_HEADERS, ...(extraHeaders ?? {}) },
   });
 }
 

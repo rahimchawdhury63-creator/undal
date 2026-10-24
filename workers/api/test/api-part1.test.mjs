@@ -249,12 +249,12 @@ test('W1 undal-api Part 1 E2E: Catalog, rank_v1, HOME_KITCHEN privacy, Banglish 
       }),
       env,
     );
-    assert.equal(badPrivate.status, 422);
+    assert.equal(badPrivate.status, 400);
 
     const okKycTicketRes = await worker.fetch(
       new Request('https://api.undal.app/v1/images/private-upload-url', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${riderJwt}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${riderJwt}`, 'Content-Type': 'application/json', 'Idempotency-Key': 'kyc-ticket-0001' },
         body: JSON.stringify({ category: 'rider_kyc', bytes: 185000, format: 'jpg' }),
       }),
       env,

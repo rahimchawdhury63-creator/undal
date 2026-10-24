@@ -435,11 +435,11 @@ export function createPgliteOpsMethods(db, resolveZone) {
       ).rows[0];
     },
 
-    async submitVendorKycDoc(vendorId, docType, storagePath, expiresOn) {
+    async submitVendorKycDoc(vendorId, docType, storagePath, expiresOn, mediaAssetId, issuedOn) {
       return (
         await db.query(
-          'INSERT INTO public.vendor_documents (vendor_id, doc_type, storage_path, expires_on) VALUES ($1,$2,$3,$4) RETURNING *',
-          [vendorId, docType, storagePath, expiresOn],
+          'INSERT INTO public.vendor_documents (vendor_id, doc_type, storage_path, expires_on, media_asset_id, issued_on) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+          [vendorId, docType, storagePath, expiresOn, mediaAssetId ?? null, issuedOn ?? null],
         )
       ).rows[0];
     },

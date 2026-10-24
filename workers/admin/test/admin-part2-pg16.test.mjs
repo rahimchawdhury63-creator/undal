@@ -43,11 +43,19 @@ test('W3 undal-admin Part 2 E2E on Real PostgreSQL 16 (C71..C132 across Settleme
   const pg = await bootRealAdminPostgres();
   const dbAdapter = createPgliteAdminAdapter(pg);
   let clockMs = Date.parse('2026-10-23T18:05:00Z'); // Friday 00:05 Asia/Dhaka!
+  const payoutKeyPair = await crypto.subtle.generateKey(
+    { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['encrypt', 'decrypt'],
+  );
+  const payoutPrivateKeyB64 = Buffer.from(await crypto.subtle.exportKey('pkcs8', payoutKeyPair.privateKey)).toString('base64');
+  const payoutPublicKey = await crypto.subtle.exportKey('spki', payoutKeyPair.publicKey);
 
   const env = {
     SERVICE_NAME: 'undal-admin',
     SUPABASE_JWT_SECRET: EXAMPLE_ADMIN_JWT_SECRET,
     ADMIN_TOTP_PEPPER: EXAMPLE_ADMIN_TOTP_PEPPER,
+    VENDOR_PAYOUT_PRIVATE_KEY_PKCS8_B64: payoutPrivateKeyB64,
     dbAdapter,
     nowMs: () => clockMs,
   };
@@ -121,6 +129,15 @@ test('W3 undal-admin Part 2 E2E on Real PostgreSQL 16 (C71..C132 across Settleme
       [vendOwnerId, sylhetZone.id],
     )
   ).rows[0].id;
+
+  const payoutCiphertext = await crypto.subtle.encrypt(
+    { name: 'RSA-OAEP' }, payoutKeyPair.publicKey, new TextEncoder().encode('01715009999'),
+  );
+  await pg.query(
+    `INSERT INTO public.vendor_payout_accounts (vendor_id, method, holder_name, account_ref_enc, masked, is_primary)
+     VALUES ($1, 'bkash', 'Panshi Finance', $2, '017****9999', true)`,
+    [vendorId, new Uint8Array(payoutCiphertext)],
+  );
 
   const riderId = (
     await pg.query(
@@ -219,6 +236,20 @@ test('W3 undal-admin Part 2 E2E on Real PostgreSQL 16 (C71..C132 across Settleme
 
   // `finance` Admin A verifies `GENERATED -> VERIFIED` (`C73`)
   assert.equal((await callW3(`/v1/admin/invoices/${vendorInv.id}/verify`, { method: 'POST', headers: financeHeaders, body: '{}' })).status, 200);
+
+  const noStepUpHeaders = { ...financeHeaders };
+  delete noStepUpHeaders['X-Undal-Step-Up'];
+  assert.equal((await callW3(`/v1/admin/invoices/${vendorInv.id}/payout-target`, { headers: noStepUpHeaders })).status, 403);
+  const payoutTargetResponse = await callW3(`/v1/admin/invoices/${vendorInv.id}/payout-target`, { headers: financeHeaders });
+  assert.equal(payoutTargetResponse.status, 200);
+  const payoutTarget = (await payoutTargetResponse.json()).data.payout_target;
+  assert.equal(payoutTarget.accountNumber, '01715009999');
+  assert.equal(payoutTarget.masked, '017****9999');
+  const payoutAccessAudit = (await pg.query(
+    `SELECT diff::text FROM public.audit_logs WHERE action = 'invoice.payout_target.view' AND entity_id = $1`,
+    [vendorInv.id],
+  )).rows[0].diff;
+  assert.equal(payoutAccessAudit.includes('01715009999'), false, 'plaintext payout number must never enter the audit trail');
 
   // `finance` Admin A attempts to pay THEIR OWN verified invoice -> **STRICT 403 DUAL-CONTROL REJECTION!**
   const selfPayDenied = await callW3(`/v1/admin/invoices/${vendorInv.id}/pay`, {

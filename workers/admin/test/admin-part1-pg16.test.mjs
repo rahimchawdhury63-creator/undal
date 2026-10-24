@@ -258,7 +258,7 @@ test('W3 undal-admin Part 1 E2E on Real PostgreSQL 16 (C1..C70 across Governance
   const riderProfileId = '20000000-0000-4000-8000-000000000013';
   for (const [id, role, name, phone] of [
     [custProfileId, 'customer', 'Tahmid Customer', '01711009911'],
-    [vendOwnerId, 'vendor_owner', 'Home Chef Ruma', '01711009912'],
+    [vendOwnerId, 'customer', 'Home Chef Ruma', '01711009912'],
     [riderProfileId, 'rider', 'Rider Tanvir', '01711009913'],
   ]) {
     await pg.query('INSERT INTO auth.users (id, email) VALUES ($1, $2)', [id, `${id}@undal.app`]);
@@ -336,7 +336,10 @@ test('W3 undal-admin Part 1 E2E on Real PostgreSQL 16 (C1..C70 across Governance
     }),
   });
   assert.equal(kycApproved.status, 200);
-  assert.equal((await kycApproved.json()).data.is_active, true);
+  const kycApprovedBody = (await kycApproved.json()).data;
+  assert.equal(kycApprovedBody.is_active, true);
+  assert.equal(kycApprovedBody.owner_role_promoted, true);
+  assert.equal((await pg.query('SELECT role FROM public.profiles WHERE id = $1', [vendOwnerId])).rows[0].role, 'vendor_owner');
 
   const expiring = (await (await callW3('/v1/admin/kyc/expiring?days=30', { headers: adminHeaders })).json()).data.items;
   assert.equal(expiring.length, 1);
@@ -415,17 +418,30 @@ test('W3 undal-admin Part 1 E2E on Real PostgreSQL 16 (C1..C70 across Governance
   assert.ok(exportJson.csv.includes('dispatch.force_complete'));
   assert.ok(exportJson.csv.includes('zone.update'));
 
-  // Verify `createAdminPostgrestAdapter` speaks clean `/rest/v1/*` wire calls
-  const wireUrls = [];
+  // Verify PostgREST approval atomically follows KYC policy with customer -> vendor_owner promotion.
+  const wireRequests = [];
+  const wireVendorId = '30000000-0000-4000-8000-000000000001';
+  const wireOwnerId = '30000000-0000-4000-8000-000000000002';
   const restAdapter = createAdminPostgrestAdapter(
     { SUPABASE_URL: 'https://proj.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'example-service-role-key' },
-    async (u) => {
-      wireUrls.push(String(u));
+    async (u, init = {}) => {
+      const url = String(u);
+      wireRequests.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(String(init.body)) : null });
+      if (url.includes('/vendors?')) return Response.json([{ id: wireVendorId, owner_profile_id: wireOwnerId, kyc_status: 'approved', is_active: true }]);
+      if (url.includes('/profiles?')) return Response.json([{ role: 'vendor_owner' }]);
+      if (url.includes('/zones?')) return Response.json([]);
       return Response.json([]);
     },
   );
   await restAdapter.listZonesAdmin();
-  assert.ok(wireUrls[0].startsWith('https://proj.supabase.co/rest/v1/zones?'));
+  assert.ok(wireRequests[0].url.startsWith('https://proj.supabase.co/rest/v1/zones?'));
+  const wireDecision = await restAdapter.decideKycApplication({
+    targetType: 'vendor', targetId: wireVendorId, decision: 'approved', reviewerId: founderId,
+  });
+  assert.equal(wireDecision.owner_role_promoted, true);
+  assert.equal(wireRequests[1].url, `https://proj.supabase.co/rest/v1/vendors?id=eq.${wireVendorId}`);
+  assert.equal(wireRequests[2].url, `https://proj.supabase.co/rest/v1/profiles?id=eq.${wireOwnerId}&role=eq.customer&status=eq.active`);
+  assert.deepEqual(wireRequests[2].body, { role: 'vendor_owner' });
 
   await pg.close();
 });

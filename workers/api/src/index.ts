@@ -25,6 +25,7 @@ import { handleCartRoute } from './routes/cart.ts';
 import { handleCatalogRoute } from './routes/catalog.ts';
 import { handleMediaRoute } from './routes/media.ts';
 import { handleOperatorsRoute } from './routes/operators.ts';
+import { handlePartnerOnboardingRoute } from './routes/partner-onboarding.ts';
 import { handleOrdersRoute } from './routes/orders.ts';
 import { handleSocialRoute } from './routes/social.ts';
 import type { ApiWorkerEnv } from './types.ts';
@@ -75,6 +76,9 @@ export default {
 
       const socialRes = await handleSocialRoute(request, url, db, auth.principal, requestId);
       if (socialRes) return socialRes;
+
+      const onboardingRes = await handlePartnerOnboardingRoute(request, url, env, db, auth.principal, requestId);
+      if (onboardingRes) return onboardingRes;
 
       const operatorsRes = await handleOperatorsRoute(request, url, db, auth.principal, requestId);
       if (operatorsRes) return operatorsRes;

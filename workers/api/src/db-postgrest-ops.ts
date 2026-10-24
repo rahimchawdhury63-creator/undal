@@ -4,6 +4,7 @@
  * customer addresses, favourites, carts & eligible voucher wallet, and core order lifecycle RPCs.
  */
 
+import { createPostgrestOnboardingMethods } from './db-postgrest-onboarding.ts';
 import { createPostgrestSocialOpsMethods } from './db-postgrest-social-ops.ts';
 import type { ApiDbAdapter } from './types.ts';
 
@@ -38,9 +39,11 @@ function nonNegativeBigInt(value: unknown): bigint | null {
 /** Builds Part 2 transactional/operator PostgREST adapter methods without any third-party SDK. */
 export function createPostgrestOpsMethods(t: PostgrestTransport) {
   const socialOps = createPostgrestSocialOpsMethods(t);
+  const onboardingOps = createPostgrestOnboardingMethods(t);
 
   return {
     ...socialOps,
+    ...onboardingOps,
 
     async listCustomerAddresses(profileId: string) {
       return await t.getJson<Record<string, unknown>[]>(

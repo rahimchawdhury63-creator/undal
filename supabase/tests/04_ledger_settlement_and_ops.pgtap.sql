@@ -1,7 +1,7 @@
 -- =============================================================================
 -- pgTAP Suite: 04_ledger_settlement_and_ops.pgtap.sql
 -- Milestone:   Build Response 5 + Response 13 media law (`0013..0019` — full 19-migration suite)
--- Coverage:    62/62 RLS-forced public tables, zero Supabase Storage schema (`ADR-0006`),
+-- Coverage:    63/63 RLS-forced public tables, zero Supabase Storage schema (`ADR-0006`),
 --              ACID append-only ledger conservation on DELIVERED transition, bicycle ৳3,000
 --              cash ceiling auto-lock & TrxID remittance auto-unlock, Friday/Saturday
 --              dual-path idempotent invoices with bKash cash-out fee cover, verified-buyer
@@ -12,7 +12,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 SELECT plan(30);
 
--- 1. All Build 5 tables exist & EVERY regular public table (62/62) has ENABLE + FORCE RLS (`0` Supabase storage tables)
+-- 1. All Build 5 tables exist & EVERY regular public table (63/63) has ENABLE + FORCE RLS (`0` Supabase storage tables)
 SELECT has_table('public', 'ledger_entries', 'ledger_entries table exists');
 SELECT has_table('public', 'invoices', 'invoices table exists');
 SELECT has_table('public', 'invoice_lines', 'invoice_lines table exists');
@@ -31,8 +31,8 @@ SELECT results_eq(
      FROM pg_class c
      JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public' AND c.relkind = 'r' $$,
-  $$ VALUES (62, 0, 0) $$,
-  'All 62 public tables have ENABLE + FORCE RLS and 0 Supabase Storage tables exist (ADR-0006)'
+  $$ VALUES (63, 0, 0) $$,
+  'All 63 public tables have ENABLE + FORCE RLS and 0 Supabase Storage tables exist (ADR-0006)'
 );
 
 -- 2. Fixtures: Customer (trust=70 -> max COD ৳3,500), Home-Kitchen Vendor, Bicycle Rider (ceiling=৳3,000), SuperAdmin

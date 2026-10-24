@@ -1,11 +1,11 @@
 # 05 · Final PostgreSQL Data Model & RLS Contract (`Appendix B` Confirmed & Frozen)
 
-> **Plan Response 2 Frozen DDL Specification** · Drives **`Build Responses 2–5`** (`0001..0016`) plus customer-commerce/public-media enforcement in `Build Response 13` (`0017..0019`) and checkout-quote details in `Build Response 14` (`0020`)
+> **Plan Response 2 Frozen DDL Specification** · Drives **`Build Responses 2–5`** (`0001..0016`) plus customer-commerce/public-media enforcement in `Build Response 13` (`0017..0019`), checkout-quote details in `Build Response 14` (`0020`), and Partner onboarding/KYC in `Build Response 16` (`0021`)
 > **Global Laws:** (1) Every money column is **`bigint` integer poisha** (`৳1 = 100` poisha; `numeric/float` money is **forbidden**). (2) Every table enables **`ROW LEVEL SECURITY`** + **`FORCE ROW LEVEL SECURITY`** where appropriate. (3) Append-only tables (`audit_logs`, `order_events`, `ledger_entries`) attach `BEFORE UPDATE OR DELETE EXECUTE FUNCTION prevent_mutation()`. (4) Timestamps are `timestamptz` stored in UTC and displayed in `Asia/Dhaka` (`UTC+06:00`).
 
 ---
 
-## 1. Migration Schedule (`0001` → `0020` across `Build Responses 2–5`, `13`, and `14`)
+## 1. Migration Schedule (`0001` → `0021` across `Build Responses 2–5`, `13`, `14`, and `16`)
 
 | Build | Migration File | Exact Objects Created | Automated Test Gate |
 |---:|---|---|---|
@@ -29,10 +29,11 @@
 | **B13** | `0018_storefront_modifiers_and_cart_quote.sql` | Privacy-safe `get_vendor_storefront(...)`, audited zone-tier delivery/platform-setting helpers, and service-role-only `quote_customer_cart(...)` RPC | Storefront privacy, client-fee tamper rejection, current modifier pricing and M-1..M-8 parity tests |
 | **B13** | `0019_public_imgbb_enforcement.sql` | Cleans legacy public media, adds ImgBB-only DB constraints for avatars/vendor/menu/banner/review/media URLs, filters `public_vendor_cards` and `get_home_feed(...)` | Legacy URL cleanup, invalid-write rejection, public feed/card/media-provider tests |
 | **B14** | `0020_customer_checkout_quote_details.sql` | Adds configurable `money.priority_delivery_fee_poisha`, returns exact `line_items` from `quote_customer_cart()`, enforces `first_order_only` in both quote and atomic `place_order()` | Priority-fee parity, COD placement, item detail, first-order voucher rejection tests (`migrations-b06.test.mjs`) |
+| **B16** | `0021_partner_payout_account_encryption.sql` | Adds owner-private applicant/menu/hygiene/agreement fields, Cloudinary asset/date links for KYC, service-role-only RSA-OAEP payout save RPC, and RLS-forced `partner_zone_waitlist` with no exact-address column | 21-migration double-apply + 63-table RLS/zero-Storage test; W1 application/KYC/payout/waitlist PGlite integration |
 
 ---
 
-## 2. Complete Table & Column Dictionary (`50` Concrete Tables Across All `45` `Appendix B` Groups)
+## 2. Table & Column Dictionary (Core Tables Across All `45` `Appendix B` Groups)
 
 ### Group A — Identity, RBAC, Settings & Taxonomies (`Migrations 0002–0003`)
 
@@ -69,14 +70,19 @@
     - `logo_url text`, `cover_url text`, `cuisines text[] NOT NULL CHECK (cardinality(cuisines) <= 5)`
     - `kyc_status text NOT NULL DEFAULT 'draft' CHECK (kyc_status IN ('draft','submitted','under_review','approved','rejected','needs_fix'))`, `is_active boolean NOT NULL DEFAULT false`
     - `commission_bps integer NOT NULL DEFAULT 1500 CHECK (commission_bps BETWEEN 0 AND 3000)` (`1500 bps = 15.00%`), `min_order_poisha bigint NOT NULL DEFAULT 15000`
-    - `accepts_pickup boolean NOT NULL DEFAULT true` (`D-24`), `pickup_point_label text`
+    - `accepts_pickup boolean NOT NULL DEFAULT true` for pre-existing rows; W1 applies D-24 application defaults (restaurant on, home/cloud off), and requires a separate public `pickup_point_label` when enabled
+    - Response 16 application fields: `representative_name`, `contact_email`, integer-poisha `onboarding_menu jsonb`, `on_demand_declared`, `partner_prep_minutes_estimate smallint CHECK (5..200)`, `hygiene_checklist jsonb`, `packaging_standard_accepted_at`, and version/hash/actor/timestamp for the accepted partner agreement
+    - W3 grants `vendor_owner` only to an active `customer` profile after an authorized vendor-KYC approval; applicant accounts cannot self-elevate during signup or submission
     - `busy_mode_extra_minutes smallint NOT NULL DEFAULT 0 CHECK (busy_mode_extra_minutes IN (0,10,15,20))`, `busy_mode_until timestamptz` (`ADR-0005`)
     - `rating_avg numeric(3,2) NOT NULL DEFAULT 0`, `rating_count integer NOT NULL DEFAULT 0`, `avg_prep_min smallint NOT NULL DEFAULT 20`, `acceptance_rate numeric(5,2) NOT NULL DEFAULT 100.00`, `created_at/updated_at`
 14. **`vendor_staff_members`** (`PK: (vendor_id, profile_id)`): `role text NOT NULL CHECK (role IN ('manager','kitchen_staff'))`, `is_active boolean NOT NULL DEFAULT true`, `created_at timestamptz`
 15. **`vendor_hours`** (`PK: (vendor_id, weekday)` where `weekday smallint CHECK (weekday BETWEEN 0 AND 6)`): `open1 time`, `close1 time`, `open2 time`, `close2 time`, `is_closed boolean NOT NULL DEFAULT false`
 16. **`vendor_pauses`** (`PK: id uuid`): `vendor_id uuid NOT NULL REFERENCES vendors(id)`, `starts_at timestamptz NOT NULL`, `ends_at timestamptz NOT NULL`, `reason text NOT NULL`, `created_by uuid REFERENCES profiles(id)`
-17. **`vendor_documents`** (`PK: id uuid`): `vendor_id uuid NOT NULL REFERENCES vendors(id)`, `doc_type text NOT NULL CHECK (doc_type IN ('trade_license','nid_front','nid_back','tin','bin','bank_proof','bkash_proof','utility_bill','kitchen_hygiene_photo','selfie'))`, `storage_path text NOT NULL`, `review_status text NOT NULL DEFAULT 'pending' CHECK (review_status IN ('pending','approved','needs_fix','rejected'))`, `reviewer_id uuid REFERENCES profiles(id)`, `review_note text`, `expires_on date`, `created_at/updated_at`
-18. **`vendor_payout_accounts`** (`PK: id uuid`): `vendor_id uuid NOT NULL REFERENCES vendors(id)`, `method text NOT NULL CHECK (method IN ('bkash','nagad','bank'))`, `holder_name text NOT NULL`, `account_ref_enc bytea NOT NULL` (`pgp_sym_encrypt`), `masked text NOT NULL`, `bank_meta jsonb`, `is_primary boolean NOT NULL DEFAULT true`, `created_at/updated_at`
+17. **`vendor_documents`** (`PK: id uuid`): `vendor_id uuid NOT NULL REFERENCES vendors(id)`, `doc_type` allows restaurant/kitchen requirements including NID or passport front/back, `tin`, `bin`, utility-bill issue date, hygiene photo, and payout proofs; `storage_path text NOT NULL` is a private Cloudinary public-id only (never a Supabase Storage path or signed URL), `media_asset_id uuid REFERENCES media_assets(id)`, `issued_on date`, `review_status text NOT NULL DEFAULT 'pending' CHECK (review_status IN ('pending','approved','needs_fix','rejected'))`, `reviewer_id uuid REFERENCES profiles(id)`, `review_note text`, `expires_on date`, `created_at/updated_at`
+18. **`vendor_payout_accounts`** (`PK: id uuid`): `vendor_id uuid NOT NULL REFERENCES vendors(id)`, `method text NOT NULL CHECK (method IN ('bkash','nagad','bank'))`, `holder_name text NOT NULL`, `account_ref_enc bytea NOT NULL` (W1 encrypts with RSA-OAEP/SHA-256 before the service-role RPC; decrypt-only private key is held by W3, replacing the legacy `pgp_sym_encrypt` description), `masked text NOT NULL`, `bank_meta jsonb`, `is_primary boolean NOT NULL DEFAULT true`, `created_at/updated_at`
+
+**Response 16 `partner_zone_waitlist`** (`PK: id uuid`, `UNIQUE(profile_id, idempotency_key)`): stores only the applicant profile, vendor track, idempotency key, coarse pin, public-area label, and creation time; exact address, phone, email, KYC files, and payout data are excluded. RLS is enabled and forced with all client-role access revoked; only `service_role` can write/read.
+
 19. **`menu_categories`** (`PK: id uuid`): `vendor_id uuid NOT NULL REFERENCES vendors(id)`, `name_en text NOT NULL`, `name_bn text`, `description_en text`, `description_bn text`, `category_type text NOT NULL DEFAULT 'regular' CHECK (category_type IN ('regular','combo'))` (`ADR-0005`), `sort integer NOT NULL DEFAULT 0`, `is_active boolean NOT NULL DEFAULT true`, `schedule jsonb`
 20. **`menu_items`** (`PK: id uuid`): `vendor_id uuid NOT NULL REFERENCES vendors(id)`, `category_id uuid NOT NULL REFERENCES menu_categories(id)`, `name_en text NOT NULL`, `name_bn text`, `description_en text`, `description_bn text`, `price_poisha bigint NOT NULL CHECK (price_poisha >= 0)` (VAT-inclusive `D-08`!), `compare_at_poisha bigint CHECK (compare_at_poisha IS NULL OR compare_at_poisha > price_poisha)`, `image_url text`, `item_type text NOT NULL DEFAULT 'simple' CHECK (item_type IN ('simple','sized','bundle'))`, `is_available boolean NOT NULL DEFAULT true`, `unavailable_until timestamptz`, `moderation_status text NOT NULL DEFAULT 'visible' CHECK (moderation_status IN ('visible','flagged','hidden'))`, `spicy_level smallint NOT NULL DEFAULT 0 CHECK (spicy_level BETWEEN 0 AND 3)`, `is_veg boolean NOT NULL DEFAULT false`, `serves text`, `prep_weight smallint NOT NULL DEFAULT 1`, `sort integer NOT NULL DEFAULT 0`, `search_tsv tsvector`, `created_at/updated_at`
 21. **`variant_groups`** (`PK: id uuid`) & 22. **`variants`** (`PK: id uuid`): `item_id uuid REFERENCES menu_items(id)`, `name_en/name_bn text`, `price_delta_poisha bigint NOT NULL`, `is_available boolean NOT NULL DEFAULT true`, `sort integer`
@@ -124,6 +130,7 @@
 | `zones`, `cuisine_taxonomy`, `banners`, active `campaigns` | `SELECT` active only | `SELECT` active only | `SELECT` active only | `SELECT` active only | Full CRUD scoped by `3.*` / `4.*` / `7.*` |
 | `vendors` (public columns via safe view; raw table blocks `address_text_private`!) | `SELECT` approved & active via RPC/view | `SELECT` approved & active | `SELECT/UPDATE` own store (`owner` edits payout; `staff` ops only) | `SELECT` pickup store of active assigned order | `4.vendor_360` / `4.pipeline` |
 | `vendor_documents`, `rider_documents`, `*_payout_accounts` | **DENY ALL** | **DENY ALL** | Own store `SELECT/INSERT` (`owner` only for payout) | Own `SELECT/INSERT` | `4.pipeline` / `5.invoices` only (+ `audit_logs` write!) |
+| `partner_zone_waitlist` | **DENY ALL** | **DENY ALL** | **DENY ALL** | **DENY ALL** | Service-role-only W1 mediation; no client direct grant |
 | `menu_categories`, `menu_items`, `variants`, `options`, `bundles` | `SELECT` visible of approved vendors | `SELECT` visible | Full CRUD on own `vendor_id` | `SELECT` on assigned orders | `4.menu_moderation` / `4.catalog` |
 | `carts`, `cart_items`, `customer_addresses`, `favourites` | **DENY ALL** | Full CRUD where `customer_id = auth.uid()` | **DENY ALL** | **DENY ALL** | Read-only in `8.customer_360` |
 | `orders`, `order_items`, `order_events`, `chats`, `chat_messages` | **DENY ALL** | `SELECT` own `customer_id`; mutations strictly via RPC / `W1` | `SELECT` own `vendor_id` (masked customer phone after completion) | `SELECT` assigned `rider_id` / active `order_offers` | `2.*`, `6.*`, `8.*` |

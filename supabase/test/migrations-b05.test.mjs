@@ -1,8 +1,8 @@
 /**
  * @file supabase/test/migrations-b05.test.mjs
  * @description Real PostgreSQL 16 (PGlite WASM) verification suite for Build Response 5
- * (`0013_ledger_and_settlement.sql` .. `0016_settlement_and_cron_rpcs.sql` plus commerce/media `0017..0020` — 20/20 Complete DB Suite):
- *   1. Double-apply idempotency & `ENABLE + FORCE ROW LEVEL SECURITY` across all 62 public tables (`0` Supabase Storage tables per `ADR-0006`).
+ * (`0013_ledger_and_settlement.sql` .. `0016_settlement_and_cron_rpcs.sql` plus commerce/media/onboarding `0017..0021` — 21/21 migrations):
+ *   1. Double-apply idempotency & `ENABLE + FORCE ROW LEVEL SECURITY` across all 63 public tables (`0` Supabase Storage tables per `ADR-0006`).
  *   2. Exact zero-drift conservation between TypeScript `buildOrderLedgerEntries()` and SQL `record_order_delivered_ledger()` on `DELIVERED`.
  *   3. Bicycle COD float ceiling (`৳3,000` = `300,000` poisha) auto-blocks new dispatches (`RIDER_CASH_CEILING_EXCEEDED`) until verified `TrxID` remittance unlocks gate.
  *   4. Negative-balance Rider weekly invoice blocks premature payout (`INVOICE_NEGATIVE_NET_OWES_UNDAL`), while positive Vendor invoice completes `GENERATED -> VERIFIED -> PAID`.
@@ -28,17 +28,17 @@ async function createB05Db() {
     .readdirSync(path.join(REPO_ROOT, 'supabase/migrations'))
     .filter((f) => f.endsWith('.sql'))
     .sort();
-  assert.equal(files.length, 20, 'Expected all 20 PostgreSQL migrations (0001..0020)');
+  assert.equal(files.length, 21, 'Expected all 21 PostgreSQL migrations (0001..0021)');
   for (const file of files) {
     await db.exec(fs.readFileSync(path.join(REPO_ROOT, 'supabase/migrations', file), 'utf8'));
   }
   return db;
 }
 
-test('B05-SQL-01: Full 20/20 migration engine passes double-apply idempotency, zero-drift ledger, cash gate, weekly settlement & ADR-0006', async () => {
+test('B05-SQL-01: Full 21/21 migration engine passes double-apply idempotency, zero-drift ledger, cash gate, weekly settlement & ADR-0006', async () => {
   const db = await createB05Db();
   try {
-    // Re-apply 0013..0020 to verify strict idempotency
+    // Re-apply 0013..0021 to verify strict idempotency
     for (const file of [
       '0013_ledger_and_settlement.sql',
       '0014_social_chat_support.sql',
@@ -48,6 +48,7 @@ test('B05-SQL-01: Full 20/20 migration engine passes double-apply idempotency, z
       '0018_storefront_modifiers_and_cart_quote.sql',
       '0019_public_imgbb_enforcement.sql',
       '0020_customer_checkout_quote_details.sql',
+      '0021_partner_payout_account_encryption.sql',
     ]) {
       await db.exec(fs.readFileSync(path.join(REPO_ROOT, 'supabase/migrations', file), 'utf8'));
     }
@@ -61,7 +62,30 @@ test('B05-SQL-01: Full 20/20 migration engine passes double-apply idempotency, z
       JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind = 'r'
     `);
-    assert.deepEqual(rlsCheck.rows[0], { total_tables: 62, unprotected: 0, storage_tables: 0 });
+    assert.deepEqual(rlsCheck.rows[0], { total_tables: 63, unprotected: 0, storage_tables: 0 });
+    const waitlistSecurity = await db.query(`
+      SELECT c.relrowsecurity AS rls_enabled, c.relforcerowsecurity AS rls_forced,
+        has_table_privilege('authenticated', 'public.partner_zone_waitlist', 'SELECT') AS authenticated_can_read,
+        has_table_privilege('authenticated', 'public.partner_zone_waitlist', 'INSERT') AS authenticated_can_insert,
+        has_table_privilege('service_role', 'public.partner_zone_waitlist', 'INSERT') AS worker_can_insert,
+        EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'partner_zone_waitlist' AND column_name = 'address_text_private') AS stores_exact_address
+      FROM pg_class c WHERE c.oid = 'public.partner_zone_waitlist'::regclass
+    `);
+    assert.deepEqual(waitlistSecurity.rows[0], {
+      rls_enabled: true,
+      rls_forced: true,
+      authenticated_can_read: false,
+      authenticated_can_insert: false,
+      worker_can_insert: true,
+      stores_exact_address: false,
+    });
+    assert.ok((await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'vendors' AND column_name = 'partner_prep_minutes_estimate'`)).rows.length === 1);
+    const payoutRpcSecurity = await db.query(`
+      SELECT
+        has_function_privilege('authenticated', 'public.save_vendor_payout_account(uuid,uuid,text,text,text,text)', 'EXECUTE') AS authenticated_can_write,
+        has_function_privilege('service_role', 'public.save_vendor_payout_account(uuid,uuid,text,text,text,text)', 'EXECUTE') AS worker_can_write
+    `);
+    assert.deepEqual(payoutRpcSecurity.rows[0], { authenticated_can_write: false, worker_can_write: true });
 
     await db.exec(`
       INSERT INTO auth.users (id, email, raw_user_meta_data) VALUES

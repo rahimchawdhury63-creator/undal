@@ -196,6 +196,7 @@ export interface AdminWorkerEnv {
   readonly ADMIN_TOTP_PEPPER?: string;
   readonly UNDAL_CLOUDINARY_CLOUD_NAME?: string;
   readonly CLOUDINARY_API_SECRET?: string;
+  readonly VENDOR_PAYOUT_PRIVATE_KEY_PKCS8_B64?: string;
   readonly dbAdapter?: AdminDbAdapter;
   readonly nowMs?: () => number;
 }

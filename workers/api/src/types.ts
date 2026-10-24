@@ -53,6 +53,45 @@ export interface OrderAccessContext {
   readonly staffRole: string | null;
 }
 
+export interface VendorApplicationInput {
+  readonly ownerProfileId: string;
+  readonly type: 'RESTAURANT' | 'HOME_KITCHEN' | 'CLOUD_KITCHEN';
+  readonly legalName: string;
+  readonly brandName: string;
+  readonly brandNameBn: string | null;
+  readonly representativeName: string;
+  readonly contactEmail: string;
+  readonly slug: string;
+  readonly counterPhone: string;
+  readonly publicAreaLabel: string;
+  readonly addressTextPrivate: string;
+  readonly lat: number;
+  readonly lng: number;
+  readonly zoneId: string;
+  readonly cuisines: readonly string[];
+  readonly acceptsPickup: boolean;
+  readonly pickupPointLabel: string | null;
+}
+
+export interface VendorApplicationHoursInput {
+  readonly weekday: number;
+  readonly isClosed: boolean;
+  readonly open1: string | null;
+  readonly close1: string | null;
+  readonly open2: string | null;
+  readonly close2: string | null;
+}
+
+export interface PartnerZoneWaitlistInput {
+  readonly profileId: string;
+  readonly idempotencyKey: string;
+  readonly vendorType: 'RESTAURANT' | 'HOME_KITCHEN' | 'CLOUD_KITCHEN';
+  readonly lat: number;
+  readonly lng: number;
+  readonly publicAreaLabel: string;
+}
+
+/** Database adapter contract for authenticated Partner application operations on W1. */
 export interface ApiDbAdapter {
   ping(): Promise<boolean>;
   getProfileAuthState(userId: string): Promise<AuthPrincipal | null>;
@@ -129,6 +168,22 @@ export interface ApiDbAdapter {
     diff: Record<string, unknown>;
     requestId: string;
   }): Promise<void>;
+
+  /* --- Build Response 16 (`W1 undal-api`): Partner KYC applications, hours, and payout setup --- */
+  getVendorApplication(profileId: string): Promise<Record<string, unknown> | null>;
+  listActiveCuisines(): Promise<readonly Record<string, unknown>[]>;
+  createVendorApplication(input: VendorApplicationInput): Promise<Record<string, unknown>>;
+  updateVendorApplication(profileId: string, vendorId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
+  saveVendorApplicationHours(vendorId: string, hours: readonly VendorApplicationHoursInput[]): Promise<readonly Record<string, unknown>[]>;
+  createPartnerZoneWaitlist(input: PartnerZoneWaitlistInput): Promise<Record<string, unknown>>;
+  saveVendorPayoutAccount(input: {
+    readonly profileId: string;
+    readonly vendorId: string;
+    readonly method: 'bkash' | 'nagad' | 'bank';
+    readonly holderName: string;
+    readonly ciphertextHex: string;
+    readonly masked: string;
+  }): Promise<Record<string, unknown>>;
 
   /* --- Build Response 7 (`W1 undal-api` Part 2): Addresses, Favourites, Cart, Orders, Chat, Reviews & Operators --- */
   listCustomerAddresses(profileId: string): Promise<readonly Record<string, unknown>[]>;
@@ -281,6 +336,8 @@ export interface ApiDbAdapter {
     docType: string,
     storagePath: string,
     expiresOn: string | null,
+    mediaAssetId?: string | null,
+    issuedOn?: string | null,
   ): Promise<Record<string, unknown>>;
   getVendorFinanceSummary(
     vendorId: string,
@@ -319,6 +376,7 @@ export interface ApiWorkerEnv {
   readonly CLOUDINARY_UNSIGNED_PRESET_SECURE?: string;
   readonly CLOUDINARY_API_KEY?: string;
   readonly CLOUDINARY_API_SECRET?: string;
+  readonly VENDOR_PAYOUT_PUBLIC_KEY_SPKI_B64?: string;
   readonly QR_SIGNING_SECRET?: string;
   readonly REALTIME_WORKER_URL?: string;
   readonly INTERNAL_HMAC_SECRET?: string;

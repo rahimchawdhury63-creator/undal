@@ -169,12 +169,14 @@ export function createPostgrestSocialOpsMethods(t: PostgrestTransport): Pick<Api
       return rows[0] ?? {};
     },
 
-    async submitVendorKycDoc(vendorId, docType, storagePath, expiresOn) {
+    async submitVendorKycDoc(vendorId, docType, storagePath, expiresOn, mediaAssetId, issuedOn) {
       const rows = await t.sendJson<Record<string, unknown>[]>('POST', 'vendor_documents', {
         vendor_id: vendorId,
         doc_type: docType,
         storage_path: storagePath,
         expires_on: expiresOn,
+        media_asset_id: mediaAssetId ?? null,
+        issued_on: issuedOn ?? null,
       });
       return rows[0] ?? {};
     },
