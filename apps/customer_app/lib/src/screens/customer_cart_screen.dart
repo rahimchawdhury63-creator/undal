@@ -76,7 +76,7 @@ class CustomerCartScreen extends StatelessWidget {
                         onPressed: () async {
                           final bool ok = await commerce.confirmServerCartReplacement();
                           if (!context.mounted) return;
-                          if (!ok) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_commerceMessage(context, commerce.commerceErrorCode))));
+                          if (!ok) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_cartCommerceMessage(context, commerce.commerceErrorCode))));
                         },
                         child: Text(cText(context, 'Replace server cart', 'সার্ভার কার্ট বদলান')),
                       ),
@@ -203,6 +203,12 @@ class _MoneyRow extends StatelessWidget {
     );
   }
 }
+
+String _cartCommerceMessage(BuildContext context, String? code) => switch (code) {
+      'CART_VENDOR_CONFLICT' => cText(context, 'Confirm replacing the other kitchen cart.', 'অন্য রান্নাঘরের কার্ট বদল নিশ্চিত করুন।'),
+      'NETWORK_UNAVAILABLE' => cText(context, 'Reconnect and try again.', 'ইন্টারনেট চালু করে আবার চেষ্টা করুন।'),
+      _ => cText(context, 'The server cart could not be replaced. Review it and try again.', 'সার্ভার কার্ট বদলানো যায়নি। আবার চেষ্টা করুন।'),
+    };
 
 String _basketSelectionSummary(BasketLineItem line, String lang) {
   final List<String> labels = <String>[];

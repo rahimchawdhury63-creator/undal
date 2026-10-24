@@ -427,6 +427,8 @@ final class CustomerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _notifyListenersFromCommerceBindings() => notifyListeners();
+
   @override
   void dispose() {
     _flashTimer?.cancel();

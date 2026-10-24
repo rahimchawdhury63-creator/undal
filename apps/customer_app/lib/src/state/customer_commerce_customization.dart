@@ -118,7 +118,7 @@ extension CustomerCommerceCustomizationOperations on CustomerCommerceState {
     }
     if (_readOffline()) return CartAddResult.offline;
     if (!_groupsValid) return CartAddResult.unavailable;
-    if (_api.isConfigured && (!_storefrontLive || !item.isLiveSnapshot || !_isUuid(item.dish.id))) {
+    if (_api.isConfigured && (!_storefrontLive || !item.isLiveSnapshot || !CustomerCommerceState._isUuid(item.dish.id))) {
       _commerceErrorCode = 'MENU_REFRESH_REQUIRED';
       _onChanged();
       return CartAddResult.requiresLiveRefresh;

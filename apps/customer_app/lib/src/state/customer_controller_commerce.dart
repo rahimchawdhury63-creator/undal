@@ -32,13 +32,13 @@ extension CustomerControllerCommerceBindings on CustomerController {
     commerce.closeFlow();
     _selectedTabIndex = index.clamp(0, 4);
     _activeOverlay = CustomerScreenId.c08HomeDelivery;
-    notifyListeners();
+    _notifyListenersFromCommerceBindings();
   }
 
   /// Changes delivery/pickup mode when the current basket permits it.
   void setFulfilmentMode(UndalFulfilmentMode next) {
     if (!commerce.setFulfilment(next)) return;
-    notifyListeners();
+    _notifyListenersFromCommerceBindings();
   }
 
   /// Attempts a basket add and reports conflicts so the UI can ask before switching kitchens.
@@ -67,6 +67,6 @@ extension CustomerControllerCommerceBindings on CustomerController {
   void signOut() {
     _session = null;
     commerce.clearSessionData();
-    notifyListeners();
+    _notifyListenersFromCommerceBindings();
   }
 }

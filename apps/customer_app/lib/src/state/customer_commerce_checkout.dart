@@ -171,7 +171,7 @@ extension CustomerCommerceCheckoutOperations on CustomerCommerceState {
       _requestAuthentication(const CheckoutOrderIntent());
       return false;
     }
-    if (!_api.isConfigured || !_hasLiveSession || _basket.isEmpty || !_basket.every((BasketLineItem row) => row.item.isLiveSnapshot && _isUuid(row.dish.id))) {
+    if (!_api.isConfigured || !_hasLiveSession || _basket.isEmpty || !_basket.every((BasketLineItem row) => row.item.isLiveSnapshot && CustomerCommerceState._isUuid(row.dish.id))) {
       _commerceErrorCode = 'LIVE_CHECKOUT_UNAVAILABLE';
       _onChanged();
       return false;
@@ -257,8 +257,8 @@ extension CustomerCommerceCheckoutOperations on CustomerCommerceState {
   Future<void> _synchronizeCart(CustomerSession session) async {
     if (_basket.isEmpty) throw const CustomerApiProblem('CART_EMPTY');
     final String? vendorId = _cartVendorId;
-    if (vendorId == null || !_isUuid(vendorId) ||
-        _basket.any((BasketLineItem row) => !row.item.isLiveSnapshot || !_isUuid(row.dish.id))) {
+    if (vendorId == null || !CustomerCommerceState._isUuid(vendorId) ||
+        _basket.any((BasketLineItem row) => !row.item.isLiveSnapshot || !CustomerCommerceState._isUuid(row.dish.id))) {
       throw const CustomerApiProblem('MENU_REFRESH_REQUIRED');
     }
     if (_readFulfilment() == UndalFulfilmentMode.pickup &&

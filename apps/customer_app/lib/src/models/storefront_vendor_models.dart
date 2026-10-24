@@ -205,5 +205,3 @@ int _int(Object? value, {int fallback = 0}) {
   if (value is String) return int.tryParse(value) ?? fallback;
   return fallback;
 }
-
-double _double(Object? value) => value is num ? value.toDouble() : 0;
