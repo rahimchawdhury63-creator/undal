@@ -1,11 +1,11 @@
 # 05 · Final PostgreSQL Data Model & RLS Contract (`Appendix B` Confirmed & Frozen)
 
-> **Plan Response 2 Frozen DDL Specification** · Directly drives **`Build Responses 2–5`** (`supabase/migrations/0001..0016`)  
+> **Plan Response 2 Frozen DDL Specification** · Drives **`Build Responses 2–5`** (`0001..0016`) plus additive customer-commerce and public-image enforcement in `Build Response 13` (`0017..0019`)
 > **Global Laws:** (1) Every money column is **`bigint` integer poisha** (`৳1 = 100` poisha; `numeric/float` money is **forbidden**). (2) Every table enables **`ROW LEVEL SECURITY`** + **`FORCE ROW LEVEL SECURITY`** where appropriate. (3) Append-only tables (`audit_logs`, `order_events`, `ledger_entries`) attach `BEFORE UPDATE OR DELETE EXECUTE FUNCTION prevent_mutation()`. (4) Timestamps are `timestamptz` stored in UTC and displayed in `Asia/Dhaka` (`UTC+06:00`).
 
 ---
 
-## 1. Migration Schedule (`0001` → `0016` across `Build Responses 2–5`)
+## 1. Migration Schedule (`0001` → `0019` across `Build Responses 2–5` and `13`)
 
 | Build | Migration File | Exact Objects Created | Automated Test Gate |
 |---:|---|---|---|
@@ -25,6 +25,9 @@
 | **B05** | `0014_social_chat_support.sql` | `reviews`, `favourites`, `chats`, `chat_messages`, `support_threads`, `support_messages` | Verified-buyer review & participant-only chat RLS |
 | **B05** | `0015_ops_caches_and_telemetry.sql` | `banners`, `notifications`, `fcm_dispatch_log`, `client_errors`, `search_queries`, `weather_cache`, `geocode_cache`, `media_assets` | Quota pruning function `prune_ephemeral_rows()` |
 | **B05** | `0016_settlement_and_cron_rpcs.sql` | `record_order_delivered_ledger(...)`, `generate_weekly_invoices(...)`, `submit_cash_remittance(...)`, `decide_cash_remittance(...)` + RLS `0013–0015` | Full COD delivery → cash gate → weekly invoice SQL test |
+| **B13** | `0017_server_authoritative_cart_pricing.sql` | `calculate_cart_item_unit_poisha(...)`, authoritative cart price trigger, `place_order(...)` recomputes modifiers and expected COD against the server quote | Forged snapshots, invalid selections, idempotency, and `CART_STALE` tests |
+| **B13** | `0018_storefront_modifiers_and_cart_quote.sql` | Privacy-safe `get_vendor_storefront(...)`, audited zone-tier delivery/platform-setting helpers, and service-role-only `quote_customer_cart(...)` RPC | Storefront privacy, client-fee tamper rejection, current modifier pricing and M-1..M-8 parity tests |
+| **B13** | `0019_public_imgbb_enforcement.sql` | Cleans legacy public media, adds ImgBB-only DB constraints for avatars/vendor/menu/banner/review/media URLs, filters `public_vendor_cards` and `get_home_feed(...)` | Legacy URL cleanup, invalid-write rejection, public feed/card/media-provider tests |
 
 ---
 
@@ -87,7 +90,7 @@
 30. **`presence_live`** (`UNLOGGED TABLE`, `PK: profile_id uuid REFERENCES profiles(id)`): `kind text NOT NULL CHECK (kind IN ('vendor','rider'))`, `ref_id uuid NOT NULL`, `zone_id uuid NOT NULL`, `lat double precision`, `lng double precision`, `heading real`, `speed_mps real`, `capacity_used smallint NOT NULL DEFAULT 0`, `app_state text NOT NULL DEFAULT 'fg'`, `battery_pct smallint`, `last_seen_at timestamptz NOT NULL DEFAULT now()`
 31. **`campaigns`** (`PK: id uuid`) & 32. **`campaign_vendors`** (`PK: (campaign_id, vendor_id)`): `kind text NOT NULL CHECK (kind IN ('flash_box','vendor_promo','first_order','free_delivery'))`, `title_en/title_bn text`, `percent_bps integer`, `flat_poisha bigint`, `cap_poisha bigint`, `min_order_poisha bigint NOT NULL DEFAULT 0`, `vendor_share_bps integer NOT NULL CHECK (vendor_share_bps BETWEEN 0 AND 10000)` (`Flash Box` split `D-11`), `budget_cap_poisha bigint`, `budget_spent_poisha bigint NOT NULL DEFAULT 0`, `zone_ids uuid[]`, `daily_start_time time`, `daily_end_time time`, `starts_at/ends_at timestamptz`, `is_active boolean`
 33. **`vouchers`** (`PK: id uuid`, `UNIQUE(code)`) & 34. **`voucher_redemptions`** (`PK: id uuid`, `UNIQUE(voucher_id, order_id)`): `code text NOT NULL`, `kind text CHECK (kind IN ('percent','flat','free_delivery'))`, `value_num bigint NOT NULL`, `cap_poisha bigint`, `min_order_poisha bigint NOT NULL DEFAULT 0`, `max_uses_per_user smallint NOT NULL DEFAULT 1`, `vendor_share_bps integer NOT NULL DEFAULT 0`, `budget_cap_poisha bigint NOT NULL`, `budget_spent_poisha bigint NOT NULL DEFAULT 0`, `scope jsonb`, `starts_at/ends_at timestamptz`, `is_active boolean`
-35. **`carts`** (`PK: id uuid`, `UNIQUE(customer_id)`) & 36. **`cart_items`** (`PK: id uuid`): single active vendor per customer law (`CART_VENDOR_CONFLICT`), `fulfilment text CHECK (fulfilment IN ('delivery','pickup'))`, `voucher_code text`, `selections jsonb`, `unit_snapshot_poisha bigint NOT NULL`
+35. **`carts`** (`PK: id uuid`, `UNIQUE(customer_id)`) & 36. **`cart_items`** (`PK: id uuid`): single active vendor per customer law (`CART_VENDOR_CONFLICT`), `fulfilment text CHECK (fulfilment IN ('delivery','pickup'))`, `voucher_code text`, `variant_id uuid`, validated option/bundle `selections jsonb`, `unit_snapshot_poisha bigint NOT NULL` overwritten by the authoritative server-price trigger in `0017`
 37. **`idempotency_keys`** (`PK: (actor_id, key)`): `route text NOT NULL`, `request_hash text NOT NULL`, `status_code smallint NOT NULL`, `response_body jsonb NOT NULL`, `expires_at timestamptz NOT NULL` (`24h` TTL)
 38. **`order_batches`** (`PK: id uuid`): `zone_id uuid NOT NULL REFERENCES zones(id)`, `rider_id uuid REFERENCES riders(id)`, `sequence jsonb NOT NULL` (`[{step,order_id,kind:'pickup'|'dropoff',lat,lng,eta}]`), `state text NOT NULL CHECK (state IN ('forming','offered','active','done','broken'))`, `created_at/updated_at`
 39. **`orders`** (`PK: id uuid`, `UNIQUE(public_code)` e.g. `UD-SYL-261023-0155`)

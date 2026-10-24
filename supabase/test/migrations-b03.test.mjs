@@ -2,6 +2,7 @@
  * @file supabase/test/migrations-b03.test.mjs
  * @description Real PostgreSQL 16 (PGlite WASM) verification suite for Build Response 3
  * (`0005_zones_and_vendors.sql` .. `0008_vendor_menu_rls.sql` atop `0001..0004`).
+ * Additive cart-pricing/storefront/public-media migrations `0017..0019` are exercised by B04 and full B05 suites.
  * Verifies:
  *   1. Double-apply idempotency & `ENABLE + FORCE ROW LEVEL SECURITY` on all 27 cumulative tables.
  *   2. Sylhet Sadar active / Kulaura paused polygon seeds, smallest-containing-polygon overlap rule,

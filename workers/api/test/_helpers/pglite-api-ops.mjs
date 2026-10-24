@@ -138,35 +138,18 @@ export function createPgliteOpsMethods(db, resolveZone) {
       return row;
     },
 
-    async validateCartPricing(customerId, deliveryFeePoisha, platformFeePoisha, isPriority) {
-      const { cart, items } = await this.getCartWithItems(customerId);
-      if (!cart || items.length === 0) throw new Error('CART_EMPTY: cart has zero items');
-      const itemsGross = items.reduce((s, it) => s + Number(it.unit_snapshot_poisha) * Number(it.qty), 0);
-      const vendor = (await db.query('SELECT commission_bps, min_order_poisha FROM public.vendors WHERE id = $1', [cart.vendor_id])).rows[0];
-      if (itemsGross < Number(vendor.min_order_poisha)) throw new Error('BELOW_MIN_ORDER');
-      const priced = (
-        await db.query('SELECT * FROM public.price_order($1,$2,0,0,$3,$4,$5,$6)', [
-          cart.fulfilment,
-          itemsGross,
-          deliveryFeePoisha + (isPriority && cart.fulfilment === 'delivery' ? 1000 : 0),
-          platformFeePoisha,
-          Number(cart.tip_poisha),
-          vendor.commission_bps,
-        ])
-      ).rows[0];
-      const out = {};
-      for (const [k, v] of Object.entries(priced)) out[k] = typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v;
-      return out;
+    async validateCartPricing(customerId, isPriority) {
+      return (
+        await db.query('SELECT public.quote_customer_cart($1,0,1,$2) AS quote', [customerId, isPriority])
+      ).rows[0].quote;
     },
 
     async placeOrder(input) {
       return (
-        await db.query('SELECT public.place_order($1,$2,$3,$4,$5,$6) AS data', [
+        await db.query('SELECT public.place_order($1,$2,$3,0,1,$4) AS data', [
           input.customerId,
           input.idempotencyKey,
           input.expectedCodPoisha,
-          input.deliveryFeePoisha,
-          input.platformFeePoisha,
           input.isPriority,
         ])
       ).rows[0].data;

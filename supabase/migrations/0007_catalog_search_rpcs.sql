@@ -204,14 +204,17 @@ SELECT
   CASE WHEN v.type = 'HOME_KITCHEN' THEN round(v.lat::numeric, 2)::double precision ELSE v.lat END AS display_lat,
   CASE WHEN v.type = 'HOME_KITCHEN' THEN round(v.lng::numeric, 2)::double precision ELSE v.lng END AS display_lng,
   left(v.geohash, CASE WHEN v.type = 'HOME_KITCHEN' THEN 5 ELSE 9 END) AS display_geohash,
-  v.public_area_label, v.logo_url, v.cover_url, v.cuisines, v.hygiene_verified,
+  v.public_area_label,
+  CASE WHEN v.logo_url LIKE 'https://i.ibb.co/%' THEN v.logo_url ELSE NULL END AS logo_url,
+  CASE WHEN v.cover_url LIKE 'https://i.ibb.co/%' THEN v.cover_url ELSE NULL END AS cover_url,
+  v.cuisines, v.hygiene_verified,
   v.min_order_poisha, v.accepts_pickup,
   CASE WHEN v.accepts_pickup THEN v.pickup_point_label ELSE NULL END AS pickup_point_label,
   v.rating_avg, v.rating_count, v.avg_prep_min
 FROM public.vendors AS v
 WHERE v.is_active = true AND v.kyc_status = 'approved' AND v.deleted_at IS NULL;
 COMMENT ON VIEW public.public_vendor_cards IS
-  'Privacy-filtered public projection of approved active kitchens; strips address_text_private, owner_profile_id, and exact HOME_KITCHEN pin.';
+  'Privacy-filtered public projection of approved active kitchens; exposes logo/cover only on ImgBB and redacts private addresses/exact HOME_KITCHEN pins.';
 
 CREATE OR REPLACE FUNCTION public.compute_vendor_rank_v1(
   p_rating_avg numeric,
@@ -264,7 +267,9 @@ BEGIN
   WITH eligible AS (
     SELECT
       v.id, v.type, v.brand_name, v.brand_name_bn, v.slug, v.public_area_label,
-      v.logo_url, v.cover_url, v.cuisines, v.hygiene_verified, v.min_order_poisha,
+      CASE WHEN v.logo_url LIKE 'https://i.ibb.co/%' THEN v.logo_url ELSE NULL END AS logo_url,
+      CASE WHEN v.cover_url LIKE 'https://i.ibb.co/%' THEN v.cover_url ELSE NULL END AS cover_url,
+      v.cuisines, v.hygiene_verified, v.min_order_poisha,
       v.accepts_pickup, v.rating_avg, v.rating_count, (v.rating_count < 5) AS is_new_vendor,
       public.vendor_operational_status(v.id, p_ts) AS operational_status,
       round((public.haversine_km(p_lat, p_lng, v.lat, v.lng) * z.road_factor)::numeric, 2) AS road_km,
@@ -314,7 +319,7 @@ BEGIN
 END;
 $$;
 COMMENT ON FUNCTION public.get_home_feed(double precision, double precision, text, text, text, integer, integer, timestamptz) IS
-  'Ranked meritocratic customer feed (File 13 rank_v1); never exposes address_text_private or HOME_KITCHEN exact coordinates.';
+  'Ranked meritocratic customer feed (File 13 rank_v1); public vendor images are ImgBB-only and private addresses/HOME_KITCHEN exact coordinates are redacted.';
 
 CREATE OR REPLACE FUNCTION public.get_vendor_storefront(
   p_slug text,
@@ -336,7 +341,8 @@ BEGIN
         'id', mi.id, 'name_en', mi.name_en, 'name_bn', mi.name_bn,
         'description_en', mi.description_en, 'description_bn', mi.description_bn,
         'price_poisha', mi.price_poisha, 'compare_at_poisha', mi.compare_at_poisha,
-        'image_url', mi.image_url, 'item_type', mi.item_type,
+        'image_url', CASE WHEN mi.image_url LIKE 'https://i.ibb.co/%' THEN mi.image_url ELSE NULL END,
+        'item_type', mi.item_type,
         'spicy_level', mi.spicy_level, 'is_veg', mi.is_veg, 'halal', mi.halal, 'serves', mi.serves,
         'is_orderable', public.is_menu_item_orderable_now(mi.id, p_ts)
       ) ORDER BY mi.sort ASC, mi.name_en ASC)
@@ -350,7 +356,7 @@ BEGIN
 END;
 $$;
 COMMENT ON FUNCTION public.get_vendor_storefront(text, timestamptz) IS
-  'Fetches public storefront card + categorized menu tree for Customer App and SSR Customer Web (/r/{slug}).';
+  'Fetches a public storefront card + categorized menu tree for Customer App/SSR; all logo, cover, and item images are ImgBB-only.';
 
 CREATE OR REPLACE FUNCTION public.search_catalog(
   p_query text,

@@ -147,12 +147,21 @@ export async function handleZonesAndPricingRoutes(params: {
       reason?: string;
     }>(request);
     if (!body) return adminJsonErr('VALIDATION_FAILED', requestId);
-    if (body.tiers_poisha) {
-      for (const tier of body.tiers_poisha) {
-        if (!Number.isInteger(tier.fee_poisha) || tier.fee_poisha < 0) {
-          return adminJsonErr('VALIDATION_FAILED', requestId, { reason: 'fee_poisha_must_be_integer' });
-        }
+    if (body.tiers_poisha !== undefined) {
+      if (!Array.isArray(body.tiers_poisha) || body.tiers_poisha.length > 20) {
+        return adminJsonErr('VALIDATION_FAILED', requestId, { reason: 'invalid_fee_tiers' });
       }
+      let lastKm = 0;
+      for (const tier of body.tiers_poisha) {
+        if (!Number.isFinite(tier.max_km) || tier.max_km <= lastKm || !Number.isSafeInteger(tier.fee_poisha) || tier.fee_poisha < 0) {
+          return adminJsonErr('VALIDATION_FAILED', requestId, { reason: 'tiers_require_sorted_distance_and_integer_fee' });
+        }
+        lastKm = tier.max_km;
+      }
+    }
+    if (body.free_delivery_min_poisha != null &&
+      (!Number.isSafeInteger(body.free_delivery_min_poisha) || body.free_delivery_min_poisha < 0)) {
+      return adminJsonErr('VALIDATION_FAILED', requestId, { reason: 'free_delivery_min_must_be_integer_poisha' });
     }
     const updated = await db.updateZoneAdmin(zoneId, { fee_overrides: body });
     if (!updated) return adminJsonErr('VALIDATION_FAILED', requestId, undefined, 404);

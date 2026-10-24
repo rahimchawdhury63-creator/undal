@@ -103,7 +103,7 @@ export function createPostgrestDbAdapter(env: ApiWorkerEnv): ApiDbAdapter {
       const zoneId = typeof feed.zone_id === 'string' ? feed.zone_id : null;
       const banners = zoneId
         ? await getJson<Record<string, unknown>[]>(
-            `banners?is_active=eq.true&or=(zone_id.is.null,zone_id.eq.${encodeURIComponent(zoneId)})&order=sort.asc`,
+            `banners?is_active=eq.true&or=(zone_id.is.null,zone_id.eq.${encodeURIComponent(zoneId)})&select=id,title_en,title_bn,image_url,deep_link,placement,sort&order=sort.asc`,
           )
         : [];
       const flashCampaigns = await getJson<Record<string, unknown>[]>(

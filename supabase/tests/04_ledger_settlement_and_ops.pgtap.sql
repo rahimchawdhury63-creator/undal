@@ -1,16 +1,16 @@
 -- =============================================================================
 -- pgTAP Suite: 04_ledger_settlement_and_ops.pgtap.sql
--- Milestone:   Build Response 5 (Migrations 0013..0016 — 16/16 Complete DB Suite)
+-- Milestone:   Build Response 5 + Response 13 media law (`0013..0019` — full 19-migration suite)
 -- Coverage:    62/62 RLS-forced public tables, zero Supabase Storage schema (`ADR-0006`),
 --              ACID append-only ledger conservation on DELIVERED transition, bicycle ৳3,000
 --              cash ceiling auto-lock & TrxID remittance auto-unlock, Friday/Saturday
 --              dual-path idempotent invoices with bKash cash-out fee cover, verified-buyer
---              reviews, 24h chat lock, Cloudinary EXIF-stripped media_assets, quota pruning.
+--              ImgBB-only reviews/banners/public media, Cloudinary EXIF-stripped compliance media, quota pruning.
 -- =============================================================================
 
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
-SELECT plan(28);
+SELECT plan(30);
 
 -- 1. All Build 5 tables exist & EVERY regular public table (62/62) has ENABLE + FORCE RLS (`0` Supabase storage tables)
 SELECT has_table('public', 'ledger_entries', 'ledger_entries table exists');
@@ -84,14 +84,14 @@ VALUES ('bbbb1313-1313-4313-8313-131313131313', 'bbbb1111-1111-4111-8111-1111111
 INSERT INTO public.cart_items (cart_id, menu_item_id, qty, unit_snapshot_poisha)
 VALUES ('bbbb1313-1313-4313-8313-131313131313', 'bbbb6666-6666-4666-8666-666666666666', 3, 100000);
 
--- 3. Place ৳3,055 COD order (300,000 food + 5,000 delivery + 500 platform = 305,500 poisha >= 300,000 bicycle ceiling!)
+-- 3. Place ৳3,005 COD order (300,000 food + free delivery threshold + 500 platform = 300,500 poisha >= 300,000 bicycle ceiling!)
 DO $$
 DECLARE
   v_placed jsonb;
   v_oid uuid;
   v_nonce text;
 BEGIN
-  v_placed := public.place_order('bbbb1111-1111-4111-8111-111111111111', 'idem-b05-01', 305500, 5000, 500, false, '2026-10-23 13:00:00+06'::timestamptz);
+  v_placed := public.place_order('bbbb1111-1111-4111-8111-111111111111', 'idem-b05-01', 300500, 0, 1, false, '2026-10-23 13:00:00+06'::timestamptz);
   v_oid := (v_placed ->> 'order_id')::uuid;
   PERFORM set_config('test.b05_order_id', v_oid::text, true);
 
@@ -122,7 +122,7 @@ SELECT results_eq(
        (SELECT cash_gate_blocked FROM public.riders WHERE id = 'bbbb7777-7777-4777-8777-777777777777') AS gate_blocked
      FROM public.ledger_entries WHERE order_id = current_setting('test.b05_order_id')::uuid $$,
   $$ VALUES (6, 255000::bigint, true) $$,
-  'ACID DELIVERED trigger + idempotent replay books 6 exact conserved rows and locks bicycle cash gate at ৳3,055 >= ৳3,000'
+  'ACID DELIVERED trigger + idempotent replay books 6 exact conserved rows and locks bicycle cash gate at ৳3,005 >= ৳3,000'
 );
 
 -- 4. Append-only ledger blocks UPDATE & DELETE
@@ -139,7 +139,7 @@ DECLARE
   v_rem public.rider_cash_remittances%ROWTYPE;
 BEGIN
   v_rem := public.submit_cash_remittance(
-    'bbbb7777-7777-4777-8777-777777777777', 'bkash', 305500, 'BKX99887766',
+    'bbbb7777-7777-4777-8777-777777777777', 'bkash', 300500, 'BKX99887766',
     '01715000003', 'undal/private/cash_remittance_proof/bbbb3333/proof_1'
   );
   PERFORM set_config('test.b05_rem_id', v_rem.id::text, true);
@@ -170,7 +170,7 @@ SELECT results_eq(
      JOIN public.riders r ON r.id = rc.rider_id
      WHERE rc.rider_id = 'bbbb7777-7777-4777-8777-777777777777' $$,
   $$ VALUES (0::bigint, false) $$,
-  'Finance verification credits 305,500 poisha remittance and immediately unlocks rider cash gate'
+  'Finance verification credits 300,500 poisha remittance and immediately unlocks rider cash gate'
 );
 
 -- 6. Dual-path idempotent weekly invoices + 1.85% bKash cash-out fee cover + VERIFIED -> PAID lifecycle
@@ -221,8 +221,24 @@ SELECT throws_ok(
   'Non-buyer is blocked from posting customer_to_vendor review'
 );
 
-INSERT INTO public.reviews (order_id, reviewer_id, direction, rating, comment)
-VALUES (current_setting('test.b05_order_id')::uuid, 'bbbb1111-1111-4111-8111-111111111111', 'customer_to_vendor', 5, 'Authentic Sylheti Mezban!');
+INSERT INTO public.reviews (order_id, reviewer_id, direction, rating, comment, photo_urls)
+VALUES (
+  current_setting('test.b05_order_id')::uuid,
+  'bbbb1111-1111-4111-8111-111111111111',
+  'customer_to_vendor',
+  5,
+  'Authentic Sylheti Mezban!',
+  ARRAY['https://i.ibb.co/undal/review-proof.jpg']::text[]
+);
+
+SELECT throws_ok(
+  $$ UPDATE public.reviews
+     SET photo_urls = ARRAY['https://res.cloudinary.com/legacy/review.jpg']::text[]
+     WHERE order_id = current_setting('test.b05_order_id')::uuid $$,
+  '23514',
+  NULL,
+  'Review-photo database constraint rejects every non-ImgBB URL'
+);
 
 SELECT results_eq(
   $$ SELECT rating_avg, rating_count FROM public.vendors WHERE id = 'bbbb4444-4444-4444-8444-444444444444' $$,
@@ -255,6 +271,14 @@ SELECT throws_ok(
   '23514',
   NULL,
   'media_assets DB constraint blocks public menu_item images from touching Cloudinary (MUST use Unlimited ImgBB)'
+);
+
+SELECT throws_ok(
+  $$ INSERT INTO public.media_assets (owner_profile_id, provider, category, delivery_type, cloudinary_public_id, public_cdn_url, bytes)
+     VALUES ('bbbb2222-2222-4222-8222-222222222222', 'imgbb', 'menu_item', 'upload', 'imgbb:invalid-host', 'https://attacker.example/dish.jpg', 92000) $$,
+  '23514',
+  NULL,
+  'media_assets ImgBB registry requires the canonical ImgBB CDN hostname, not just the imgbb provider label'
 );
 
 SELECT throws_ok(

@@ -173,23 +173,31 @@ test('W1 undal-api Part 2 E2E: Carts, Vouchers, Delivery & Self-Pickup Happy Pat
   assert.equal(vRes.status, 200);
   assert.equal(vRes.json.data.cart.voucher_code, 'SYLHET50');
 
-  const quoteRes = await call('POST', '/v1/cart/validate', custJwt, { delivery_fee_poisha: 4000, platform_fee_poisha: 500 });
+  const quoteRes = await call('POST', '/v1/cart/validate', custJwt, { delivery_fee_poisha: 0, platform_fee_poisha: 1 });
   assert.equal(quoteRes.status, 200);
   assert.equal(quoteRes.json.data.quote.items_poisha, 320000);
+  assert.equal(quoteRes.json.data.quote.cod_collect_poisha, 317500);
+
+  const fractionalCod = await call('POST', '/v1/orders', custJwt, { expected_cod_poisha: 317500.5 }, { 'Idempotency-Key': 'example-0000-fractional-cod-01' });
+  assert.equal(fractionalCod.status, 422);
+  assert.equal(fractionalCod.json.error.code, 'VALIDATION_FAILED');
+  const staleTotal = await call('POST', '/v1/orders', custJwt, { expected_cod_poisha: 1 }, { 'Idempotency-Key': 'example-0000-stale-total-0001' });
+  assert.equal(staleTotal.status, 409);
+  assert.equal(staleTotal.json.error.code, 'CART_STALE');
 
   /* 3. Idempotent Order Placement + W2 HMAC webhook + HOME_KITCHEN Privacy Shield */
   const noIdem = await call('POST', '/v1/orders', custJwt, {});
   assert.equal(noIdem.status, 400);
   assert.equal(noIdem.json.error.code, 'IDEMPOTENCY_KEY_REQUIRED');
 
-  const placed1 = await call('POST', '/v1/orders', custJwt, { delivery_fee_poisha: 4000, platform_fee_poisha: 500 }, { 'Idempotency-Key': 'example-0000-place-home-order-01' });
+  const placed1 = await call('POST', '/v1/orders', custJwt, { expected_cod_poisha: 317500, delivery_fee_poisha: 0, platform_fee_poisha: 1 }, { 'Idempotency-Key': 'example-0000-place-home-order-01' });
   assert.equal(placed1.status, 201);
   assert.equal(placed1.json.data.dispatch_notified, true);
-  assert.equal(placed1.json.data.cod_collect_poisha, 321500);
+  assert.equal(placed1.json.data.cod_collect_poisha, 317500);
   assert.equal(w2Webhooks.length, 1);
   assert.equal(w2Webhooks[0].sig.length, 64);
 
-  const replay = await call('POST', '/v1/orders', custJwt, { delivery_fee_poisha: 4000, platform_fee_poisha: 500 }, { 'Idempotency-Key': 'example-0000-place-home-order-01' });
+  const replay = await call('POST', '/v1/orders', custJwt, { expected_cod_poisha: 317500, delivery_fee_poisha: 0, platform_fee_poisha: 1 }, { 'Idempotency-Key': 'example-0000-place-home-order-01' });
   assert.equal(replay.status, 200);
   assert.equal(replay.json.data.idempotent_replay, true);
   assert.equal(w2Webhooks.length, 1);
@@ -258,7 +266,7 @@ test('W1 undal-api Part 2 E2E: Carts, Vouchers, Delivery & Self-Pickup Happy Pat
   assert.equal(deliv.status, 200);
   assert.equal(deliv.json.data.order.status, 'DELIVERED');
   /* Bicycle ceiling = 300,000 poisha (৳3,000); collected COD = 321,500 -> Cash Gate AUTOMATICALLY BLOCKED! */
-  assert.equal(Number(deliv.json.data.cash_gate.unremitted_cash_poisha), 321500);
+  assert.equal(Number(deliv.json.data.cash_gate.unremitted_cash_poisha), 317500);
   assert.equal(deliv.json.data.cash_gate.at_or_above_ceiling, true);
 
   /* 5. Cancel & Failure Matrix + Self-Pickup Happy Path */

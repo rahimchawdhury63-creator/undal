@@ -7,6 +7,50 @@
 import { CORS_HEADERS, jsonErr, jsonOk } from '../http.ts';
 import type { ApiDbAdapter, ApiWorkerEnv, AuthPrincipal } from '../types.ts';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function publicImgBbUrl(value: unknown): string | null {
+  return typeof value === 'string' && value.startsWith('https://i.ibb.co/') ? value : null;
+}
+
+function publicVendorMedia(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...row,
+    logo_url: publicImgBbUrl(row.logo_url),
+    cover_url: publicImgBbUrl(row.cover_url),
+  };
+}
+
+function publicBannerMedia(row: Record<string, unknown>): Record<string, unknown> {
+  return { ...row, image_url: publicImgBbUrl(row.image_url) };
+}
+
+function publicStorefrontMedia(storefront: Record<string, unknown>): Record<string, unknown> {
+  const categories = Array.isArray(storefront.categories)
+    ? storefront.categories.map((category) => {
+        if (!isRecord(category)) return category;
+        const items = Array.isArray(category.items)
+          ? category.items.map((item) => isRecord(item) ? { ...item, image_url: publicImgBbUrl(item.image_url) } : item)
+          : category.items;
+        return { ...category, items };
+      })
+    : storefront.categories;
+  return {
+    ...storefront,
+    vendor: isRecord(storefront.vendor) ? publicVendorMedia(storefront.vendor) : storefront.vendor,
+    categories,
+  };
+}
+
+function publicReviewMedia(row: Record<string, unknown>): Record<string, unknown> {
+  const photoUrls = Array.isArray(row.photo_urls)
+    ? row.photo_urls.map(publicImgBbUrl).filter((value): value is string => value !== null)
+    : [];
+  return { ...row, photo_urls: photoUrls };
+}
+
 function parseCoordinatePair(url: URL): { readonly lat: number; readonly lng: number } | null {
   const rawLat = url.searchParams.get('lat');
   const rawLng = url.searchParams.get('lng');
@@ -95,13 +139,18 @@ export async function handleCatalogRoute(
       limit,
       offset,
     });
+    const vendors = Array.isArray(payload.feed.vendors)
+      ? payload.feed.vendors.map((vendor) => isRecord(vendor) ? publicVendorMedia(vendor) : vendor)
+      : payload.feed.vendors;
+    const banners = payload.banners.map(publicBannerMedia);
     const cacheHeader = principal ? 'private, no-store' : 'public, max-age=15, s-maxage=30';
     return jsonOk(
       {
         ...payload.feed,
-        banners: payload.banners,
+        vendors,
+        banners,
         flash_campaigns: payload.flashCampaigns,
-        next_cursor: Array.isArray(payload.feed.vendors) && payload.feed.vendors.length === limit ? String(offset + limit) : null,
+        next_cursor: Array.isArray(vendors) && vendors.length === limit ? String(offset + limit) : null,
       },
       requestId,
       200,
@@ -116,17 +165,18 @@ export async function handleCatalogRoute(
     if (!subroute) {
       const vendor = await db.getVendorHeader(slug);
       if (!vendor) return jsonErr('VALIDATION_FAILED', requestId, { slug, reason: 'VENDOR_NOT_FOUND' });
-      return jsonOk({ vendor }, requestId, 200, { 'Cache-Control': 'public, max-age=15, s-maxage=30' });
+      return jsonOk({ vendor: publicVendorMedia(vendor) }, requestId, 200, { 'Cache-Control': 'public, max-age=15, s-maxage=30' });
     }
     if (subroute === 'menu') {
       const storefront = await db.getVendorMenuDetail(slug);
       if (!storefront) return jsonErr('VALIDATION_FAILED', requestId, { slug, reason: 'VENDOR_NOT_FOUND' });
-      return jsonOk(storefront, requestId, 200, { 'Cache-Control': 'public, max-age=15, s-maxage=30' });
+      return jsonOk(publicStorefrontMedia(storefront), requestId, 200, { 'Cache-Control': 'public, max-age=15, s-maxage=30' });
     }
     if (subroute === 'reviews') {
       const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? '20') || 20, 1), 50);
       const cursor = url.searchParams.get('cursor');
-      const reviews = await db.getVendorReviews(slug, limit, cursor);
+      const rawReviews = await db.getVendorReviews(slug, limit, cursor);
+      const reviews = rawReviews.map(publicReviewMedia);
       const last = reviews[reviews.length - 1];
       return jsonOk(
         {

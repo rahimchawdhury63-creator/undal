@@ -1,3 +1,5 @@
 # `supabase/migrations` — Ordered SQL Schema & RLS Migrations
 
-Populated across `Build Responses 1–3` following final schema lock in `docs/understanding/05-data-model-final.md` (`Plan Response 2`).
+The database contract is applied in filename order. `0001..0016` implement the frozen identity, catalog, operations, money, ledger and settlement model. Additive migrations `0017..0018` make every configured cart line server-priced and publish the privacy-safe modifier storefront plus exact customer cart quote. Migration `0019` removes legacy non-ImgBB public URLs, adds database write constraints for public image columns, and redefines the public vendor-card/home-feed outputs as ImgBB-only. The quote/order recompute audited zone-tier delivery fees and the platform-fee setting; untrusted client fee fields are ignored. These migrations do not create Supabase Storage buckets; public media remains ImgBB-only and sensitive private media remains Cloudinary-only (`ADR-0006 v2`).
+
+Migration tests: `supabase/test/migrations-b04.test.mjs` covers the complete `0001..0019` chain, server pricing, quote/storefront behavior, legacy public-media cleanup, ImgBB constraints, and idempotency; `supabase/test/migrations-b05.test.mjs` applies all 19 migrations and double-applies the final seven for full-schema idempotency.

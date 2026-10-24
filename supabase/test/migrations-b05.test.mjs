@@ -1,7 +1,7 @@
 /**
  * @file supabase/test/migrations-b05.test.mjs
  * @description Real PostgreSQL 16 (PGlite WASM) verification suite for Build Response 5
- * (`0013_ledger_and_settlement.sql` .. `0016_settlement_and_cron_rpcs.sql` atop `0001..0012` — 16/16 Complete DB Suite):
+ * (`0013_ledger_and_settlement.sql` .. `0016_settlement_and_cron_rpcs.sql` plus commerce/public-media `0017..0019` — 19/19 Complete DB Suite):
  *   1. Double-apply idempotency & `ENABLE + FORCE ROW LEVEL SECURITY` across all 62 public tables (`0` Supabase Storage tables per `ADR-0006`).
  *   2. Exact zero-drift conservation between TypeScript `buildOrderLedgerEntries()` and SQL `record_order_delivered_ledger()` on `DELIVERED`.
  *   3. Bicycle COD float ceiling (`৳3,000` = `300,000` poisha) auto-blocks new dispatches (`RIDER_CASH_CEILING_EXCEEDED`) until verified `TrxID` remittance unlocks gate.
@@ -28,22 +28,25 @@ async function createB05Db() {
     .readdirSync(path.join(REPO_ROOT, 'supabase/migrations'))
     .filter((f) => f.endsWith('.sql'))
     .sort();
-  assert.equal(files.length, 16, 'Expected all 16 PostgreSQL migrations (0001..0016)');
+  assert.equal(files.length, 19, 'Expected all 19 PostgreSQL migrations (0001..0019)');
   for (const file of files) {
     await db.exec(fs.readFileSync(path.join(REPO_ROOT, 'supabase/migrations', file), 'utf8'));
   }
   return db;
 }
 
-test('B05-SQL-01: Full 16/16 migration engine passes double-apply idempotency, zero-drift ledger, cash gate, weekly settlement & ADR-0006', async () => {
+test('B05-SQL-01: Full 19/19 migration engine passes double-apply idempotency, zero-drift ledger, cash gate, weekly settlement & ADR-0006', async () => {
   const db = await createB05Db();
   try {
-    // Re-apply 0013..0016 to verify strict idempotency
+    // Re-apply 0013..0019 to verify strict idempotency
     for (const file of [
       '0013_ledger_and_settlement.sql',
       '0014_social_chat_support.sql',
       '0015_ops_caches_and_telemetry.sql',
       '0016_settlement_and_cron_rpcs.sql',
+      '0017_server_authoritative_cart_pricing.sql',
+      '0018_storefront_modifiers_and_cart_quote.sql',
+      '0019_public_imgbb_enforcement.sql',
     ]) {
       await db.exec(fs.readFileSync(path.join(REPO_ROOT, 'supabase/migrations', file), 'utf8'));
     }
@@ -111,7 +114,7 @@ test('B05-SQL-01: Full 16/16 migration engine passes double-apply idempotency, z
 
     const p1 = (
       await db.query(
-        `SELECT public.place_order('c5001111-1111-4111-8111-111111111111', 'idem-b05-js1', 307000, 5000, 500, false, '2026-10-23 13:00:00+06'::timestamptz) AS resp`,
+        `SELECT public.place_order('c5001111-1111-4111-8111-111111111111', 'idem-b05-js1', 302000, 0, 1, false, '2026-10-23 13:00:00+06'::timestamptz) AS resp`,
       )
     ).rows[0].resp;
 
@@ -123,7 +126,7 @@ test('B05-SQL-01: Full 16/16 migration engine passes double-apply idempotency, z
     `);
     const p2 = (
       await db.query(
-        `SELECT public.place_order('c5001111-1111-4111-8111-111111111111', 'idem-b05-js2', 105500, 5000, 500, false, '2026-10-23 13:05:00+06'::timestamptz) AS resp`,
+        `SELECT public.place_order('c5001111-1111-4111-8111-111111111111', 'idem-b05-js2', 100500, 0, 1, false, '2026-10-23 13:05:00+06'::timestamptz) AS resp`,
       )
     ).rows[0].resp;
 
@@ -202,7 +205,7 @@ test('B05-SQL-01: Full 16/16 migration engine passes double-apply idempotency, z
     const rem = (
       await db.query(`
         SELECT * FROM public.submit_cash_remittance(
-          'c5007777-7777-4777-8777-777777777777', 'bkash', 307000, 'BKASH778899',
+          'c5007777-7777-4777-8777-777777777777', 'bkash', 302000, 'BKASH778899',
           '01716000003', 'undal/private/cash_remittance_proof/c5003333/bkash_778899'
         )
       `)

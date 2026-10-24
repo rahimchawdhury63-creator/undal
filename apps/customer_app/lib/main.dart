@@ -1,4 +1,4 @@
-/// Root entrypoint & adaptive shell for `apps/customer_app` (`Build Response 12` — `c-01..c-12`).
+/// Root entrypoint & adaptive shell for `apps/customer_app` (`Build Responses 12–13` — `c-01..c-21`).
 ///
 /// Connects:
 /// - `package:undal_core` Light & Dark Material 3 tokens + `EN / বাংলা` live switcher.
@@ -16,6 +16,10 @@ import 'src/i18n/customer_copy.dart';
 import 'src/models/customer_models.dart';
 import 'src/screens/auth_screens.dart';
 import 'src/screens/companion_tabs.dart';
+import 'src/screens/customer_cart_screen.dart';
+import 'src/screens/customer_checkout_screens.dart';
+import 'src/screens/customer_customizer_screens.dart';
+import 'src/screens/customer_vendor_screens.dart';
 import 'src/screens/home_feed_screen.dart';
 import 'src/screens/onboarding_screens.dart';
 import 'src/screens/pickup_map_screen.dart';
@@ -25,7 +29,10 @@ import 'src/state/customer_controller.dart';
 export 'src/config/app_config.dart';
 export 'src/data/sylhet_seed_catalog.dart';
 export 'src/i18n/customer_copy.dart';
+export 'src/models/customer_cart_models.dart';
 export 'src/models/customer_models.dart';
+export 'src/models/storefront_menu_models.dart';
+export 'src/models/storefront_vendor_models.dart';
 export 'src/services/customer_api_client.dart';
 export 'src/state/customer_controller.dart';
 
@@ -117,6 +124,24 @@ class _UndalCustomerAppState extends State<UndalCustomerApp> {
             vendor: v,
           ),
         );
+      case CustomerScreenId.c13VendorStorefront:
+        return CustomerVendorStorefrontScreen(controller: ctrl);
+      case CustomerScreenId.c14ItemCustomizer:
+        return CustomerItemCustomizerScreen(controller: ctrl);
+      case CustomerScreenId.c15BundleBuilder:
+        return CustomerBundleBuilderScreen(controller: ctrl);
+      case CustomerScreenId.c16VendorInfo:
+        return CustomerVendorInfoScreen(controller: ctrl);
+      case CustomerScreenId.c17VendorReviews:
+        return CustomerVendorReviewsScreen(controller: ctrl);
+      case CustomerScreenId.c19VoucherPicker:
+        return CustomerVoucherPickerScreen(controller: ctrl);
+      case CustomerScreenId.c20Checkout:
+        return CustomerCheckoutScreen(controller: ctrl);
+      case CustomerScreenId.c21OrderConfirmation:
+        return CustomerOrderConfirmationScreen(controller: ctrl);
+      case CustomerScreenId.c18Cart:
+        break;
       case CustomerScreenId.c08HomeDelivery:
       case CustomerScreenId.c09HomePickup:
       case CustomerScreenId.c11SearchHome:
@@ -245,7 +270,7 @@ class _UndalCustomerAppState extends State<UndalCustomerApp> {
             ),
           ),
         2 => CustomerOrdersPreviewTab(controller: ctrl),
-        3 => CustomerQuickCartTab(controller: ctrl),
+        3 => CustomerCartScreen(controller: ctrl),
         _ => CustomerAccountHubTab(controller: ctrl),
       },
     );

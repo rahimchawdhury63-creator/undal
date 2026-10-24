@@ -205,7 +205,7 @@ VALUES ('86666666-6666-4666-8666-866666666666', '84444444-4444-4444-8444-8444444
 INSERT INTO public.vouchers (code, title_en, kind, value_num, min_order_poisha, vendor_share_bps, budget_cap_poisha, starts_at, ends_at, is_active)
 VALUES ('SYLHET100', 'Sylhet Launch 100 Tk', 'flat', 10000, 30000, 5000, 50000, '2026-10-01 00:00+06', '2026-11-01 00:00+06', true);
 
--- Stale client total (`99999` != `32500`) is rejected with `40001` (`CART_STALE`)
+-- Stale client total (`99999` != `34500`) is rejected with `40001` (`CART_STALE`)
 SELECT throws_ok(
   $$ SELECT public.place_order('95555555-5555-4555-8555-555555555555', 'idem-stale-check-01', 99999, 2000, 500, false, '2026-10-23 19:30:00+06'::timestamptz) $$,
   '40001',
@@ -215,11 +215,11 @@ SELECT throws_ok(
 
 -- Execute first `place_order` call + idempotent retry in distinct MVCC statements, then assert exact M-3 + 1 order row!
 CREATE TEMP TABLE _b04_place_results AS
-SELECT public.place_order('95555555-5555-4555-8555-555555555555', 'idem-live-order-0001', 32500, 2000, 500, false, '2026-10-23 19:30:00+06'::timestamptz) AS r1;
+SELECT public.place_order('95555555-5555-4555-8555-555555555555', 'idem-live-order-0001', 34500, 0, 1, false, '2026-10-23 19:30:00+06'::timestamptz) AS r1;
 
 ALTER TABLE _b04_place_results ADD COLUMN r2 jsonb;
 UPDATE _b04_place_results
-SET r2 = public.place_order('95555555-5555-4555-8555-555555555555', 'idem-live-order-0001', 32500, 2000, 500, false, '2026-10-23 19:30:05+06'::timestamptz);
+SET r2 = public.place_order('95555555-5555-4555-8555-555555555555', 'idem-live-order-0001', 34500, 0, 1, false, '2026-10-23 19:30:05+06'::timestamptz);
 
 SELECT results_eq(
   $$
@@ -231,8 +231,8 @@ SELECT results_eq(
       (SELECT count(*)::int FROM public.orders WHERE customer_id = '95555555-5555-4555-8555-555555555555') AS order_rows
     FROM _b04_place_results
   $$,
-  $$ VALUES (32500::bigint, 30500::bigint, true, true, 1::int) $$,
-  'place_order executes exact M-3 waterfall and returns exact idempotent replay with 1 order row'
+  $$ VALUES (34500::bigint, 30500::bigint, true, true, 1::int) $$,
+  'place_order applies the server zone fee and returns an exact idempotent replay with 1 order row'
 );
 
 -- Advance `PLACED -> VENDOR_ACCEPTED -> READY_FOR_PICKUP -> RIDER_ASSIGNED`

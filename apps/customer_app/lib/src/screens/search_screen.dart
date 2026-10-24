@@ -17,6 +17,7 @@ import '../models/customer_models.dart';
 import '../services/customer_api_client.dart';
 import '../state/customer_controller.dart';
 import '../widgets/vendor_feed_card.dart';
+import 'companion_tabs.dart';
 
 /// Unified Search view rendering `c-11` when query is empty and `c-12` when query is active.
 class CustomerSearchView extends StatefulWidget {
@@ -264,7 +265,7 @@ class _CustomerSearchViewState extends State<CustomerSearchView> {
               child: _DishResultRow(
                 dish: dish,
                 isOffline: ctrl.isOffline,
-                onAdd: () => ctrl.addDishToBasket(dish),
+                onAdd: () => addDishWithConflictConfirmation(context, ctrl, dish),
               ),
             ),
           ),

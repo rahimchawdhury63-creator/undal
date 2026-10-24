@@ -1,7 +1,7 @@
 /**
  * @file workers/api/src/routes/cart.ts
  * @description Single-vendor customer cart session, line-item mutations, promo voucher binding,
- * and server-authoritative `price_order()` integer-poisha waterfall validation (`Build Response 7`).
+ * and server-authoritative `quote_customer_cart()` integer-poisha validation (`Build Response 7/13`).
  */
 
 import { requireIdempotencyKey } from '../domain-errors.ts';
@@ -127,22 +127,11 @@ export async function handleCartRoute(
   }
 
   if (path === '/v1/cart/validate' && request.method === 'POST') {
-    const body = (await request.json().catch(() => ({}))) as {
-      readonly delivery_fee_poisha?: number;
-      readonly platform_fee_poisha?: number;
-      readonly is_priority?: boolean;
-    };
-    const deliveryFee = body.delivery_fee_poisha ?? 4000;
-    const platformFee = body.platform_fee_poisha ?? 500;
-    if (!isNonNegativeInt(deliveryFee) || !isNonNegativeInt(platformFee)) {
-      return jsonErr('VALIDATION_FAILED', requestId);
+    const body = (await request.json().catch(() => ({}))) as { readonly is_priority?: boolean };
+    if (body.is_priority != null && typeof body.is_priority !== 'boolean') {
+      return jsonErr('VALIDATION_FAILED', requestId, { field: 'is_priority' });
     }
-    const quote = await db.validateCartPricing(
-      principal.sub,
-      deliveryFee,
-      platformFee,
-      Boolean(body.is_priority),
-    );
+    const quote = await db.validateCartPricing(principal.sub, Boolean(body.is_priority));
     return jsonOk({ quote }, requestId);
   }
 

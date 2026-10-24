@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS public.banners (
   updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 CREATE INDEX IF NOT EXISTS banners_active_zone_idx ON public.banners (is_active, zone_id, sort ASC);
-COMMENT ON TABLE public.banners IS 'Zone-targeted customer home banners served via Cloudinary f_auto,q_auto CDN.';
+COMMENT ON TABLE public.banners IS 'Zone-targeted customer home banners served only from the ImgBB public CDN (ADR-0006 v2).';
 DROP TRIGGER IF EXISTS banners_set_updated_at ON public.banners;
 CREATE TRIGGER banners_set_updated_at BEFORE UPDATE ON public.banners FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 

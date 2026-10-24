@@ -168,27 +168,11 @@ export function createPostgrestOpsMethods(t: PostgrestTransport) {
       return rows[0];
     },
 
-    async validateCartPricing(customerId: string, deliveryFeePoisha: number, platformFeePoisha: number, isPriority: boolean) {
-      const { cart, items } = await this.getCartWithItems(customerId);
-      if (!cart || items.length === 0) throw new Error('CART_EMPTY: cart has zero items');
-      const itemsGross = items.reduce((s, it) => s + Number(it.unit_snapshot_poisha ?? 0) * Number(it.qty ?? 1), 0);
-      const vendors = await t.getJson<Array<{ commission_bps: number; min_order_poisha: number }>>(
-        `vendors?id=eq.${encodeURIComponent(String(cart.vendor_id))}&select=commission_bps,min_order_poisha&limit=1`,
-      );
-      const vendor = vendors[0];
-      if (!vendor) throw new Error('VENDOR_CLOSED: vendor unavailable');
-      if (itemsGross < vendor.min_order_poisha) throw new Error('BELOW_MIN_ORDER');
-      const priced = await t.callRpc<Record<string, unknown>[]>('price_order', {
-        p_fulfilment: cart.fulfilment,
-        p_items_poisha: itemsGross,
-        p_discount_vendor_poisha: 0,
-        p_discount_platform_poisha: 0,
-        p_delivery_fee_poisha: deliveryFeePoisha + (isPriority && cart.fulfilment === 'delivery' ? 1000 : 0),
-        p_platform_fee_poisha: platformFeePoisha,
-        p_tip_poisha: Number(cart.tip_poisha ?? 0),
-        p_commission_bps: vendor.commission_bps,
+    async validateCartPricing(customerId: string, isPriority: boolean) {
+      return await t.callRpc<Record<string, unknown>>('quote_customer_cart', {
+        p_customer_id: customerId,
+        p_is_priority: isPriority,
       });
-      return priced[0] ?? {};
     },
 
     async placeOrder(input: Parameters<ApiDbAdapter['placeOrder']>[0]) {
@@ -196,8 +180,6 @@ export function createPostgrestOpsMethods(t: PostgrestTransport) {
         p_customer_id: input.customerId,
         p_idempotency_key: input.idempotencyKey,
         p_expected_cod_poisha: input.expectedCodPoisha,
-        p_delivery_fee_poisha: input.deliveryFeePoisha,
-        p_platform_fee_poisha: input.platformFeePoisha,
         p_is_priority: input.isPriority,
       });
     },

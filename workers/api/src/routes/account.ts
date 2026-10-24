@@ -8,6 +8,15 @@
 import { jsonErr, jsonOk } from '../http.ts';
 import type { ApiDbAdapter, AuthPrincipal } from '../types.ts';
 
+function publicProfileMedia(profile: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!profile) return null;
+  const avatar = profile.avatar_url;
+  return {
+    ...profile,
+    avatar_url: typeof avatar === 'string' && avatar.startsWith('https://i.ibb.co/') ? avatar : null,
+  };
+}
+
 /** Handles `/v1/me`, `/v1/addresses*`, `/v1/favourites*`, `/v1/devices/token`, and `/v1/notifications*`. */
 export async function handleAccountRoute(
   request: Request,
@@ -41,7 +50,7 @@ export async function handleAccountRoute(
 
   if (path === '/v1/me') {
     if (request.method === 'GET') {
-      const profile = await db.getOwnProfile(principal.sub);
+      const profile = publicProfileMedia(await db.getOwnProfile(principal.sub));
       return jsonOk({ profile }, requestId, 200, { 'Cache-Control': 'private, no-store' });
     }
     if (request.method === 'PATCH') {
@@ -76,7 +85,7 @@ export async function handleAccountRoute(
         patch.avatar_url = raw.avatar_url;
       }
       const updated = await db.updateOwnProfile(principal.sub, patch);
-      return jsonOk({ profile: updated }, requestId);
+      return jsonOk({ profile: publicProfileMedia(updated) }, requestId);
     }
     return null;
   }

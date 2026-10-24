@@ -1,9 +1,7 @@
-/// Reactive application controller for `apps/customer_app` Part 1 (`c-01..c-12`, `File 16`).
+/// Reactive root controller for customer screens `c-01..c-21` (`File 16`).
 ///
-/// Governs sequential unstacked onboarding (`c-01..c-05`, fixing `AP-4`), guest browsing +
-/// intercepted-action `c-06` Auth Hub & resumable 3-step `c-07` Sign-Up, active delivery address
-/// switcher & live zone verdicts, `c-08` Delivery ⇄ `c-09` Self-Pickup feeds, `c-10` Full-Screen
-/// Pickup Map sync, `c-11/c-12` Banglish Search, Cart badge, Favourites & Offline cached mode.
+/// Coordinates onboarding/auth/address/search and delegates storefront, basket, voucher and COD
+/// state to [CustomerCommerceState], keeping cart conflicts explicit and order success server-backed.
 library;
 
 import 'dart:async';
@@ -12,16 +10,12 @@ import 'package:flutter/material.dart';
 import 'package:undal_core/undal_core.dart';
 
 import '../data/sylhet_seed_catalog.dart';
+import '../models/customer_cart_models.dart';
 import '../models/customer_models.dart';
 import '../services/customer_api_client.dart';
+import 'customer_commerce_state.dart';
 
-/// Single line entry in the active single-vendor customer basket.
-final class BasketLineItem {
-  const BasketLineItem({required this.dish, required this.quantity});
-  final CatalogDishItem dish;
-  final int quantity;
-  int get lineTotalPoisha => dish.pricePoisha * quantity;
-}
+part 'customer_controller_commerce.dart';
 
 /// Central `ChangeNotifier` state machine driving `UndalCustomerApp`.
 final class CustomerController extends ChangeNotifier {
@@ -48,9 +42,20 @@ final class CustomerController extends ChangeNotifier {
     _savedAddresses.add(starter);
     _draftPin = starter.point;
     _draftPinVerdict = starter.verdict;
+    commerce = CustomerCommerceState(
+      apiClient: _api,
+      onChanged: notifyListeners,
+      readSession: () => _session,
+      readAddress: () => activeAddress,
+      readFulfilment: () => _fulfilmentMode,
+      writeFulfilment: (UndalFulfilmentMode mode) => _fulfilmentMode = mode,
+      requestAuthentication: (PendingAuthIntent intent) => openAuthHub(intent: intent),
+      readOffline: () => _isOffline,
+    );
   }
 
   final CustomerApiClient _api;
+  late final CustomerCommerceState commerce;
   CustomerScreenId _activeOverlay;
   Locale _locale;
   ThemeMode _themeMode;
@@ -87,13 +92,11 @@ final class CustomerController extends ChangeNotifier {
     'Shutki Bhorta',
     'Malai Cha',
   ];
-  final List<BasketLineItem> _basket = <BasketLineItem>[];
   Timer? _flashTimer;
   int _flashSecondsLeft = kDefaultFlashBoxWindow.remainingMinutes * 60 +
       kDefaultFlashBoxWindow.remainingSeconds;
 
   CustomerApiClient get api => _api;
-  CustomerScreenId get activeOverlay => _activeOverlay;
   Locale get locale => _locale;
   ThemeMode get themeMode => _themeMode;
   int get selectedTabIndex => _selectedTabIndex;
@@ -123,25 +126,7 @@ final class CustomerController extends ChangeNotifier {
   String get searchQuery => _searchQuery;
   SearchScopeTab get searchScope => _searchScope;
   List<String> get recentSearches => List<String>.unmodifiable(_recentSearches);
-  List<BasketLineItem> get basket => List<BasketLineItem>.unmodifiable(_basket);
-  int get totalBasketItems =>
-      _basket.fold<int>(0, (int sum, BasketLineItem i) => sum + i.quantity);
   int get flashSecondsLeft => _flashSecondsLeft;
-
-  /// Canonical screen ID currently visible (`c-01..c-12`).
-  CustomerScreenId get currentScreenId {
-    if (_activeOverlay != CustomerScreenId.c08HomeDelivery) {
-      return _activeOverlay;
-    }
-    if (_selectedTabIndex == 1) {
-      return _searchQuery.trim().isEmpty
-          ? CustomerScreenId.c11SearchHome
-          : CustomerScreenId.c12SearchResults;
-    }
-    return _fulfilmentMode == UndalFulfilmentMode.pickup
-        ? CustomerScreenId.c09HomePickup
-        : CustomerScreenId.c08HomeDelivery;
-  }
 
   List<VendorFeedCard> get rankedFeed => !activeAddress.verdict.inServiceArea
       ? const <VendorFeedCard>[]
@@ -200,13 +185,8 @@ final class CustomerController extends ChangeNotifier {
     notifyListeners();
   }
   void toggleOfflineSimulation() { _isOffline = !_isOffline; notifyListeners(); }
-  void selectTab(int index) {
-    _selectedTabIndex = index.clamp(0, 4);
-    _activeOverlay = CustomerScreenId.c08HomeDelivery;
-    notifyListeners();
-  }
-  void setFulfilmentMode(UndalFulfilmentMode next) { _fulfilmentMode = next; notifyListeners(); }
   void startOnboardingFlow({CustomerScreenId startAt = CustomerScreenId.c01Splash}) {
+    commerce.closeFlow();
     _carouselIndex = 0;
     _activeOverlay = startAt;
     notifyListeners();
@@ -289,6 +269,7 @@ final class CustomerController extends ChangeNotifier {
   }
 
   void completeNotificationPrime({required bool enabled}) {
+    commerce.closeFlow();
     _notificationsEnabled = enabled;
     _activeOverlay = CustomerScreenId.c08HomeDelivery;
     notifyListeners();
@@ -296,6 +277,7 @@ final class CustomerController extends ChangeNotifier {
 
   void dismissOverlayToShell() {
     _authErrorCode = null;
+    commerce.cancelAuthenticationResume();
     _activeOverlay = CustomerScreenId.c08HomeDelivery;
     notifyListeners();
   }
@@ -304,6 +286,7 @@ final class CustomerController extends ChangeNotifier {
     _pendingIntent = intent;
     _authErrorCode = null;
     _activeOverlay = CustomerScreenId.c06AuthHub;
+    commerce.suspendForAuthentication();
     notifyListeners();
   }
 
@@ -316,7 +299,10 @@ final class CustomerController extends ChangeNotifier {
   void saveSignUpDraft(SignUpDraft next, {bool resumeLater = false}) {
     _signUpDraft = next;
     _authErrorCode = null;
-    if (resumeLater) _activeOverlay = CustomerScreenId.c08HomeDelivery;
+    if (resumeLater) {
+      _activeOverlay = CustomerScreenId.c08HomeDelivery;
+      commerce.resumePreviousScreen();
+    }
     notifyListeners();
   }
 
@@ -346,9 +332,17 @@ final class CustomerController extends ChangeNotifier {
       _activeOverlay = CustomerScreenId.c08HomeDelivery;
       if (resumed is FavouriteVendorIntent) {
         _toggleFavouriteInternal(resumed.vendorId);
+        commerce.resumePreviousScreen();
+      } else if (resumed is CheckoutOrderIntent) {
+        commerce.resumeCheckout();
+      } else if (resumed is VoucherPickerIntent) {
+        commerce.resumeVoucherPicker();
       } else if (resumed is SaveAddressBookIntent) {
         _savedAddresses.add(resumed.address);
         _activeAddressIndex = _savedAddresses.length - 1;
+        commerce.resumePreviousScreen();
+      } else {
+        commerce.resumePreviousScreen();
       }
       notifyListeners();
       return true;
@@ -357,11 +351,6 @@ final class CustomerController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-  }
-
-  void signOut() {
-    _session = null;
-    notifyListeners();
   }
 
   void updateFilters(FeedFilterState next) {
@@ -435,38 +424,6 @@ final class CustomerController extends ChangeNotifier {
 
   void clearRecentSearches() {
     _recentSearches.clear();
-    notifyListeners();
-  }
-
-  bool addDishToBasket(CatalogDishItem dish) {
-    if (_isOffline) return false;
-    if (_basket.isNotEmpty && _basket.first.dish.vendorId != dish.vendorId) {
-      _basket.clear();
-    }
-    final int idx =
-        _basket.indexWhere((BasketLineItem line) => line.dish.id == dish.id);
-    if (idx >= 0) {
-      _basket[idx] =
-          BasketLineItem(dish: dish, quantity: _basket[idx].quantity + 1);
-    } else {
-      _basket.add(BasketLineItem(dish: dish, quantity: 1));
-    }
-    notifyListeners();
-    return true;
-  }
-
-  void decrementBasketItem(String dishId) {
-    final int idx =
-        _basket.indexWhere((BasketLineItem line) => line.dish.id == dishId);
-    if (idx < 0) return;
-    if (_basket[idx].quantity <= 1) {
-      _basket.removeAt(idx);
-    } else {
-      _basket[idx] = BasketLineItem(
-        dish: _basket[idx].dish,
-        quantity: _basket[idx].quantity - 1,
-      );
-    }
     notifyListeners();
   }
 

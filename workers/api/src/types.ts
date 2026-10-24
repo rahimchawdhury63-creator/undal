@@ -169,19 +169,12 @@ export interface ApiDbAdapter {
     note: string | null;
   }): Promise<{ cart: Record<string, unknown>; items: readonly Record<string, unknown>[] }>;
   setCartVoucher(customerId: string, voucherCode: string | null): Promise<Record<string, unknown>>;
-  validateCartPricing(
-    customerId: string,
-    deliveryFeePoisha: number,
-    platformFeePoisha: number,
-    isPriority: boolean,
-  ): Promise<Record<string, unknown>>;
+  validateCartPricing(customerId: string, isPriority: boolean): Promise<Record<string, unknown>>;
 
   placeOrder(input: {
     customerId: string;
     idempotencyKey: string;
     expectedCodPoisha: number | null;
-    deliveryFeePoisha: number;
-    platformFeePoisha: number;
     isPriority: boolean;
   }): Promise<Record<string, unknown>>;
   listActorOrders(profileId: string, role: UserRole, limit: number): Promise<readonly Record<string, unknown>[]>;

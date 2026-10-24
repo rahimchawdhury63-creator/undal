@@ -1,8 +1,7 @@
-/// Functional `Orders`, `Cart (with M-1..M-8 priceOrder() Waterfall)`, `Account` & Quick Menu Sheet
-/// for `apps/customer_app` Part 1 (`Build Response 12`).
+/// Functional `Orders`, `Cart`, `Account` & single-vendor Quick Menu Sheet (`Build Responses 12–13`).
 ///
-/// Ensures every bottom-bar/rail destination and every kitchen card tap in `Build 12` executes
-/// real state-backed logic (zero dead buttons) ahead of deep `c-13..c-40` expansions in `Build 13–15`.
+/// Ensures every navigation destination and kitchen card action executes real state-backed logic,
+/// with explicit kitchen-replacement confirmation and a full W1 storefront route.
 library;
 
 import 'package:flutter/material.dart';
@@ -10,6 +9,7 @@ import 'package:undal_core/undal_core.dart';
 
 import '../i18n/customer_copy.dart';
 import '../models/customer_models.dart';
+import '../state/customer_commerce_state.dart';
 import '../state/customer_controller.dart';
 
 /// Opens a clean interactive preview sheet of a kitchen's authentic menu & quick `+ Add` actions.
@@ -42,6 +42,16 @@ void showVendorQuickMenuSheet(
                   style: theme.textTheme.bodyMedium,
                 ),
                 const SizedBox(height: UndalSpacingTokens.md),
+                FilledButton.tonalIcon(
+                  key: const ValueKey<String>('quick-menu-open-full-storefront'),
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    controller.commerce.openVendor(vendor);
+                  },
+                  icon: const Icon(Icons.restaurant_menu),
+                  label: Text(cText(ctx, 'Open full live menu', 'সম্পূর্ণ লাইভ মেনু দেখুন')),
+                ),
+                const SizedBox(height: UndalSpacingTokens.sm),
                 ...vendor.dishes.map((CatalogDishItem d) {
                   return ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -50,11 +60,14 @@ void showVendorQuickMenuSheet(
                       '${d.description(lang)}\n${formatBdt(d.pricePoisha, localeCode: lang)}',
                     ),
                     trailing: FilledButton(
+                      key: ValueKey<String>('quick-menu-add-${d.id}'),
                       onPressed: controller.isOffline
                           ? null
-                          : () {
-                              controller.addDishToBasket(d);
-                              Navigator.of(ctx).pop();
+                          : () async {
+                              final CartAddResult result = await addDishWithConflictConfirmation(ctx, controller, d);
+                              if (ctx.mounted && (result == CartAddResult.added || result == CartAddResult.requiresLiveRefresh)) {
+                                Navigator.of(ctx).pop();
+                              }
                             },
                       child: Text(cText(ctx, 'Add', 'যোগ করুন')),
                     ),
@@ -69,7 +82,40 @@ void showVendorQuickMenuSheet(
   );
 }
 
-/// Live `Cart` tab (`5th` primary nav slot) computing canonical `priceOrder()` integer poisha waterfall.
+/// Adds a catalog dish with a confirmation dialog before replacing another kitchen's basket.
+Future<CartAddResult> addDishWithConflictConfirmation(
+  BuildContext context,
+  CustomerController controller,
+  CatalogDishItem dish,
+) async {
+  CartAddResult result = controller.tryAddDishToBasket(dish);
+  if (result == CartAddResult.vendorConflict) {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: Text(cText(dialogContext, 'Replace current kitchen?', 'বর্তমান রান্নাঘর বদলাবেন?')),
+        content: Text(cText(dialogContext, 'Your basket has items from another kitchen. Replacing it removes those items.', 'আপনার কার্টে অন্য রান্নাঘরের খাবার আছে। বদলালে সেগুলো মুছে যাবে।')),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: Text(cText(dialogContext, 'Keep basket', 'কার্ট রাখুন'))),
+          FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: Text(cText(dialogContext, 'Replace kitchen', 'রান্নাঘর বদলান'))),
+        ],
+      ),
+    );
+    if (!context.mounted || confirmed != true) return CartAddResult.vendorConflict;
+    result = controller.tryAddDishToBasket(dish, confirmVendorReplacement: true);
+  }
+  if (!context.mounted) return result;
+  if (result == CartAddResult.added) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(cText(context, 'Added to your basket.', 'আপনার কার্টে যোগ হয়েছে।'))));
+  } else if (result == CartAddResult.offline) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(cText(context, 'Reconnect before adding an item.', 'খাবার যোগ করার আগে সংযোগ চালু করুন।'))));
+  } else if (result == CartAddResult.requiresLiveRefresh) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(cText(context, 'Open the live kitchen menu before adding.', 'খাবার যোগ করতে লাইভ রান্নাঘরের মেনু দেখুন।'))));
+  }
+  return result;
+}
+
+/// Live `Cart` tab (`5th` primary nav slot) computing canonical `priceOrder()` integer poisha.
 class CustomerQuickCartTab extends StatelessWidget {
   const CustomerQuickCartTab({super.key, required this.controller});
   final CustomerController controller;

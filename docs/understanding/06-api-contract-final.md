@@ -1,11 +1,12 @@
 # 06 · Final API, Realtime & FCM Contract (`Appendix E` & `Appendix G` Frozen)
 
-> **Plan Response 2 Frozen Wire Contract** · Directly drives **`Build Responses 6–11`** (`workers/api`, `workers/realtime`, `workers/admin`)  
+> **Plan Response 2 Frozen Wire Contract** · Drives **`Build Responses 6–11`** (`workers/api`, `workers/realtime`, `workers/admin`) and customer-commerce integration in **Build Response 13**
 > **Global Wire Laws:**
 > 1. **Standard JSON Envelope:** Success → `{"data": ..., "request_id": "req_..."}` · Error → `{"error": {"code": "ORDER_STATE_ILLEGAL", "message_en": "...", "message_bn": "...", "details": ...}, "request_id": "req_..."}`.
 > 2. **Money Format on Wire:** 100% integer **poisha** (`*_poisha: number`), validated by shared Zod schemas in `packages/shared_ts`.
 > 3. **Idempotency:** Every state-mutating POST/PATCH/DELETE on carts, orders, offers, sessions, remittances, invoices, and penalties **requires `Idempotency-Key: <uuid>`** (`24h` replay cache in `idempotency_keys`).
 > 4. **Zero Client Secret Exposure (`D-03`):** `IMGBB_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `INTERNAL_HMAC_SECRET`, and `UNDAL_BKASH_NUMBER` never leave Workers.
+> 5. **Public Media (`ADR-0006 v2`):** every avatar, vendor/menu image, banner, and review photo must use ImgBB; SQL constraints and W1 response sanitizers reject/strip all other public-provider URLs.
 
 ---
 
@@ -16,10 +17,10 @@
 | **B06** | `GET` | `/healthz` | `public` | `120/min/ip` | Returns Worker SHA, region, shallow DB ping |
 | **B06** | `GET` | `/v1/config/public` | `anon` | `120/min/ip` | Min supported app versions, auth flags, maintenance banner EN/BN (`Cache-Control: max-age=60`) |
 | **B06** | `GET` | `/v1/zones/resolve` | `anon` | `60/min/ip` | `?lat=&lng=` → active zone verdict + nearest zone suggestion if outside |
-| **B06** | `GET` | `/v1/home/feed` | `anon \| customer` | `60/min/ip` | `?zone_id=&mode=delivery\|pickup&cuisine=&sort=&cursor=` (`rank_v1`, `s-maxage=30` for anon) |
-| **B06** | `GET` | `/v1/vendors/{slug}` | `anon` | `120/min/ip` | Storefront header, hours, busy buffer, promos, distance (`HOME_KITCHEN` exact address redacted!) |
-| **B06** | `GET` | `/v1/vendors/{slug}/menu` | `anon` | `120/min/ip` | Categories, items, variants, labelled options, bundles (`s-maxage=30` + instant invalidation on vendor edit) |
-| **B06** | `GET` | `/v1/vendors/{slug}/reviews` | `anon` | `60/min/ip` | Cursor-paginated verified reviews + vendor replies |
+| **B06/B13** | `GET` | `/v1/home/feed` | `anon \| customer` | `60/min/ip` | `?zone_id=&mode=delivery\|pickup&cuisine=&sort=&cursor=` (`rank_v1`, `s-maxage=30` for anon); vendor/banner URLs are ImgBB-only |
+| **B06/B13** | `GET` | `/v1/vendors/{slug}` | `anon` | `120/min/ip` | Storefront header, hours, busy buffer, promos, distance; ImgBB-only logo/cover (`HOME_KITCHEN` exact address redacted!) |
+| **B06/B13** | `GET` | `/v1/vendors/{slug}/menu` | `anon` | `120/min/ip` | Public categories, current item orderability, variants/options/bundle choices, coarse vendor profile and weekly hours; no private labels/address; customer image URLs are ImgBB-only |
+| **B06/B13** | `GET` | `/v1/vendors/{slug}/reviews` | `anon` | `60/min/ip` | Cursor-paginated visible, moderated verified-buyer reviews + kitchen replies; reviewer identity is excluded and only ImgBB photo URLs render |
 | **B06** | `GET` | `/v1/search` | `anon` | `60/min/ip` | `?q=&zone_id=&scope=all\|dishes\|vendors` (Banglish synonym expansion + trigram match) |
 | **B06** | `GET` | `/v1/seo/sitemap-data` | `public` | `12/min/ip` | Active zones, cuisines, and approved vendor slugs for SSG prerender + `sitemap.xml` |
 | **B06** | `POST` | `/v1/images/public` | `vendor \| customer \| admin` | `30/day/vendor` | Magic-byte verified `JPEG/PNG/WebP <= 5MB` + Edge JPEG/PNG EXIF/GPS strip → **Unlimited Free ImgBB** (`D-03` + `ADR-0006` — **100% of public & platform images**) |
@@ -31,9 +32,9 @@
 | **B07** | `POST` | `/v1/favourites/{vendorId}` | `customer` | `30/min/user` | Idempotent toggle `{is_favourite: boolean}` |
 | **B07** | `GET/POST` | `/v1/cart` | `customer` | `30/min + Idem` | Fetches active cart or switches kitchen (`confirm_clear=true` guards `CART_VENDOR_CONFLICT`) |
 | **B07** | `PATCH` | `/v1/cart/items` | `customer` | `60/min + Idem` | Adds/updates/removes item + variants/options/bundle choices |
-| **B07** | `POST` | `/v1/cart/validate` | `customer` | `30/min/user` | Calls `price_order()` RPC → exact poisha waterfall, ETA range, COD trust limit check |
+| **B07/B13** | `POST` | `/v1/cart/validate` | `customer` | `30/min/user` | Service-role-only `quote_customer_cart()` → current modifiers/promos, audited zone distance-tier fee + platform setting, integer-poisha waterfall/COD ceiling; client fee fields are ignored |
 | **B07** | `POST/DELETE` | `/v1/cart/voucher` | `customer` | `10/min/user` | Validates & attaches/removes promo voucher |
-| **B07** | `POST` | `/v1/orders` | `customer` | `5/min + Idem` | Atomic COD `place_order()` RPC + Turnstile check on web → signed HMAC dispatch trigger to `W2` |
+| **B07/B13** | `POST` | `/v1/orders` | `customer` | `5/min + Idem` | Atomic COD `place_order()` recomputes modifiers/discounts, zone fee and platform setting; optional integer `expected_cod_poisha` mismatch returns `CART_STALE`; client fees are ignored → signed HMAC dispatch to `W2` |
 | **B07** | `GET` | `/v1/orders` & `/v1/orders/{code}` | `authenticated` | `60/min/user` | Role-scoped order list & full order detail (poisha waterfall + monotonic `order_events`) |
 | **B07** | `GET` | `/v1/orders/{code}/live` | `participant` | `30/min/user` | Seamless HTTP polling fallback (`ETag` supported) when RTDB lease is closed or cap reached |
 | **B07** | `POST` | `/v1/orders/{id}/accept` | `vendor` | `30/min + Idem` | Commits `prep_minutes` (`15/25/35`), cancels alarm loop, triggers `W2` early rider dispatch |

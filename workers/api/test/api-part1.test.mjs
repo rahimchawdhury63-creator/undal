@@ -9,7 +9,79 @@ import assert from 'node:assert/strict';
 
 import worker, { resetRateLimitBuckets } from '../src/index.ts';
 import { createPostgrestDbAdapter } from '../src/db-postgrest.ts';
+import { handleCatalogRoute } from '../src/routes/catalog.ts';
+import { handleAccountRoute } from '../src/routes/account.ts';
 import { TEST_JWT_SECRET, bootRealApiPostgres, createPgliteAdapter, mintTestJwt } from './_helpers/pglite-api-harness.mjs';
+
+test('Public review route strips every non-ImgBB photo URL', async () => {
+  const url = new URL('https://api.undal.app/v1/vendors/ruma-kacchi-ghar/reviews');
+  const response = await handleCatalogRoute(
+    new Request(url),
+    url,
+    {},
+    {
+      getVendorReviews: async () => [{ id: 'review-1', photo_urls: [
+        'https://res.cloudinary.com/undal/image/upload/public.jpg',
+        'https://i.ibb.co/undal/public.jpg',
+      ] }],
+    },
+    null,
+    'req_public_media',
+  );
+  assert.ok(response);
+  const json = await response.json();
+  assert.deepEqual(json.data.reviews[0].photo_urls, ['https://i.ibb.co/undal/public.jpg']);
+});
+
+test('Public catalog routes sanitize vendor, menu, and banner images to ImgBB only', async () => {
+  const db = {
+    getHomeFeed: async () => ({
+      feed: { in_service_area: true, vendors: [{ slug: 'ruma', logo_url: 'https://res.cloudinary.com/private/logo.jpg', cover_url: 'https://i.ibb.co/ruma/cover.jpg' }] },
+      banners: [{ id: 'bad-banner', image_url: 'https://res.cloudinary.com/private/banner.jpg' }],
+      flashCampaigns: [],
+    }),
+    getVendorHeader: async () => ({ slug: 'ruma', logo_url: 'https://invalid.example/logo.jpg', cover_url: 'https://i.ibb.co/ruma/cover.jpg' }),
+    getVendorMenuDetail: async () => ({
+      vendor: { slug: 'ruma', logo_url: 'https://res.cloudinary.com/private/logo.jpg', cover_url: null },
+      categories: [{ items: [
+        { id: 'bad-item', image_url: 'https://res.cloudinary.com/private/item.jpg' },
+        { id: 'good-item', image_url: 'https://i.ibb.co/ruma/item.jpg' },
+      ] }],
+    }),
+  };
+  const runCatalog = async (path) => {
+    const url = new URL(`https://api.undal.app${path}`);
+    const response = await handleCatalogRoute(new Request(url), url, {}, db, null, 'req_catalog_media');
+    assert.ok(response);
+    return response.json();
+  };
+
+  const feed = await runCatalog('/v1/home/feed?lat=24.8949&lng=91.8687');
+  assert.equal(feed.data.vendors[0].logo_url, null);
+  assert.equal(feed.data.vendors[0].cover_url, 'https://i.ibb.co/ruma/cover.jpg');
+  assert.equal(feed.data.banners[0].image_url, null);
+
+  const header = await runCatalog('/v1/vendors/ruma');
+  assert.equal(header.data.vendor.logo_url, null);
+  assert.equal(header.data.vendor.cover_url, 'https://i.ibb.co/ruma/cover.jpg');
+
+  const menu = await runCatalog('/v1/vendors/ruma/menu');
+  assert.equal(menu.data.vendor.logo_url, null);
+  assert.equal(menu.data.categories[0].items[0].image_url, null);
+  assert.equal(menu.data.categories[0].items[1].image_url, 'https://i.ibb.co/ruma/item.jpg');
+});
+
+test('Own-profile responses never expose non-ImgBB avatar URLs', async () => {
+  const url = new URL('https://api.undal.app/v1/me');
+  const response = await handleAccountRoute(
+    new Request(url), url,
+    { getOwnProfile: async () => ({ id: 'customer', avatar_url: 'https://res.cloudinary.com/private/avatar.jpg' }) },
+    { sub: 'customer', role: 'customer' }, 'req_avatar_media',
+  );
+  assert.ok(response);
+  const json = await response.json();
+  assert.equal(json.data.profile.avatar_url, null);
+});
 
 test('W1 undal-api Part 1 E2E: Catalog, rank_v1, HOME_KITCHEN privacy, Banglish search, Unlimited ImgBB public media & Sensitive-Only Cloudinary vault', async () => {
   resetRateLimitBuckets();

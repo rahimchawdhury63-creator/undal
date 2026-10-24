@@ -253,7 +253,11 @@ test('W1 undal-api Part 2 E2E: Reviews, 24h Chat Lock, Support, Failed-Delivery 
     SUPABASE_URL: 'https://proj.supabase.co',
     SUPABASE_SERVICE_ROLE_KEY: 'test-service-key',
     __fetchImpl: async (u, init) => {
-      wireCalls.push({ url: String(u), method: init?.method ?? 'GET' });
+      wireCalls.push({
+        url: String(u),
+        method: init?.method ?? 'GET',
+        body: JSON.parse(String(init?.body ?? '{}')),
+      });
       return new Response(JSON.stringify([{ order_id: ordA, status: 'PLACED' }]), { status: 200 });
     },
   });
@@ -261,12 +265,20 @@ test('W1 undal-api Part 2 E2E: Reviews, 24h Chat Lock, Support, Failed-Delivery 
     customerId: custId,
     idempotencyKey: 'test-wire-idem-01',
     expectedCodPoisha: 29500,
-    deliveryFeePoisha: 4000,
-    platformFeePoisha: 500,
     isPriority: false,
   });
   assert.equal(wireCalls[0].url, 'https://proj.supabase.co/rest/v1/rpc/place_order');
   assert.equal(wireCalls[0].method, 'POST');
+  assert.deepEqual(wireCalls[0].body, {
+    p_customer_id: custId,
+    p_idempotency_key: 'test-wire-idem-01',
+    p_expected_cod_poisha: 29500,
+    p_is_priority: false,
+  });
+
+  await wire.validateCartPricing(custId, false);
+  assert.equal(wireCalls[1].url, 'https://proj.supabase.co/rest/v1/rpc/quote_customer_cart');
+  assert.deepEqual(wireCalls[1].body, { p_customer_id: custId, p_is_priority: false });
 
   await db.close();
 });

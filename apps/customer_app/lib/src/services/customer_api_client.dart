@@ -68,6 +68,9 @@ final class CustomerApiClient {
 
   CustomerAppConfig get config => _config;
 
+  /// Exposes the configured transport to the typed commerce API facade.
+  CustomerHttpTransport get transport => _transport;
+
   /// Resolves a map pin via `GET /v1/zones/resolve` (`W1`) or deterministic `resolveZoneLocal`.
   Future<ZoneResolutionVerdict> resolveZone(GeoPoint point) async {
     if (_config.hasLiveWorkers) {

@@ -1,4 +1,4 @@
-/// Domain models for `apps/customer_app` Part 1 (`Appendix N` screens `c-01..c-12`, `File 16 §§16.1–16.3`).
+/// Customer identity, routing, and auth-intent domain models (`Appendix N`, `File 16`).
 ///
 /// Mirrors the exact PostgreSQL 16 + `W1 undal-api` + `W2 undal-realtime` contracts:
 /// - `HOME_KITCHEN` vendors never expose private street coordinates in delivery feeds (`D-19`).
@@ -7,8 +7,9 @@
 library;
 
 import 'package:undal_core/undal_core.dart';
+part 'customer_commerce_intents.dart';
 
-/// Canonical screen route IDs from `Appendix N` (`c-01..c-12`).
+/// Canonical screen route IDs from `Appendix N` (`c-01..c-21`).
 enum CustomerScreenId {
   c01Splash('c-01'),
   c02Carousel('c-02'),
@@ -21,7 +22,16 @@ enum CustomerScreenId {
   c09HomePickup('c-09'),
   c10PickupMap('c-10'),
   c11SearchHome('c-11'),
-  c12SearchResults('c-12');
+  c12SearchResults('c-12'),
+  c13VendorStorefront('c-13'),
+  c14ItemCustomizer('c-14'),
+  c15BundleBuilder('c-15'),
+  c16VendorInfo('c-16'),
+  c17VendorReviews('c-17'),
+  c18Cart('c-18'),
+  c19VoucherPicker('c-19'),
+  c20Checkout('c-20'),
+  c21OrderConfirmation('c-21');
 
   const CustomerScreenId(this.code);
   final String code;

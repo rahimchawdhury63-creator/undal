@@ -1,9 +1,9 @@
-# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.12)
+# UNDAL — Master Build Ledger (`BUILD-LEDGER.md` · Version 2.13)
 
 > **Single Living Progress Ledger (`UNDAL-MASTER-GUIDE/27-builder-protocol-32-responses.md`)**  
 > **Repository:** `rahimchawdhury63-creator/undal` · **Branch:** `arena/f81366de-undal`  
 > **Last Updated:** `2026-10-24` · **Current Completed Milestone:** **`Build Response 12 — COMPLETE (`apps/customer_app` Part 1 — Flutter Customer App Adaptive Shell, Onboarding `c-01..c-05`, Auth & Resumable 3-Step Sign-Up `c-06..c-07`, OpenStreetMap Pin + `Sylhet Sadar` / `Kulaura` Polygon Verdict, `rank_v1` Home Delivery & Pickup Feeds `c-08..c-10`, and Instant EN/বাংলা/Banglish Search `c-11..c-12`!)`**  
-> **Next Scheduled Milestone:** **`Build Response 13`** (`apps/customer_app` Part 2 — Storefront `c-13`, Item Sheet & Option Groups `c-14`, Bundle Builder `c-15`, Business Info & Reviews `c-16..c-17`, Cart, Voucher Picker, COD Checkout & Confirmation `c-18..c-21`, awaiting Founder `"continue"`)
+> **Next Scheduled Milestone:** **`Build Response 13` — IN PROGRESS** (`c-13..c-17` + migrations `0017..0019`; full local `ci:all`, database/API/admin tests, typechecks, and quality gates pass; live GitHub Actions pending). Checkout work `c-18..c-21` already present in the working tree belongs to Response 14 and is explicitly not counted as Response 13 completion evidence.
 
 ---
 
@@ -16,11 +16,11 @@
 | **Dual Free Media Law (`ADR-0006 v2`: Unlimited ImgBB Public + Private Cloudinary Vault)** | TS + Dart + SQL + `W1` + `W3` + Gate | **DONE ✓ (`Build 5, 6, 10 & 11`)** | **100% enforced across DB + `W1` + `W3` + CI!** | `ADR-0006`, `imgbb.ts`, `cloudinary.ts`, `vendors-kyc.ts`, `orders-growth.ts`, `[NO-SUPABASE-STORAGE]` |
 | **Shared TS & Flutter Packages (`@undal/shared-ts` + `undal_core`)** | 2 packages | **DONE ✓ (`Build 1, 5 & 6`)** | Extended per response | `packages/shared_ts/`, `packages/undal_core/` |
 | **Golden Math Parity (`M-1..M-8` + `F-1..F-6` + 10K Fuzz)** | **TS + Dart + SQL** | **TS + Dart + SQL `100%` ✓** | **0 poisha drift across all 3 engines + ledger!** | `03` & `04` `pgTAP` + `migrations-b04/b05.test.mjs` |
-| **Postgres Migrations + `pgTAP` RLS Suite (`0001..0016`)** | **16 migrations / 50+ tables** | **`16 / 16` (`62` tables, `100.0%` DONE!) ✓** | **0 remaining migrations — DB engine 100% complete!** | `supabase/migrations/0001..0016`, **`109 / 109` `pg_prove` assertions** |
+| **Postgres Migrations + `pgTAP` RLS Suite (`0001..0019`)** | **19 migrations / 62 tables** | **`16 / 19` previously CI-green; `0017..0019` locally validated** | Response 13 migration CI pending | `supabase/migrations/0001..0019`, B04/B05 PGlite + pgTAP local suites |
 | **`W1 undal-api` Edge Worker (`workers/api`)** | Part 1 + Part 2 (`File 06 §1`) | **`100.0%` DONE ✓ (`Build 6–7`)** | **0 remaining routes — `W1` 100% complete!** | `workers/api/src/**`, `5 / 5` real PG16 E2E suites |
 | **`W2 undal-realtime` Edge Worker + Firebase RTDB Rules** | Part 1 + Part 2 (`File 06 §2` + `File 07`) | **`100.0%` DONE ✓ (`Build 8–9`)** | **0 remaining routes — `W2` + `database.rules.json` 100% complete!** | `workers/realtime/src/**`, `infra/firebase/database.rules.json`, `7 / 7` suites |
 | **`W3 undal-admin` Edge Worker + `4` Cron Triggers (`Appendix C`)** | **132 P0 + 4 Crons** | **`132 / 132` (`100.0%` DONE in `W3`!) ✓** | **`0` remaining backend routes — `Build 25–28` (`admin_web` UI)** | `workers/admin/src/**`, `4 / 4` real PG16 + `105`-probe RBAC matrix suites |
-| **`apps/customer_app` Flutter Android Surface (`Appendix N`)** | **40 screens (`c-01..c-40`)** | **`12 / 40` (`c-01..c-12` DONE in `Build 12`!) ✓** | `c-13..c-21` (`Build 13`), `c-22..c-40` (`Build 14–15`) | `apps/customer_app/lib/**`, `customer_part1_flow_test.dart` (`240px–1440px` PNG goldens) |
+| **`apps/customer_app` Flutter Android Surface (`Appendix N`)** | **40 screens (`c-01..c-40`)** | **`12 / 40` previously CI-green (`c-01..c-12`)** | `c-13..c-17` Response 13 in CI; c-18..c-21 reserved for Response 14 and not counted; c-22..c-40 queued | `apps/customer_app/lib/**`, `customer_part1_flow_test.dart` + commerce Flutter suite (local Flutter unavailable) |
 
 ---
 
@@ -42,9 +42,9 @@
 | **Build 10** | **W3 Admin Part 1 — 4-Gate TOTP + 5m Step-Up, 7-Role RBAC Matrix, Domains 1–4 (`C1–C70`: Gov, Dispatch, Zones/Kulaura/Fare Sim, 3-Track KYC + `ADR-0006 v2` Private Signed URLs)** | `workers/admin/src/**` (`totp`, `rbac`, `geo-polygon`, `http`, `db-postgrest*`, `routes/{governance*,dispatch-control,zones-pricing,vendors-kyc}`), `test/{admin-rbac-matrix,admin-part1-pg16}.test.mjs` | **DONE ✓** | GHA Run [`#39996070932`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39996070932) (`4/4` jobs green · `3/3` `W3` suites + `109/109` `pg_prove`) ✓ |
 | **Build 11** | **W3 Admin Part 2 — Finance/Settlement/Remittances, Order 360, Zero-Ads Growth Engine, Support/Disputes, Executive BI & All 4 Cron Triggers (`C71–C132` · `W3` 100.0% Complete!)** | `workers/admin/src/{types-part2,cron,db-postgrest-part2,routes/{finance-settlement,orders-growth,support-bi}}.ts`, `test/admin-part2-pg16.test.mjs` | **DONE ✓** | GHA Run [`#39998310411`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/39998310411) (`4/4` jobs green · `4/4` `W3` suites + `132/132` capabilities + `109/109` `pg_prove`) ✓ |
 | **Build 12** | **Customer App Part 1 — shell, auth, address+map, home feed, search** | `packages/undal_core` (`undal_geo`, `undal_osm_map`) + `apps/customer_app` (`c-01..c-12` + 5-tab shell + `240px..1440px` golden PNG suite) | **DONE ✓** | GHA Run [`#40008127673`](https://github.com/rahimchawdhury63-creator/undal/actions/runs/40008127673) (`4/4` jobs green · `Flutter 3.29.2` `undal_core` `10/10` + `customer_app` `9/9` PNG goldens) ✓ |
-| **Build 13** | **Customer App — restaurant page, customiser, cart, checkout** | `apps/customer_app` part 2 (`c-13..c-21`) | **NEXT** | Flow test: browse → place COD order |
-| **Build 14** | Customer App — live tracking, chat, pickup QR, history, account | `apps/customer_app` part 3 (`c-22..c-40`) | Queued | RTDB → polling fallback test; QR token test |
-| **Build 15** | Customer App — Bangla pass, offline UX, accessibility, polish | `apps/customer_app` complete | Queued | Zero unlocalised strings; TalkBack/contrast audit |
+| **Build 13** | **Customer App — storefront, modifier/bundle customization, business info & verified reviews** | `c-13..c-17` + migrations `0017..0019`, W1 cart quote/order validation | **IN PROGRESS — full local `ci:all` green; live CI pending** | B04/B05 PGlite+pgTAP, W1/W3 tests, workspace typecheck/build; Flutter CI required before DONE |
+| **Build 14** | Customer App — cart, vouchers, COD checkout, place-order & confirmation | `apps/customer_app` (`c-18..c-21`; checkout edits are present but are not Response 13 evidence) | Queued — not claimed complete | Full flow/test/docs/CI evidence belongs to Response 14 |
+| **Build 15** | Customer App — live tracking, chat, order history, ratings, account/rewards + cross-app localization/accessibility polish | `apps/customer_app` (`c-22..c-40`) | Queued | RTDB → polling fallback; QR token; zero unlocalized strings; TalkBack/contrast audit |
 | **Build 16** | Partner App — shell, auth, **3-track onboarding + document upload** | `apps/partner_app` part 1 (`p-01..p-05`) | Queued | All 3 tracks (`Restaurant/Home/Cloud`) + private bucket rules |
 | **Build 17** | Partner App — **native Kotlin FCM alarm engine + readiness gate** | `apps/partner_app/android` + `p-06..p-07` | Queued | Full-screen intent + `STREAM_ALARM` loop + force-stop notice tested |
 | **Build 18** | Partner App — live orders, prep timer, pickup QR, busy mode, chat | `apps/partner_app` part 3 (`p-08..p-16`, `p-25`) | Queued | Live order cycle test |
@@ -103,4 +103,14 @@
 3. **`apps/customer_app/lib/src/{widgets/vendor_feed_card.dart,screens/{onboarding_screens,auth_screens,home_feed_screen,home_feed_sections,pickup_map_screen,search_screen,companion_tabs}.dart}` + `lib/main.dart`** — Complete screens **`c-01..c-12`** eliminating `AP-1`, `AP-3`, `AP-4`, `AP-6`, `AP-8`, and `AP-9`, plus `HOME_KITCHEN` residential street redaction (`D-19`).
 4. **`packages/undal_core/test/undal_geo_map_test.dart` + `apps/customer_app/test/{app_smoke_test,customer_part1_flow_test}.dart`** — Full onboarding `c-01..c-05` walk, guest-intercept -> resumable `c-07` 3-step Sign-Up resume test, `c-09`/`c-10` Pickup privacy & map test, `c-11`/`c-12` Banglish/বাংলা/typo search test, and live rasterized PNG golden & zero-overflow matrix across `240px`, `360px`, `768px`, `1200px`, and `1440px` in both `EN` & `বাংলা`.
 
+## 7. Build Response 13 — in progress (`c-13..c-17` only; 2026-10-24)
+
+**Scope:** Customer App storefront/vendor details `c-13`, item sheet & option groups `c-14`, bundle builder `c-15`, business info & reviews `c-16..c-17`; server-authoritative cart quote/order amounts and zone-tier delivery pricing in migrations `0017..0018`, public-media enforcement in `0019`, and W1. **Response 14 screens `c-18..c-21` are outside this completion claim** even though their work is already present in the checkout tree.
+
+**Implementation evidence:**
+1. Added responsive customer storefront, customization, bundle, business-info and review screens/state/services with confirmation for cross-kitchen bundles and bilingual labels/privacy behavior.
+2. Delivery fees now derive from the selected zone's distance tiers/free-delivery threshold; platform fees derive from `money.platform_fee_poisha`. Client fee/total fields are ignored/omitted by the customer checkout/API and W1 order paths; W3 validates fee-tier configuration.
+3. Closed the public-image audit: `public_vendor_cards`, the legacy `get_home_feed(...)` RPC, storefront RPC, home-feed banners, vendor/menu API responses, profile avatars, review photos, and the ImgBB media registry now enforce/sanitize ImgBB URLs. Migration `0019` strips legacy non-ImgBB records and adds DB constraints; W1 sanitizers provide defense in depth.
+4. Added SQL/PGlite/pgTAP, W1 API, W3 Admin, customer API/state, and Flutter commerce tests. Latest local results: DB **10/10 suites** (including **111/111 pgTAP assertions**), W1 **8/8**, W3 **4/4**; all workspace TypeScript typechecks and builds pass; `npm run ci:all` passes with **270 authored files / 0 gate violations**. Flutter/Dart remain unavailable locally.
+5. **Open CI evidence:** no Response 13 commit/push or post-edit GitHub Actions run yet. Flutter CI is required before DONE; run final diff/file-budget checks, push this branch, and record green required checks here.
 

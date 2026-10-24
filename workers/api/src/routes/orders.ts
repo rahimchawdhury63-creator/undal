@@ -86,6 +86,10 @@ async function sanitizeOrderForViewer(
   };
 }
 
+function isNonNegativePoisha(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
 /** Handles all `/v1/orders*` endpoints on `W1 undal-api`. */
 export async function handleOrdersRoute(
   request: Request,
@@ -112,11 +116,15 @@ export async function handleOrdersRoute(
 
     const body = (await request.json().catch(() => ({}))) as {
       readonly expected_cod_poisha?: number | null;
-      readonly delivery_fee_poisha?: number;
-      readonly platform_fee_poisha?: number;
       readonly is_priority?: boolean;
       readonly turnstile_token?: string;
     };
+    if (body.expected_cod_poisha != null && !isNonNegativePoisha(body.expected_cod_poisha)) {
+      return jsonErr('VALIDATION_FAILED', requestId, { field: 'expected_cod_poisha', reason: 'INTEGER_POISHA_REQUIRED' });
+    }
+    if (body.is_priority != null && typeof body.is_priority !== 'boolean') {
+      return jsonErr('VALIDATION_FAILED', requestId, { field: 'is_priority' });
+    }
 
     if (env.TURNSTILE_SECRET_KEY) {
       if (!body.turnstile_token) return jsonErr('VALIDATION_FAILED', requestId, { field: 'turnstile_token' });
@@ -134,8 +142,6 @@ export async function handleOrdersRoute(
       customerId: principal.sub,
       idempotencyKey: idemKey,
       expectedCodPoisha: typeof body.expected_cod_poisha === 'number' ? body.expected_cod_poisha : null,
-      deliveryFeePoisha: typeof body.delivery_fee_poisha === 'number' ? body.delivery_fee_poisha : 4000,
-      platformFeePoisha: typeof body.platform_fee_poisha === 'number' ? body.platform_fee_poisha : 500,
       isPriority: Boolean(body.is_priority),
     });
 
