@@ -8,7 +8,7 @@ import type { PostgrestTransport } from './db-postgrest-ops.ts';
 import type { ApiDbAdapter } from './types.ts';
 
 type SocialOpsKeys =
-  | 'submitOrderReview' | 'replyToReview'
+  | 'listCustomerOrderReviews' | 'submitOrderReview' | 'replyToReview'
   | 'listOrderChatMessages' | 'postOrderChatMessage'
   | 'listSupportThreads' | 'createSupportThread' | 'listSupportMessages' | 'postSupportMessage'
   | 'getOperatorVendor' | 'updateOperatorVendor' | 'upsertMenuCategory'
@@ -24,6 +24,12 @@ export function createPostgrestSocialOpsMethods(t: PostgrestTransport): Pick<Api
         `rider_cash_balance_v?profile_id=eq.${encodeURIComponent(profileId)}&limit=1`,
       );
       return rows[0] ?? null;
+    },
+
+    async listCustomerOrderReviews(orderId, reviewerId) {
+      return await t.getJson<Record<string, unknown>[]>(
+        `reviews?order_id=eq.${encodeURIComponent(orderId)}&reviewer_id=eq.${encodeURIComponent(reviewerId)}&direction=in.(customer_to_vendor,customer_to_rider)&select=id,direction,rating,aspect_tags,comment,created_at&order=created_at.asc`,
+      );
     },
 
     async submitOrderReview(input) {

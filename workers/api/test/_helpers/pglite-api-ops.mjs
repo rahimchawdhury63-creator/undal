@@ -14,7 +14,6 @@ export function createPgliteOpsMethods(db, resolveZone) {
         )
       ).rows;
     },
-
     async saveCustomerAddress(input) {
       const zone = await resolveZone(input.lat, input.lng);
       const zoneId = zone.in_service_area === true ? zone.zone_id : null;
@@ -48,7 +47,6 @@ export function createPgliteOpsMethods(db, resolveZone) {
         )
       ).rows[0];
     },
-
     async deleteCustomerAddress(profileId, addressId) {
       return (
         await db.query('DELETE FROM public.customer_addresses WHERE id = $1 AND profile_id = $2 RETURNING id', [
@@ -56,11 +54,21 @@ export function createPgliteOpsMethods(db, resolveZone) {
         ])
       ).rows.length > 0;
     },
-
     async listFavourites(customerId) {
-      return (await db.query('SELECT * FROM public.favourites WHERE customer_id = $1 ORDER BY created_at DESC', [customerId])).rows;
+      return (await db.query(
+        `SELECT f.vendor_id,
+                jsonb_build_object(
+                  'id', pvc.id, 'brand_name', pvc.brand_name, 'brand_name_bn', pvc.brand_name_bn,
+                  'slug', pvc.slug, 'public_area_label', pvc.public_area_label,
+                  'logo_url', pvc.logo_url, 'cover_url', pvc.cover_url,
+                  'rating_avg', pvc.rating_avg, 'rating_count', pvc.rating_count
+                ) AS vendor
+         FROM public.favourites f
+         JOIN public.public_vendor_cards pvc ON pvc.id = f.vendor_id
+         WHERE f.customer_id = $1 ORDER BY f.created_at DESC`,
+        [customerId],
+      )).rows;
     },
-
     async toggleFavourite(customerId, vendorId) {
       const del = await db.query('DELETE FROM public.favourites WHERE customer_id = $1 AND vendor_id = $2 RETURNING vendor_id', [
         customerId, vendorId,
@@ -69,7 +77,6 @@ export function createPgliteOpsMethods(db, resolveZone) {
       await db.query('INSERT INTO public.favourites (customer_id, vendor_id) VALUES ($1, $2)', [customerId, vendorId]);
       return { is_favourite: true };
     },
-
     async listAvailableVouchers(customerId) {
       return (
         await db.query(
@@ -253,6 +260,15 @@ export function createPgliteOpsMethods(db, resolveZone) {
 
     async getRiderCashGateByProfile(profileId) {
       return (await db.query('SELECT * FROM public.rider_cash_balance_v WHERE profile_id = $1', [profileId])).rows[0] ?? null;
+    },
+
+    async listCustomerOrderReviews(orderId, reviewerId) {
+      return (await db.query(
+        `SELECT id, direction, rating, aspect_tags, comment, created_at
+         FROM public.reviews WHERE order_id = $1 AND reviewer_id = $2
+         AND direction IN ('customer_to_vendor', 'customer_to_rider') ORDER BY created_at ASC`,
+        [orderId, reviewerId],
+      )).rows;
     },
 
     async submitOrderReview(input) {

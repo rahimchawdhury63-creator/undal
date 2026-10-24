@@ -18,9 +18,14 @@ final class CustomerAppConfig {
     this.supabaseUrl = const String.fromEnvironment('UNDAL_SUPABASE_URL'),
     this.supabaseAnonKey =
         const String.fromEnvironment('UNDAL_SUPABASE_ANON_KEY'),
+    this.firebaseWebApiKey =
+        const String.fromEnvironment('UNDAL_FIREBASE_WEB_API_KEY'),
     this.appEnv =
         const String.fromEnvironment('UNDAL_APP_ENV', defaultValue: 'local'),
-    this.enableNetworkOsmTiles = false,
+    this.enableNetworkOsmTiles = const bool.fromEnvironment(
+      'UNDAL_OSM_TILES_ENABLED',
+      defaultValue: true,
+    ),
   });
 
   /// `W1 undal-api` base URL (e.g. `https://api.undal.app`). Empty in offline/CI runs.
@@ -34,6 +39,9 @@ final class CustomerAppConfig {
 
   /// Public RLS-enforced Supabase anon key (`sb_publishable_*`). Never a secret role key.
   final String supabaseAnonKey;
+
+  /// Firebase public Web API key used only to exchange a W2-minted RTDB custom token for an ID token.
+  final String firebaseWebApiKey;
 
   /// Logical runtime stage (`local`, `staging`, `production`).
   final String appEnv;
@@ -55,10 +63,12 @@ final class CustomerHttpResponse {
   const CustomerHttpResponse({
     required this.statusCode,
     required this.body,
+    this.headers = const <String, String>{},
   });
 
   final int statusCode;
   final Map<String, Object?> body;
+  final Map<String, String> headers;
 
   bool get isOk => statusCode >= 200 && statusCode < 300;
 }
@@ -111,6 +121,7 @@ final class DartIoCustomerHttpTransport implements CustomerHttpTransport {
         return CustomerHttpResponse(
           statusCode: response.statusCode,
           body: const <String, Object?>{},
+          headers: _responseHeaders(response),
         );
       }
       final Object? decoded = jsonDecode(raw);
@@ -119,9 +130,18 @@ final class DartIoCustomerHttpTransport implements CustomerHttpTransport {
         body: decoded is Map<String, Object?>
             ? decoded
             : <String, Object?>{'items': decoded},
+        headers: _responseHeaders(response),
       );
     } finally {
       client.close(force: true);
     }
+  }
+
+  Map<String, String> _responseHeaders(HttpClientResponse response) {
+    final Map<String, String> result = <String, String>{};
+    response.headers.forEach((String name, List<String> values) {
+      result[name.toLowerCase()] = values.join(',');
+    });
+    return result;
   }
 }

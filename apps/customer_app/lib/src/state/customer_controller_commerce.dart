@@ -29,6 +29,7 @@ extension CustomerControllerCommerceBindings on CustomerController {
 
   /// Selects a primary destination and closes any commerce overlay without discarding the basket.
   void selectTab(int index) {
+    unawaited(experience.stopTracking());
     commerce.closeFlow();
     _selectedTabIndex = index.clamp(0, 4);
     _activeOverlay = CustomerScreenId.c08HomeDelivery;
@@ -64,9 +65,12 @@ extension CustomerControllerCommerceBindings on CustomerController {
   void decrementBasketItem(String dishId) => commerce.decrementLine(dishId);
 
   /// Signs out and clears private cart, voucher, address-link and receipt state.
-  void signOut() {
+  Future<void> signOut() async {
+    await experience.stopTracking();
+    experience.clearPrivateState();
     _session = null;
     commerce.clearSessionData();
+    this.resetLocalAddressAfterSignOut();
     _notifyListenersFromCommerceBindings();
   }
 }

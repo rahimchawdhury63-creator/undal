@@ -31,7 +31,7 @@ class _CustomerCheckoutAddressEditorScreenState extends State<CustomerCheckoutAd
     super.initState();
     final address = widget.controller.activeAddress;
     _pin = address.point;
-    _streetController = TextEditingController(text: address.addressText);
+    _streetController = TextEditingController(text: address.id == 'area-sylhet-sadar' ? '' : address.addressText);
     _landmarkController = TextEditingController(text: address.landmarkNote);
   }
 
@@ -46,6 +46,7 @@ class _CustomerCheckoutAddressEditorScreenState extends State<CustomerCheckoutAd
   Widget build(BuildContext context) {
     final CustomerController controller = widget.controller;
     final bool inLocalZone = resolveZoneLocal(_pin).inServiceArea;
+    final bool addressValid = _streetController.text.trim().length >= 3;
     final String apiBase = controller.api.config.apiBaseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     return Scaffold(
       key: const ValueKey<String>('checkout-address-editor'),
@@ -67,7 +68,7 @@ class _CustomerCheckoutAddressEditorScreenState extends State<CustomerCheckoutAd
                 center: _pin,
                 zoom: 15,
                 showCenterPin: true,
-                tileProxyBaseUrl: apiBase.isEmpty ? null : '$apiBase/v1/tiles',
+                tileProxyBaseUrl: apiBase.isEmpty ? null : apiBase,
                 onCenterChanged: (GeoPoint point) => setState(() => _pin = point),
               ),
             ),
@@ -80,9 +81,11 @@ class _CustomerCheckoutAddressEditorScreenState extends State<CustomerCheckoutAd
             ),
             const SizedBox(height: UndalSpacingTokens.sm),
             TextField(
+              key: const ValueKey<String>('checkout-address-street-input'),
               controller: _streetController,
               maxLength: 400,
               enabled: !_saving,
+              onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 labelText: cText(context, 'House / Road / Area', 'বাসা / রোড / এলাকা'),
                 border: const OutlineInputBorder(),
@@ -101,7 +104,7 @@ class _CustomerCheckoutAddressEditorScreenState extends State<CustomerCheckoutAd
             const SizedBox(height: UndalSpacingTokens.sm),
             FilledButton.icon(
               key: const ValueKey<String>('checkout-address-save'),
-              onPressed: _saving || !inLocalZone ? null : _saveAddress,
+              onPressed: _saving || !inLocalZone || !addressValid ? null : _saveAddress,
               icon: _saving
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.check),

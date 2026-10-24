@@ -39,6 +39,7 @@ export interface OrderAccessContext {
   readonly order: Record<string, unknown>;
   readonly vendor: {
     readonly id: string;
+    readonly slug?: string | null;
     readonly owner_profile_id: string;
     readonly type: string;
     readonly lat: number;
@@ -208,6 +209,7 @@ export interface ApiDbAdapter {
   ): Promise<Record<string, unknown>>;
   getRiderCashGateByProfile(profileId: string): Promise<Record<string, unknown> | null>;
 
+  listCustomerOrderReviews(orderId: string, reviewerId: string): Promise<readonly Record<string, unknown>[]>;
   submitOrderReview(input: {
     orderId: string;
     reviewerId: string;

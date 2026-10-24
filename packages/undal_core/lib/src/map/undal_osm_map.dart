@@ -41,6 +41,7 @@ class UndalOsmMap extends StatefulWidget {
     this.zoom = 14.0,
     this.zones = kSeededUndalZones,
     this.markers = const <UndalMapMarker>[],
+    this.route = const <GeoPoint>[],
     this.showCenterPin = false,
     this.tileProxyBaseUrl,
     this.onCenterChanged,
@@ -51,6 +52,10 @@ class UndalOsmMap extends StatefulWidget {
   final double zoom;
   final List<UndalZonePolygon> zones;
   final List<UndalMapMarker> markers;
+
+  /// Optional OSRM road geometry drawn beneath markers, in WGS-84 order.
+  final List<GeoPoint> route;
+
   final bool showCenterPin;
   final String? tileProxyBaseUrl;
   final ValueChanged<GeoPoint>? onCenterChanged;
@@ -154,6 +159,15 @@ class _UndalOsmMapState extends State<UndalOsmMap> {
                       viewport: viewport,
                       baseUrl: widget.tileProxyBaseUrl!,
                       isDark: isDark,
+                    ),
+                  if (widget.route.length >= 2)
+                    CustomPaint(
+                      size: viewport,
+                      painter: _UndalRoutePainter(
+                        points: widget.route.map(projectPoint).toList(growable: false),
+                        routeColor: scheme.primary,
+                        isDark: isDark,
+                      ),
                     ),
                   for (final UndalMapMarker marker in widget.markers)
                     _buildMarkerWidget(
@@ -358,6 +372,45 @@ class _UndalOsmMapState extends State<UndalOsmMap> {
       ),
     );
   }
+}
+
+class _UndalRoutePainter extends CustomPainter {
+  const _UndalRoutePainter({required this.points, required this.routeColor, required this.isDark});
+
+  final List<Offset> points;
+  final Color routeColor;
+  final bool isDark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2) return;
+    final Path path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final Offset point in points.skip(1)) {
+      path.lineTo(point.dx, point.dy);
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = (isDark ? Colors.black : Colors.white).withValues(alpha: 0.90)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 8
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = routeColor.withValues(alpha: 0.92)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _UndalRoutePainter oldDelegate) =>
+      oldDelegate.points != points || oldDelegate.routeColor != routeColor || oldDelegate.isDark != isDark;
 }
 
 class _ZoomButton extends StatelessWidget {

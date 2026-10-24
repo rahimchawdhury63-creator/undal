@@ -102,6 +102,16 @@ class CustomerCheckoutScreen extends StatelessWidget {
                       : '${controller.activeAddress.addressText}\n${controller.activeAddress.landmarkNote}'),
                 ),
               ),
+              if (controller.fulfilmentMode == UndalFulfilmentMode.delivery && !commerce.hasSpecificDeliveryAddress)
+                _CheckoutNotice(
+                  text: cText(
+                    context,
+                    'Add a specific house, road, or area before delivery. “Sylhet Sadar, Sylhet” is only a service-area label.',
+                    'ডেলিভারির আগে নির্দিষ্ট বাসা, রোড বা এলাকার ঠিকানা দিন। “সিলেট সদর, সিলেট” শুধু সার্ভিস এলাকার নাম।',
+                  ),
+                  action: cText(context, 'Add delivery address', 'ডেলিভারি ঠিকানা যোগ করুন'),
+                  onPressed: commerce.orderResolutionPending ? null : () => _editAddress(context),
+                ),
               if (controller.fulfilmentMode == UndalFulfilmentMode.delivery)
                 Align(
                   alignment: Alignment.centerLeft,
@@ -437,6 +447,7 @@ String _commerceMessage(BuildContext context, String? code) => switch (code) {
       'VOUCHER_LIMIT_REACHED' => cText(context, 'This voucher reached its use limit.', 'ভাউচারটির ব্যবহারের সীমা শেষ।'),
       'VOUCHER_MIN_ORDER' => cText(context, 'The basket does not meet this voucher minimum.', 'কার্টে ভাউচারের ন্যূনতম মূল্য নেই।'),
       'LIVE_CHECKOUT_UNAVAILABLE' => cText(context, 'Reconnect and sign in to refresh this live checkout.', 'লাইভ চেকআউট আপডেট করতে ইন্টারনেট চালু করে লগইন করুন।'),
+      'ADDRESS_REQUIRED' => cText(context, 'Add a specific house, road, or area before placing a delivery order.', 'ডেলিভারি অর্ডার দেওয়ার আগে নির্দিষ্ট বাসা, রোড বা এলাকার ঠিকানা দিন।'),
       'CART_EMPTY' => cText(context, 'Add at least one menu item before checkout.', 'চেকআউটের আগে অন্তত একটি খাবার যোগ করুন।'),
       'NETWORK_UNAVAILABLE' => cText(context, 'Connection lost. No order was placed; retry when online.', 'সংযোগ নেই। অর্ডার হয়নি; অনলাইনে আবার চেষ্টা করুন।'),
       _ => cText(context, 'W1 could not confirm this order. Review the basket and retry.', 'W1 অর্ডার নিশ্চিত করতে পারেনি। কার্ট দেখে আবার চেষ্টা করুন।'),

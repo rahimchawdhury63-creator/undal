@@ -57,9 +57,17 @@ void main() {
         // Move pin back to active Sylhet Sadar and confirm
         await ctrl.updateDraftPin(kSylhetSadarZone.center);
         await tester.pumpAndSettle();
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('c04-confirm-pin-btn')),
+        final Finder addressField = find.byKey(const ValueKey<String>('c04-address-text-input'));
+        await tester.ensureVisible(addressField);
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<FilledButton>(find.byKey(const ValueKey<String>('c04-confirm-pin-btn'))).onPressed,
+          isNull,
+          reason: 'A location pin is not a complete delivery address.',
         );
+        await tester.enterText(addressField, 'Sylhet Sadar, Sylhet');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const ValueKey<String>('c04-confirm-pin-btn')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('c04-confirm-pin-btn')));
         await tester.pumpAndSettle();

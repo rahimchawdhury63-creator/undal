@@ -74,6 +74,7 @@ final class CustomerCommerceState {
   CustomerScreenId? _activeScreen;
   CustomerScreenId? _suspendedScreen;
   VendorFeedCard? _feedVendor;
+  String? _activeVendorSlug;
   VendorStorefront? _storefront;
   bool _storefrontLoading = false;
   bool _storefrontUnavailable = false;
@@ -273,8 +274,18 @@ final class CustomerCommerceState {
   /// Whether a server-side cart collision needs explicit user confirmation.
   bool get serverCartConflict => _serverCartConflict;
 
-  /// Whether W1 can accept this basket: live API, live snapshot, real session, and UUID-backed IDs.
-  bool get canPlaceLiveOrder => _api.isConfigured && _hasLiveSession && _basket.isNotEmpty && _basket.every((BasketLineItem row) => row.item.isLiveSnapshot && _isUuid(row.dish.id));
+  /// Whether the current delivery address has user-entered detail rather than a coarse zone label.
+  bool get hasSpecificDeliveryAddress {
+    final String normalized = _readAddress().addressText.trim().toLowerCase().replaceAll(RegExp(r'[\s,./\-–—]+'), ' ').trim();
+    return normalized.length >= 3 && normalized != 'sylhet sadar sylhet' && normalized != 'sylhet sadar';
+  }
+
+  /// Whether W1 can accept the live basket and the selected fulfilment has its required details.
+  bool get canPlaceLiveOrder => _api.isConfigured &&
+      _hasLiveSession &&
+      _basket.isNotEmpty &&
+      _basket.every((BasketLineItem row) => row.item.isLiveSnapshot && _isUuid(row.dish.id)) &&
+      (_readFulfilment() == UndalFulfilmentMode.pickup || hasSpecificDeliveryAddress);
 
   /// Whether a live UUID-backed basket can begin checkout before guest authentication.
   bool get canStartCheckout => _api.isConfigured && _basket.isNotEmpty && _basket.every((BasketLineItem row) => row.item.isLiveSnapshot && _isUuid(row.dish.id));

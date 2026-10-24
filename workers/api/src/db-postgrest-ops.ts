@@ -16,6 +16,7 @@ export interface PostgrestTransport {
 
 interface OrderVendorRow {
   readonly id: string;
+  readonly slug?: string;
   readonly owner_profile_id: string;
   readonly type: string;
   readonly lat: number;
@@ -83,9 +84,20 @@ export function createPostgrestOpsMethods(t: PostgrestTransport) {
     },
 
     async listFavourites(customerId: string) {
-      return await t.getJson<Record<string, unknown>[]>(
-        `favourites?customer_id=eq.${encodeURIComponent(customerId)}&order=created_at.desc`,
+      const favourites = await t.getJson<Record<string, unknown>[]>(
+        `favourites?customer_id=eq.${encodeURIComponent(customerId)}&order=created_at.desc&limit=1000`,
       );
+      const vendorIds = [...new Set(favourites.map((row) => row.vendor_id).filter((id): id is string => typeof id === 'string'))];
+      if (vendorIds.length === 0) return [];
+      const cards = await t.getJson<Record<string, unknown>[]>(
+        `public_vendor_cards?id=in.(${vendorIds.map(encodeURIComponent).join(',')})&select=id,brand_name,brand_name_bn,slug,public_area_label,logo_url,cover_url,rating_avg,rating_count`,
+      );
+      const byId = new Map(cards.map((row) => [String(row.id), row]));
+      return favourites.map((row) => {
+        const vendorId = typeof row.vendor_id === 'string' ? row.vendor_id : '';
+        const vendor = byId.get(vendorId) ?? { id: vendorId };
+        return { vendor_id: vendorId, vendor };
+      }).filter((row) => row.vendor_id.length > 0);
     },
 
     async toggleFavourite(customerId: string, vendorId: string) {

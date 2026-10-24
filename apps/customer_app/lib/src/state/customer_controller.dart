@@ -1,7 +1,7 @@
-/// Reactive root controller for customer screens `c-01..c-21` (`File 16`).
+/// Reactive root controller for customer screens `c-01..c-40` (`File 16`).
 ///
-/// Coordinates onboarding/auth/address/search and delegates storefront, basket, voucher and COD
-/// state to [CustomerCommerceState], keeping cart conflicts explicit and order success server-backed.
+/// Coordinates onboarding/auth/address/search and delegates storefront, basket, voucher, COD, order,
+/// tracking, and account state while keeping server-owned data authoritative.
 library;
 
 import 'dart:async';
@@ -11,11 +11,16 @@ import 'package:undal_core/undal_core.dart';
 
 import '../data/sylhet_seed_catalog.dart';
 import '../models/customer_cart_models.dart';
+import '../models/customer_experience_models.dart';
 import '../models/customer_models.dart';
 import '../services/customer_api_client.dart';
+import '../services/customer_experience_api.dart';
+import '../services/customer_order_realtime.dart';
 import 'customer_commerce_state.dart';
+import 'customer_experience_state.dart';
 
 part 'customer_controller_commerce.dart';
+part 'customer_controller_experience.dart';
 
 /// Central `ChangeNotifier` state machine driving `UndalCustomerApp`.
 final class CustomerController extends ChangeNotifier {
@@ -30,12 +35,12 @@ final class CustomerController extends ChangeNotifier {
         _themeMode = initialThemeMode {
     final GeoPoint defaultPin = kSylhetSadarZone.center;
     final SavedCustomerAddress starter = SavedCustomerAddress(
-      id: 'addr-sylhet-default',
-      label: 'Home',
+      id: 'area-sylhet-sadar',
+      label: 'Sylhet Sadar',
       point: defaultPin,
       plusCode: encodePlusCode(defaultPin),
-      addressText: 'Zindabazar Water Works Rd, Sylhet',
-      landmarkNote: 'Blue gate opposite Water Works tank, 3rd floor',
+      addressText: 'Sylhet Sadar, Sylhet',
+      landmarkNote: '',
       verdict: resolveZoneLocal(defaultPin),
       isDefault: true,
     );
@@ -52,10 +57,22 @@ final class CustomerController extends ChangeNotifier {
       requestAuthentication: (PendingAuthIntent intent) => openAuthHub(intent: intent),
       readOffline: () => _isOffline,
     );
+    experience = CustomerExperienceState(
+      api: CustomerExperienceApi(config: _api.config, transport: _api.transport),
+      realtime: CustomerOrderRealtimeClient(config: _api.config, transport: _api.transport),
+      readSession: () => _session,
+      navigate: (CustomerScreenId screen) {
+        _activeOverlay = screen;
+        notifyListeners();
+      },
+      onChanged: notifyListeners,
+    );
   }
 
   final CustomerApiClient _api;
   late final CustomerCommerceState commerce;
+  /// After-checkout, social, and account state for `c-22..c-40`.
+  late final CustomerExperienceState experience;
   CustomerScreenId _activeOverlay;
   Locale _locale;
   ThemeMode _themeMode;
@@ -78,7 +95,6 @@ final class CustomerController extends ChangeNotifier {
 
   FeedFilterState _filters = const FeedFilterState();
   final List<VendorFeedCard> _catalogPool = kSeededSylhetVendors;
-  final Set<String> _favouriteVendorIds = <String>{};
   final Set<String> _notifyWhenOpenIds = <String>{};
 
   GeoPoint _pickupMapCenter = kSylhetSadarZone.center;
@@ -117,8 +133,7 @@ final class CustomerController extends ChangeNotifier {
   ZoneResolutionVerdict get draftPinVerdict => _draftPinVerdict;
   List<GeoPlaceSuggestion> get landmarkSuggestions => _landmarkSuggestions;
   FeedFilterState get filters => _filters;
-  Set<String> get favouriteVendorIds =>
-      Set<String>.unmodifiable(_favouriteVendorIds);
+  Set<String> get favouriteVendorIds => experience.favouriteVendorIds;
   Set<String> get notifyWhenOpenIds =>
       Set<String>.unmodifiable(_notifyWhenOpenIds);
   GeoPoint get pickupMapCenter => _pickupMapCenter;
@@ -232,14 +247,13 @@ final class CustomerController extends ChangeNotifier {
     required String landmarkNote,
     bool proceedToNotificationPrime = false,
   }) {
+    if (streetAddress.trim().length < 3) return;
     final SavedCustomerAddress created = SavedCustomerAddress(
       id: 'addr-${DateTime.now().microsecondsSinceEpoch}',
       label: label.trim().isEmpty ? 'Home' : label.trim(),
       point: _draftPin,
       plusCode: encodePlusCode(_draftPin),
-      addressText: streetAddress.trim().isEmpty
-          ? 'Pinned Road (${encodePlusCode(_draftPin)})'
-          : streetAddress.trim(),
+      addressText: streetAddress.trim(),
       landmarkNote: landmarkNote.trim(),
       verdict: _draftPinVerdict,
       isDefault: true,
@@ -251,6 +265,7 @@ final class CustomerController extends ChangeNotifier {
         ? CustomerScreenId.c05NotificationPrime
         : CustomerScreenId.c08HomeDelivery;
     notifyListeners();
+    if (_session != null) this.persistCustomerAddress(created);
   }
 
   void selectSavedAddress(int index) {
@@ -260,25 +275,25 @@ final class CustomerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Updates the active saved delivery pin and instructions without creating a duplicate address.
+  /// Updates the active delivery pin; c-20 persists it with the next W1 quote.
   void updateActiveAddress({
     required GeoPoint point,
     required String streetAddress,
     required String landmarkNote,
   }) {
+    if (streetAddress.trim().length < 3) return;
     final SavedCustomerAddress previous = activeAddress;
-    _savedAddresses[_activeAddressIndex] = SavedCustomerAddress(
-      id: previous.id,
+    final SavedCustomerAddress updated = SavedCustomerAddress(
+      id: previous.id == 'area-sylhet-sadar' ? 'addr-${DateTime.now().microsecondsSinceEpoch}' : previous.id,
       label: previous.label,
       point: point,
       plusCode: encodePlusCode(point),
-      addressText: streetAddress.trim().isEmpty
-          ? 'Pinned Road (${encodePlusCode(point)})'
-          : streetAddress.trim(),
+      addressText: streetAddress.trim(),
       landmarkNote: landmarkNote.trim(),
       verdict: _draftPinVerdict,
       isDefault: previous.isDefault,
     );
+    _savedAddresses[_activeAddressIndex] = updated;
     _draftPin = point;
     _pickupMapCenter = point;
     notifyListeners();
@@ -345,6 +360,7 @@ final class CustomerController extends ChangeNotifier {
         method: method,
         displayNameOverride: displayName,
       );
+      if (_api.config.hasLiveWorkers) unawaited(this.hydrateCustomerExperience());
       if (optionalLandmark != null && optionalLandmark.trim().isNotEmpty) {
         _savedAddresses[_activeAddressIndex] = activeAddress.copyWith(
           landmarkNote: optionalLandmark.trim(),
@@ -355,7 +371,7 @@ final class CustomerController extends ChangeNotifier {
       _pendingIntent = null;
       _activeOverlay = CustomerScreenId.c08HomeDelivery;
       if (resumed is FavouriteVendorIntent) {
-        _toggleFavouriteInternal(resumed.vendorId);
+        unawaited(experience.toggleFavourite(resumed.vendorId));
         commerce.resumePreviousScreen();
       } else if (resumed is CheckoutOrderIntent) {
         commerce.resumeCheckout();
@@ -364,8 +380,12 @@ final class CustomerController extends ChangeNotifier {
       } else if (resumed is SaveAddressBookIntent) {
         _savedAddresses.add(resumed.address);
         _activeAddressIndex = _savedAddresses.length - 1;
+        this.persistCustomerAddress(resumed.address);
         commerce.resumePreviousScreen();
       } else {
+        if (_api.config.hasLiveWorkers && activeAddress.id.startsWith('addr-')) {
+          this.persistCustomerAddress(activeAddress);
+        }
         commerce.resumePreviousScreen();
       }
       notifyListeners();
@@ -384,17 +404,13 @@ final class CustomerController extends ChangeNotifier {
 
   void resetAllFilters() => updateFilters(const FeedFilterState());
 
+  /// Toggles a kitchen favourite through authenticated W1; guest taps resume after sign-in.
   void toggleFavouriteVendor(String vendorId) {
     if (!isAuthenticated) {
       openAuthHub(intent: FavouriteVendorIntent(vendorId));
       return;
     }
-    _toggleFavouriteInternal(vendorId);
-    notifyListeners();
-  }
-
-  void _toggleFavouriteInternal(String vendorId) {
-    if (!_favouriteVendorIds.remove(vendorId)) _favouriteVendorIds.add(vendorId);
+    unawaited(experience.toggleFavourite(vendorId));
   }
 
   void toggleNotifyWhenOpen(String vendorId) {
@@ -456,6 +472,7 @@ final class CustomerController extends ChangeNotifier {
   @override
   void dispose() {
     _flashTimer?.cancel();
+    experience.dispose();
     super.dispose();
   }
 }

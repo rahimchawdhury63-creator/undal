@@ -16,8 +16,15 @@ import 'src/i18n/customer_copy.dart';
 import 'src/models/customer_models.dart';
 import 'src/screens/auth_screens.dart';
 import 'src/screens/companion_tabs.dart';
+import 'src/screens/customer_account_screens.dart';
+import 'src/screens/customer_account_hub_tab.dart';
 import 'src/screens/customer_cart_screen.dart';
 import 'src/screens/customer_checkout_screens.dart';
+import 'src/screens/customer_order_screens.dart';
+import 'src/screens/customer_rating_screen.dart';
+import 'src/screens/customer_social_screens.dart';
+import 'src/screens/customer_support_screens.dart';
+import 'src/screens/customer_tracking_screen.dart';
 import 'src/screens/customer_customizer_screens.dart';
 import 'src/screens/customer_vendor_screens.dart';
 import 'src/screens/home_feed_screen.dart';
@@ -140,6 +147,43 @@ class _UndalCustomerAppState extends State<UndalCustomerApp> {
         return CustomerCheckoutScreen(controller: ctrl);
       case CustomerScreenId.c21OrderConfirmation:
         return CustomerOrderConfirmationScreen(controller: ctrl);
+      case CustomerScreenId.c22LiveTracking:
+        return CustomerLiveTrackingScreen(controller: ctrl);
+      case CustomerScreenId.c23PickupReady:
+        return CustomerPickupReadyScreen(controller: ctrl);
+      case CustomerScreenId.c24RiderChat:
+      case CustomerScreenId.c25KitchenChat:
+        return CustomerOrderChatScreen(controller: ctrl);
+      case CustomerScreenId.c26Orders:
+        return CustomerOrdersScreen(controller: ctrl);
+      case CustomerScreenId.c27OrderReceipt:
+        return CustomerOrderReceiptScreen(controller: ctrl);
+      case CustomerScreenId.c28Rating:
+        return CustomerRatingScreen(controller: ctrl);
+      case CustomerScreenId.c29Favourites:
+        return CustomerFavouritesScreen(controller: ctrl);
+      case CustomerScreenId.c30Addresses:
+        return CustomerAddressesScreen(controller: ctrl);
+      case CustomerScreenId.c31AddressEditor:
+        return CustomerAddressEditorScreen(controller: ctrl);
+      case CustomerScreenId.c32VoucherWallet:
+        return CustomerVoucherWalletScreen(controller: ctrl);
+      case CustomerScreenId.c33Rewards:
+        return CustomerGrowthPolicyScreen(controller: ctrl, invite: false);
+      case CustomerScreenId.c34InviteFriends:
+        return CustomerGrowthPolicyScreen(controller: ctrl, invite: true);
+      case CustomerScreenId.c35Notifications:
+        return CustomerNotificationsScreen(controller: ctrl);
+      case CustomerScreenId.c36HelpCenter:
+        return CustomerHelpCenterScreen(controller: ctrl);
+      case CustomerScreenId.c37SupportChat:
+        return CustomerSupportChatScreen(controller: ctrl);
+      case CustomerScreenId.c38ProfileEdit:
+        return CustomerProfileEditScreen(controller: ctrl);
+      case CustomerScreenId.c39Language:
+        return CustomerLanguageScreen(controller: ctrl);
+      case CustomerScreenId.c40DeleteAccount:
+        return CustomerDeleteAccountScreen(controller: ctrl);
       case CustomerScreenId.c18Cart:
         break;
       case CustomerScreenId.c08HomeDelivery:
@@ -269,7 +313,7 @@ class _UndalCustomerAppState extends State<UndalCustomerApp> {
               vendor: v,
             ),
           ),
-        2 => CustomerOrdersPreviewTab(controller: ctrl),
+        2 => CustomerOrdersScreen(controller: ctrl, embedded: true),
         3 => CustomerCartScreen(controller: ctrl),
         _ => CustomerAccountHubTab(controller: ctrl),
       },

@@ -28,12 +28,8 @@ class CustomerOnboardingFlow extends StatefulWidget {
 
 class _CustomerOnboardingFlowState extends State<CustomerOnboardingFlow> {
   final TextEditingController _searchLandmarkCtrl = TextEditingController();
-  final TextEditingController _streetCtrl = TextEditingController(
-    text: 'Zindabazar Water Works Rd, Sylhet',
-  );
-  final TextEditingController _landmarkCtrl = TextEditingController(
-    text: 'Opposite Water Works blue gate, 3rd floor',
-  );
+  final TextEditingController _streetCtrl = TextEditingController();
+  final TextEditingController _landmarkCtrl = TextEditingController();
   String _selectedLabel = 'Home';
 
   @override
@@ -279,6 +275,7 @@ class _CustomerOnboardingFlowState extends State<CustomerOnboardingFlow> {
         theme.extension<UndalSemanticColors>()!;
     final String lang = Localizations.localeOf(context).languageCode;
     final ZoneResolutionVerdict verdict = ctrl.draftPinVerdict;
+    final bool addressTextValid = _streetCtrl.text.trim().length >= 3;
 
     final String verdictBannerText = verdict.inServiceArea
         ? cText(
@@ -383,24 +380,26 @@ class _CustomerOnboardingFlowState extends State<CustomerOnboardingFlow> {
             spacing: UndalSpacingTokens.xs,
             children: <String>['Home', 'Work', 'Campus'].map((String label) {
               return ChoiceChip(
-                label: Text(label),
+                label: Text(_addressLabelCopy(context, label)),
                 selected: _selectedLabel == label,
                 onSelected: (_) => setState(() => _selectedLabel = label),
               );
             }).toList(),
           ),
           const SizedBox(height: UndalSpacingTokens.sm),
-          TextField(
-            controller: _streetCtrl,
-            decoration: InputDecoration(
-              labelText: cText(
-                context,
-                'House / Road / Area',
-                'বাসা / রোড / এলাকা',
+            TextField(
+              key: const ValueKey<String>('c04-address-text-input'),
+              controller: _streetCtrl,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: cText(
+                  context,
+                  'House / Road / Area',
+                  'বাসা / রোড / এলাকা',
+                ),
+                border: const OutlineInputBorder(),
               ),
-              border: const OutlineInputBorder(),
             ),
-          ),
           const SizedBox(height: UndalSpacingTokens.sm),
           TextField(
             key: const ValueKey<String>('c04-landmark-note-input'),
@@ -417,12 +416,12 @@ class _CustomerOnboardingFlowState extends State<CustomerOnboardingFlow> {
           const SizedBox(height: UndalSpacingTokens.md),
           FilledButton.icon(
             key: const ValueKey<String>('c04-confirm-pin-btn'),
-            onPressed: () => ctrl.savePinnedAddress(
+            onPressed: addressTextValid ? () => ctrl.savePinnedAddress(
               label: _selectedLabel,
               streetAddress: _streetCtrl.text,
               landmarkNote: _landmarkCtrl.text,
               proceedToNotificationPrime: !ctrl.notificationsEnabled,
-            ),
+            ) : null,
             icon: const Icon(Icons.check),
             label: Text(
               cText(context, 'Save pin & continue', 'পিন সংরক্ষণ করুন'),
@@ -486,3 +485,10 @@ class _CustomerOnboardingFlowState extends State<CustomerOnboardingFlow> {
     );
   }
 }
+
+String _addressLabelCopy(BuildContext context, String label) => switch (label) {
+      'Home' => cText(context, 'Home', 'বাড়ি'),
+      'Work' => cText(context, 'Work', 'কাজ'),
+      'Campus' => cText(context, 'Campus', 'ক্যাম্পাস'),
+      _ => label,
+    };

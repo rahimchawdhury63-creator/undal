@@ -157,6 +157,12 @@ test('W1 undal-api Part 2 E2E: Carts, Vouchers, Delivery & Self-Pickup Happy Pat
 
   const fav1 = await call('POST', `/v1/favourites/${vendorHome}`, custJwt);
   assert.deepEqual(fav1.json.data, { is_favourite: true });
+  const favouriteCards = await call('GET', '/v1/favourites', custJwt);
+  assert.equal(favouriteCards.status, 200);
+  assert.equal(favouriteCards.json.data.favourites.length, 1);
+  assert.equal(favouriteCards.json.data.favourites[0].vendor.id, vendorHome);
+  assert.equal('lat' in favouriteCards.json.data.favourites[0].vendor, false);
+  assert.equal('address_text' in favouriteCards.json.data.favourites[0].vendor, false);
   const fav2 = await call('POST', `/v1/favourites/${vendorHome}`, custJwt);
   assert.deepEqual(fav2.json.data, { is_favourite: false });
 
@@ -223,6 +229,7 @@ test('W1 undal-api Part 2 E2E: Carts, Vouchers, Delivery & Self-Pickup Happy Pat
   assert.equal(custView.json.data.order.vendor_location.address_text, null);
   assert.equal(custView.json.data.order.vendor_location.lat, null);
   assert.equal(custView.json.data.order.pickup_qr_token, null);
+  assert.equal(custView.json.data.order.vendor_slug, 'surma-home');
 
   /* Home cook sees counter QR token; live endpoint supports 304 ETag! */
   const homeView = await call('GET', `/v1/orders/${publicCode}`, homeJwt);

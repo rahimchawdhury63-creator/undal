@@ -66,6 +66,7 @@ async function sanitizeOrderForViewer(
 
   return {
     ...safeOrder,
+    vendor_slug: vendor.slug ?? null,
     pickup_qr_token: pickupQrToken,
     pickup_code_4: showHandoverSecret ? code4Raw : null,
     vendor_location: canSeeHomeKitchenExactPin

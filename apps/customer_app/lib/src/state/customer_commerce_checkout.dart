@@ -292,10 +292,15 @@ extension CustomerCommerceCheckoutOperations on CustomerCommerceState {
     final SavedCustomerAddress address = _readAddress();
     String? remoteAddressId;
     if (_readFulfilment() == UndalFulfilmentMode.delivery) {
+      if (!hasSpecificDeliveryAddress) throw const CustomerApiProblem('ADDRESS_REQUIRED');
       remoteAddressId = _liveAddressIds[address.id];
       final String addressSignature = _addressSignature(address);
       if (remoteAddressId == null) {
-        remoteAddressId = await _api.saveAddress(accessToken: session.accessToken, address: address);
+        remoteAddressId = await _api.saveAddress(
+          accessToken: session.accessToken,
+          address: address,
+          addressId: CustomerCommerceState._isUuid(address.id) ? address.id : null,
+        );
         _liveAddressIds[address.id] = remoteAddressId;
         _liveAddressSignatures[address.id] = addressSignature;
       } else if (_liveAddressSignatures[address.id] != addressSignature) {

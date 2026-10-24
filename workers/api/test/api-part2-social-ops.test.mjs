@@ -172,6 +172,12 @@ test('W1 undal-api Part 2 E2E: Reviews, 24h Chat Lock, Support, Failed-Delivery 
   const vendorRating = (await db.query('SELECT rating_avg, rating_count FROM public.vendors WHERE id = $1', [vendorId])).rows[0];
   assert.equal(Number(vendorRating.rating_avg), 5);
   assert.equal(vendorRating.rating_count, 1);
+  const myReviews = await call('GET', `/v1/orders/${ordA}/review`, custJwt);
+  assert.equal(myReviews.status, 200);
+  assert.equal(myReviews.json.data.reviews.length, 1);
+  assert.equal(myReviews.json.data.reviews[0].rating, 5);
+  const outsiderReviews = await call('GET', `/v1/orders/${ordA}/review`, outJwt);
+  assert.equal(outsiderReviews.status, 403);
 
   const replied = await call('POST', `/v1/reviews/${okRev.json.data.review.id}/reply`, ownerJwt, {
     reply: 'Thank you so much for dining with Woondaal!',

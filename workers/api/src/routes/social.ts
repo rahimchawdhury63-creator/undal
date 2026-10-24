@@ -38,6 +38,15 @@ export async function handleSocialRoute(
   }
   if (!principal) return jsonErr('SESSION_EXPIRED', requestId);
 
+  if (orderReviewMatch && request.method === 'GET') {
+    const orderId = orderReviewMatch[1]!;
+    const ctx = await db.getOrderAccessContext(orderId, principal.sub);
+    if (!ctx) return jsonErr('VALIDATION_FAILED', requestId, { domain_reason: 'ORDER_NOT_FOUND' }, undefined, 404);
+    if (ctx.order.customer_id !== principal.sub) return jsonErr('AUTH_FORBIDDEN_PERMISSION', requestId);
+    const reviews = await db.listCustomerOrderReviews(orderId, principal.sub);
+    return jsonOk({ reviews }, requestId, 200, { 'Cache-Control': 'private, no-store' });
+  }
+
   if (orderReviewMatch && request.method === 'POST') {
     if (!requireIdempotencyKey(request)) return jsonErr('IDEMPOTENCY_KEY_REQUIRED', requestId);
     const body = (await request.json().catch(() => null)) as {
