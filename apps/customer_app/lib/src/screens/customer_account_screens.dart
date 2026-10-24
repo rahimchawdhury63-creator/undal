@@ -11,6 +11,7 @@ import '../i18n/customer_copy.dart';
 import '../models/customer_experience_models.dart';
 import '../models/customer_models.dart';
 import '../models/customer_voucher_offer.dart';
+import '../state/customer_commerce_state.dart';
 import '../state/customer_controller.dart';
 import '../state/customer_experience_state.dart';
 

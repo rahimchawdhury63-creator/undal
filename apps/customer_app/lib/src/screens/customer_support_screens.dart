@@ -10,6 +10,7 @@ import 'package:undal_core/undal_core.dart';
 
 import '../i18n/customer_copy.dart';
 import '../models/customer_experience_models.dart';
+import '../models/customer_models.dart';
 import '../state/customer_controller.dart';
 import '../state/customer_experience_state.dart';
 

@@ -8,7 +8,6 @@ library;
 
 import 'package:undal_core/undal_core.dart';
 
-import 'customer_screen_ids.dart';
 export 'customer_screen_ids.dart';
 part 'customer_commerce_intents.dart';
 

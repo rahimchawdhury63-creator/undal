@@ -9,7 +9,7 @@ extension CustomerControllerExperienceBindings on CustomerController {
     commerce.closeFlow();
     if (parentTab != null) _selectedTabIndex = parentTab.clamp(0, 4);
     _activeOverlay = screen;
-    notifyListeners();
+    _notifyListenersFromCommerceBindings();
   }
 
   /// Returns to a primary destination after an order or account flow.
@@ -36,7 +36,7 @@ extension CustomerControllerExperienceBindings on CustomerController {
       _activeAddressIndex = _savedAddresses.length - 1;
     }
     _pickupMapCenter = address.point;
-    notifyListeners();
+    _notifyListenersFromCommerceBindings();
   }
 
   /// Loads signed-in profile data and hydrates only the address rows returned by W1.
@@ -72,7 +72,7 @@ extension CustomerControllerExperienceBindings on CustomerController {
     _activeAddressIndex = hydrated.indexWhere((SavedCustomerAddress address) => address.isDefault);
     if (_activeAddressIndex < 0) _activeAddressIndex = 0;
     _pickupMapCenter = activeAddress.point;
-    notifyListeners();
+    _notifyListenersFromCommerceBindings();
   }
 
   /// Persists an onboarding/checkout address to W1 for an authenticated customer.

@@ -9,7 +9,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../config/app_config.dart';
-import '../models/customer_experience_models.dart';
 
 /// Opens one authenticated Firebase RTDB event stream and decodes compact order-room snapshots.
 final class CustomerOrderRealtimeClient {

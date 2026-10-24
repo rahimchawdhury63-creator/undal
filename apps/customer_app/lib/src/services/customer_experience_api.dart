@@ -10,7 +10,6 @@ import 'package:undal_core/undal_core.dart';
 
 import '../config/app_config.dart';
 import '../models/customer_experience_models.dart';
-import '../models/customer_models.dart';
 import 'customer_commerce_api.dart';
 
 /// Authenticated W1/W2 client for the customer surfaces after COD checkout.

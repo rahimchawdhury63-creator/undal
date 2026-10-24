@@ -289,7 +289,7 @@ class CustomerPickupReadyScreen extends StatelessWidget {
       ),
       body: valid
           ? ListView(padding: const EdgeInsets.all(UndalSpacingTokens.lg), children: <Widget>[
-              Text(detail!.summary.vendorName(lang), style: Theme.of(context).textTheme.headlineSmall, textAlign: TextAlign.center),
+              Text(detail.summary.vendorName(lang), style: Theme.of(context).textTheme.headlineSmall, textAlign: TextAlign.center),
               Text(detail.summary.publicCode, textAlign: TextAlign.center),
               const SizedBox(height: UndalSpacingTokens.md),
               Center(child: Semantics(
@@ -303,7 +303,8 @@ class CustomerPickupReadyScreen extends StatelessWidget {
                     size: 236,
                     errorCorrectionLevel: QrErrorCorrectLevel.M,
                     backgroundColor: Colors.white,
-                    foregroundColor: Colors.black,
+                    eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
+                    dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Colors.black),
                   ),
                 ),
               )),
