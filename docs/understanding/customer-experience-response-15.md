@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-24  
 **Branch:** `arena/f81366de-undal`  
-**Status:** Implementation and automated checks in progress; Flutter analysis/widget evidence and green GitHub Actions run are still required before this response can be marked complete.
+**Status:** Implemented and verified. Local JavaScript/TypeScript, SQL/PGlite, quality-gate, and bootstrap checks passed; GitHub Actions run [#40088758939](https://github.com/rahimchawdhury63-creator/undal/actions/runs/40088758939) passed all four jobs, including Flutter analysis/widget tests, on commit `ddcb83f`.
 
 ## Implemented surfaces
 
@@ -32,7 +32,8 @@ The current W1/W2 contracts do not provide a safe masked-call relay, tokenized s
 
 ## Automated verification added
 
-- Flutter parser/service tests cover exact integer-poisha parsing, pickup-token visibility, OSRM precision-5 polyline parsing, RTDB `put` SSE decoding, and the authenticated review route.
+- Flutter parser/service tests cover exact integer-poisha parsing, pickup-token visibility, OSRM precision-5 polyline parsing, RTDB `put` SSE decoding, and the authenticated review route. A W1-backed favourite test confirms IDs change only after a successful server toggle; an unavailable W1 does not fabricate local favourites.
 - Flutter widget coverage checks `c-22`, `c-23`, and `c-26` guest entry, and proves c-20 blocks the generic Sylhet Sadar label before any address/cart/quote write, leaves the place-order button disabled, and opens a blank address editor.
 - W1 PGlite tests cover safe favourite cards, hidden home-kitchen private fields, customer review retrieval, outsider denial, and the public `vendor_slug` needed to reorder from a receipt.
-- Repository-wide JavaScript/TypeScript, SQL/PGlite, quality-gate, and worker suites are run by `npm run ci:all`; Flutter tests/analyze must be recorded from GitHub Actions because the sandbox has no Flutter/Dart SDK.
+- Final local `npm run ci:all`, `npm audit`, and `git diff --check` passed; gates audited 304 authored text files with zero violations and npm reported zero vulnerabilities. Flutter/Dart are unavailable locally.
+- Final GitHub Actions run [#40088758939](https://github.com/rahimchawdhury63-creator/undal/actions/runs/40088758939) on `ddcb83f` passed 4/4 jobs: Flutter Analyze/widget tests (all four packages), PostgreSQL migrations/pgTAP, TypeScript/web/PGlite/fuzz/gates/gitleaks, and keystore/bootstrap dry-run.
