@@ -70,6 +70,25 @@ export function createPgliteOpsMethods(db, resolveZone) {
       return { is_favourite: true };
     },
 
+    async listAvailableVouchers(customerId) {
+      return (
+        await db.query(
+          `SELECT v.id, v.code, v.title_en, v.title_bn, v.kind, v.value_num, v.cap_poisha,
+                  v.min_order_poisha, v.ends_at
+           FROM public.vouchers AS v
+           WHERE v.is_active = true AND clock_timestamp() >= v.starts_at AND clock_timestamp() < v.ends_at
+             AND v.budget_spent_poisha < v.budget_cap_poisha
+             AND (SELECT count(*) FROM public.voucher_redemptions AS vr
+                  WHERE vr.voucher_id = v.id AND vr.customer_id = $1) < v.max_uses_per_user
+             AND (v.first_order_only = false OR NOT EXISTS (
+                  SELECT 1 FROM public.orders AS o WHERE o.customer_id = $1
+             ))
+           ORDER BY v.ends_at ASC LIMIT 50`,
+          [customerId],
+        )
+      ).rows;
+    },
+
     async getCartWithItems(customerId) {
       const cart = (await db.query('SELECT * FROM public.carts WHERE customer_id = $1 LIMIT 1', [customerId])).rows[0] ?? null;
       if (!cart) return { cart: null, items: [] };

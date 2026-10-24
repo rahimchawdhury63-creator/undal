@@ -66,7 +66,13 @@ extension CustomerCommerceStorefrontOperations on CustomerCommerceState {
 
   /// Returns from an item, kitchen info, or reviews screen to its storefront.
   void backToStorefront() {
-    _activeScreen = _storefront == null ? null : CustomerScreenId.c13VendorStorefront;
+    if (_editingLineKey != null) {
+      _editingLineKey = null;
+      _activeItem = null;
+      _activeScreen = null;
+    } else {
+      _activeScreen = _storefront == null ? null : CustomerScreenId.c13VendorStorefront;
+    }
     _onChanged();
   }
 

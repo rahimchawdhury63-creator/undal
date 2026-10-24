@@ -1,7 +1,7 @@
 /**
  * @file workers/api/src/db-postgrest-ops.ts
- * @description Part 2 Supabase PostgREST + RPC HTTP methods for `W1 undal-api` (`Build Response 7`):
- * customer addresses, favourites, carts & vouchers, and core order lifecycle RPCs.
+ * @description Part 2 Supabase PostgREST + RPC HTTP methods for `W1 undal-api` (`Build Responses 7/14`):
+ * customer addresses, favourites, carts & eligible voucher wallet, and core order lifecycle RPCs.
  */
 
 import { createPostgrestSocialOpsMethods } from './db-postgrest-social-ops.ts';
@@ -24,6 +24,14 @@ interface OrderVendorRow {
   readonly address_text_private: string;
   readonly counter_phone: string;
   readonly pickup_point_label: string | null;
+}
+
+/** Parses exact non-negative PostgREST money/count fields without accepting unsafe numbers. */
+function nonNegativeBigInt(value: unknown): bigint | null {
+  if (typeof value === 'bigint') return value >= 0n ? value : null;
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
+  return null;
 }
 
 /** Builds Part 2 transactional/operator PostgREST adapter methods without any third-party SDK. */
@@ -90,6 +98,38 @@ export function createPostgrestOpsMethods(t: PostgrestTransport) {
       }
       await t.sendJson('POST', 'favourites', { customer_id: customerId, vendor_id: vendorId });
       return { is_favourite: true };
+    },
+
+    /** Lists only current offers allowed by server-side time, use, budget, and first-order rules. */
+    async listAvailableVouchers(customerId: string) {
+      const now = encodeURIComponent(new Date().toISOString());
+      const active = await t.getJson<Array<Record<string, unknown>>>(
+        `vouchers?is_active=eq.true&starts_at=lte.${now}&ends_at=gt.${now}&select=id,code,title_en,title_bn,kind,value_num,cap_poisha,min_order_poisha,max_uses_per_user,first_order_only,budget_cap_poisha,budget_spent_poisha,ends_at&order=ends_at.asc&limit=50`,
+      );
+      const voucherIds = active.map((row) => row.id).filter((id): id is string => typeof id === 'string');
+      if (voucherIds.length === 0) return [];
+      const idFilter = voucherIds.join(',');
+      const [redemptions, priorOrders] = await Promise.all([
+        t.getJson<Array<{ voucher_id: string }>>(
+          `voucher_redemptions?customer_id=eq.${encodeURIComponent(customerId)}&voucher_id=in.(${idFilter})&select=voucher_id&limit=5000`,
+        ),
+        t.getJson<Array<{ id: string }>>(
+          `orders?customer_id=eq.${encodeURIComponent(customerId)}&select=id&limit=1`,
+        ),
+      ]);
+      const redemptionCounts = new Map<string, number>();
+      for (const row of redemptions) redemptionCounts.set(row.voucher_id, (redemptionCounts.get(row.voucher_id) ?? 0) + 1);
+      const hasPriorOrder = priorOrders.length > 0;
+      return active.filter((row) => {
+        const id = typeof row.id === 'string' ? row.id : '';
+        const maximum = nonNegativeBigInt(row.max_uses_per_user);
+        const budget = nonNegativeBigInt(row.budget_cap_poisha);
+        const spent = nonNegativeBigInt(row.budget_spent_poisha);
+        return id.length > 0 && maximum !== null && BigInt(redemptionCounts.get(id) ?? 0) < maximum &&
+          budget !== null && spent !== null && spent < budget && !(row.first_order_only === true && hasPriorOrder);
+      }).map(({ id, code, title_en, title_bn, kind, value_num, cap_poisha, min_order_poisha, ends_at }) => ({
+        id, code, title_en, title_bn, kind, value_num, cap_poisha, min_order_poisha, ends_at,
+      }));
     },
 
     async getCartWithItems(customerId: string) {

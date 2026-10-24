@@ -144,6 +144,7 @@ export interface ApiDbAdapter {
   deleteCustomerAddress(profileId: string, addressId: string): Promise<boolean>;
   listFavourites(customerId: string): Promise<readonly Record<string, unknown>[]>;
   toggleFavourite(customerId: string, vendorId: string): Promise<{ is_favourite: boolean }>;
+  listAvailableVouchers(customerId: string): Promise<readonly Record<string, unknown>[]>;
 
   getCartWithItems(customerId: string): Promise<{
     cart: Record<string, unknown> | null;

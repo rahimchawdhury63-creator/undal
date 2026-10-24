@@ -1,4 +1,4 @@
-/// Reactive commerce state for customer screens `c-13..c-21` (`Build Response 13`).
+/// Reactive commerce state for customer screens `c-13..c-21` (`Build Responses 13–14`).
 ///
 /// Keeps storefront, option validation, the single-vendor basket, vouchers, checkout settings,
 /// and server-confirmed COD receipts together. Offline catalog data is browse-only when W1 exists.
@@ -11,6 +11,7 @@ import 'package:undal_core/undal_core.dart';
 
 import '../models/customer_cart_models.dart';
 import '../models/customer_models.dart';
+import '../models/customer_voucher_offer.dart';
 import '../models/storefront_menu_models.dart';
 import '../models/storefront_vendor_models.dart';
 import '../services/customer_api_client.dart';
@@ -20,6 +21,7 @@ part 'customer_commerce_storefront.dart';
 part 'customer_commerce_customization.dart';
 part 'customer_commerce_basket.dart';
 part 'customer_commerce_checkout.dart';
+part 'customer_commerce_vouchers.dart';
 
 /// Outcome of a basket add; destructive kitchen changes always need explicit confirmation.
 enum CartAddResult { added, vendorConflict, unavailable, offline, requiresLiveRefresh }
@@ -83,6 +85,12 @@ final class CustomerCommerceState {
   String _itemInstructions = '';
   final List<BasketLineItem> _basket = <BasketLineItem>[];
   final Map<String, String> _liveAddressIds = <String, String>{};
+  final Map<String, String> _liveAddressSignatures = <String, String>{};
+  List<CustomerVoucherOffer> _voucherWallet = <CustomerVoucherOffer>[];
+  bool _voucherWalletLoading = false;
+  bool _voucherWalletLoaded = false;
+  String? _voucherWalletErrorCode;
+  String? _editingLineKey;
   List<CustomerVendorReview> _reviews = <CustomerVendorReview>[];
   bool _reviewsLoading = false;
   bool _reviewsUnavailable = false;
@@ -100,6 +108,9 @@ final class CustomerCommerceState {
   String? _pendingOrderIdempotencyKey;
   int? _pendingOrderExpectedCodPoisha;
   bool _checkoutBusy = false;
+  bool _quoteLoading = false;
+  bool _quoteRefreshPending = false;
+  int _quoteRevision = 0;
   bool _serverCartConflict = false;
   bool _serverCartReplacementConfirmed = false;
 
@@ -111,6 +122,7 @@ final class CustomerCommerceState {
     _activeScreen = null;
     _suspendedScreen = null;
     _activeItem = null;
+    _editingLineKey = null;
     _onChanged();
   }
 
@@ -139,6 +151,11 @@ final class CustomerCommerceState {
   void clearSessionData() {
     _basket.clear();
     _liveAddressIds.clear();
+    _liveAddressSignatures.clear();
+    _voucherWallet = <CustomerVoucherOffer>[];
+    _voucherWalletLoading = false;
+    _voucherWalletLoaded = false;
+    _voucherWalletErrorCode = null;
     _appliedVoucherCode = null;
     _voucherErrorCode = null;
     _serverQuote = null;
@@ -146,6 +163,10 @@ final class CustomerCommerceState {
     _pendingOrderIdempotencyKey = null;
     _pendingOrderExpectedCodPoisha = null;
     _checkoutBusy = false;
+    _quoteLoading = false;
+    _quoteRefreshPending = false;
+    _quoteRevision++;
+    _editingLineKey = null;
     _activeScreen = null;
     _suspendedScreen = null;
     _onChanged();
@@ -168,6 +189,21 @@ final class CustomerCommerceState {
 
   /// Immutable configured basket rows for `c-18`.
   List<BasketLineItem> get basket => List<BasketLineItem>.unmodifiable(_basket);
+
+  /// Whether c-14 is editing an existing c-18 basket line rather than adding another.
+  bool get editingBasketLine => _editingLineKey != null;
+
+  /// Immutable active voucher offers returned by the authenticated W1 wallet endpoint.
+  List<CustomerVoucherOffer> get voucherWallet => List<CustomerVoucherOffer>.unmodifiable(_voucherWallet);
+
+  /// Whether c-19 is loading current voucher offers.
+  bool get voucherWalletLoading => _voucherWalletLoading;
+
+  /// Whether W1 returned the wallet, including a genuine empty result.
+  bool get voucherWalletLoaded => _voucherWalletLoaded;
+
+  /// Latest wallet fetch failure code, if any.
+  String? get voucherWalletErrorCode => _voucherWalletErrorCode;
 
   /// Food subtotal before discounts and delivery fees, in integer poisha.
   int get itemsSubtotalPoisha => _basket.fold<int>(0, (int sum, BasketLineItem row) => sum + row.lineTotalPoisha);
@@ -217,11 +253,22 @@ final class CustomerCommerceState {
   /// Whether order placement is in flight.
   bool get checkoutBusy => _checkoutBusy;
 
+  /// Whether W1 is synchronizing the live cart and producing its current quote.
+  bool get quoteLoading => _quoteLoading;
+
   /// Whether a network-ambiguous order must be retried with the same idempotency key.
   bool get orderResolutionPending => _pendingOrderIdempotencyKey != null;
 
   /// Whether the current kitchen accepts customer self-pickup.
   bool get pickupAvailable => _storefront?.vendor.acceptsPickup ?? _feedVendor?.acceptsPickup ?? false;
+
+  /// Public kitchen pickup counter label, when supplied by the current W1 storefront.
+  String? get pickupPointLabel => _storefront?.vendor.pickupPointLabel;
+
+  /// Current live feed ETA range for standard delivery, or null when unavailable.
+  String? get standardDeliveryEtaLabel => _feedVendor == null
+      ? null
+      : '${_feedVendor!.etaMinLow}–${_feedVendor!.etaMinHigh} min';
 
   /// Whether a server-side cart collision needs explicit user confirmation.
   bool get serverCartConflict => _serverCartConflict;
@@ -307,10 +354,16 @@ final class CustomerCommerceState {
     required List<Map<String, Object?>> selections,
     required String note,
     required bool confirmVendorReplacement,
+    String? replaceLineKey,
   }) {
     if (_pendingOrderIdempotencyKey != null) return CartAddResult.unavailable;
+    final int replacingIndex = replaceLineKey == null
+        ? -1
+        : _basket.indexWhere((BasketLineItem row) => row.lineKey == replaceLineKey);
+    if (replaceLineKey != null && replacingIndex < 0) return CartAddResult.unavailable;
     final bool conflict = _basket.isNotEmpty && _basket.first.dish.vendorId != item.dish.vendorId;
     if (conflict && !confirmVendorReplacement) return CartAddResult.vendorConflict;
+    if (replacingIndex >= 0) _basket.removeAt(replacingIndex);
     if (conflict) {
       _basket.clear();
       _appliedVoucherCode = null;
@@ -334,6 +387,7 @@ final class CustomerCommerceState {
     }
     _serverQuote = null;
     _receipt = null;
+    _editingLineKey = null;
     _onChanged();
     return CartAddResult.added;
   }

@@ -10,6 +10,7 @@ import 'dart:math';
 import '../config/app_config.dart';
 import '../models/customer_cart_models.dart';
 import '../models/customer_models.dart';
+import '../models/customer_voucher_offer.dart';
 import '../models/storefront_vendor_models.dart';
 
 /// Typed failure returned by an HTTP or domain error from W1.
@@ -82,10 +83,11 @@ final class CustomerCommerceApi {
   Future<String> saveAddress({
     required String accessToken,
     required SavedCustomerAddress address,
+    String? addressId,
   }) async {
     final Map<String, Object?> data = await _request(
-      method: 'POST',
-      path: '/v1/addresses',
+      method: addressId == null ? 'POST' : 'PATCH',
+      path: addressId == null ? '/v1/addresses' : '/v1/addresses/${Uri.encodeComponent(addressId)}',
       accessToken: accessToken,
       jsonBody: <String, Object?>{
         'label': address.label,
@@ -101,6 +103,21 @@ final class CustomerCommerceApi {
       throw const CustomerApiProblem('ADDRESS_SAVE_FAILED');
     }
     return row['id'] as String;
+  }
+
+  /// Lists the customer's currently active, generally eligible vouchers from W1.
+  Future<List<CustomerVoucherOffer>> listVoucherWallet({required String accessToken}) async {
+    final Map<String, Object?> data = await _request(
+      method: 'GET',
+      path: '/v1/customer/vouchers',
+      accessToken: accessToken,
+    );
+    final Object? raw = data['vouchers'];
+    if (raw is! List<Object?>) throw const CustomerApiProblem('VOUCHER_WALLET_INVALID');
+    return raw
+        .whereType<Map<String, Object?>>()
+        .map(CustomerVoucherOffer.fromJson)
+        .toList(growable: false);
   }
 
   /// Reads the server cart so stale lines can be reconciled before checkout.

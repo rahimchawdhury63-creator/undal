@@ -1,6 +1,6 @@
 # 06 · Final API, Realtime & FCM Contract (`Appendix E` & `Appendix G` Frozen)
 
-> **Plan Response 2 Frozen Wire Contract** · Drives **`Build Responses 6–11`** (`workers/api`, `workers/realtime`, `workers/admin`) and customer-commerce integration in **Build Response 13**
+> **Plan Response 2 Frozen Wire Contract** · Drives **`Build Responses 6–11`** (`workers/api`, `workers/realtime`, `workers/admin`) and customer-commerce integration in **Build Responses 13–14**
 > **Global Wire Laws:**
 > 1. **Standard JSON Envelope:** Success → `{"data": ..., "request_id": "req_..."}` · Error → `{"error": {"code": "ORDER_STATE_ILLEGAL", "message_en": "...", "message_bn": "...", "details": ...}, "request_id": "req_..."}`.
 > 2. **Money Format on Wire:** 100% integer **poisha** (`*_poisha: number`), validated by shared Zod schemas in `packages/shared_ts`.
@@ -29,12 +29,13 @@
 | **B06** | `POST` | `/v1/devices/token` | `authenticated` | `10/min/user` | Registers FCM token + `oem_brand` + `alarm_ready` flag in `device_tokens` |
 | **B06** | `GET` | `/v1/notifications` | `authenticated` | `60/min/user` | Cursor-paginated bilingual inbox (`PATCH /v1/notifications/read` marks read) |
 | **B07** | `GET/POST/PATCH/DELETE` | `/v1/addresses` (`/{id}`) | `customer` | `30/min/user` | Resolves `zone_id` on save; enforces single default address |
+| **B14** | `GET` | `/v1/customer/vouchers` | `customer` | `30/min/user` | `Cache-Control: private, no-store`; only active offers within time/budget/use limits and first-order eligibility; response excludes private budgets and redemption metadata |
 | **B07** | `POST` | `/v1/favourites/{vendorId}` | `customer` | `30/min/user` | Idempotent toggle `{is_favourite: boolean}` |
 | **B07** | `GET/POST` | `/v1/cart` | `customer` | `30/min + Idem` | Fetches active cart or switches kitchen (`confirm_clear=true` guards `CART_VENDOR_CONFLICT`) |
 | **B07** | `PATCH` | `/v1/cart/items` | `customer` | `60/min + Idem` | Adds/updates/removes item + variants/options/bundle choices |
-| **B07/B13** | `POST` | `/v1/cart/validate` | `customer` | `30/min/user` | Service-role-only `quote_customer_cart()` → current modifiers/promos, audited zone distance-tier fee + platform setting, integer-poisha waterfall/COD ceiling; client fee fields are ignored |
-| **B07** | `POST/DELETE` | `/v1/cart/voucher` | `customer` | `10/min/user` | Validates & attaches/removes promo voucher |
-| **B07/B13** | `POST` | `/v1/orders` | `customer` | `5/min + Idem` | Atomic COD `place_order()` recomputes modifiers/discounts, zone fee and platform setting; optional integer `expected_cod_poisha` mismatch returns `CART_STALE`; client fees are ignored → signed HMAC dispatch to `W2` |
+| **B07/B13/B14** | `POST` | `/v1/cart/validate` | `customer` | `30/min/user` | Service-role-only `quote_customer_cart()` → current item/option prices, `line_items`, promos, audited zone-tier delivery + configurable priority surcharge + platform setting, integer-poisha waterfall/COD ceiling; client fee fields are ignored |
+| **B07/B14** | `POST/DELETE` | `/v1/cart/voucher` | `customer` | `10/min/user` | Attaches/removes a code; live quote and atomic placement enforce expiry, budget, use limits, minimum order, and `VOUCHER_FIRST_ORDER_ONLY` |
+| **B07/B13/B14** | `POST` | `/v1/orders` | `customer` | `5/min + Idem` | Atomic COD `place_order()` recomputes current prices/discounts, zone fee, configured priority surcharge and platform setting; enforces first-order voucher eligibility; optional integer `expected_cod_poisha` mismatch returns `CART_STALE`; client fees are ignored → signed HMAC dispatch to `W2` |
 | **B07** | `GET` | `/v1/orders` & `/v1/orders/{code}` | `authenticated` | `60/min/user` | Role-scoped order list & full order detail (poisha waterfall + monotonic `order_events`) |
 | **B07** | `GET` | `/v1/orders/{code}/live` | `participant` | `30/min/user` | Seamless HTTP polling fallback (`ETag` supported) when RTDB lease is closed or cap reached |
 | **B07** | `POST` | `/v1/orders/{id}/accept` | `vendor` | `30/min + Idem` | Commits `prep_minutes` (`15/25/35`), cancels alarm loop, triggers `W2` early rider dispatch |

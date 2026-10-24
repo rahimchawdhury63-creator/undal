@@ -30,11 +30,11 @@ SELECT results_eq(
   'All 12 core tables enforce ENABLE + FORCE ROW LEVEL SECURITY'
 );
 
--- 2. Canonical seed counts (`72` platform settings, `117` Appendix D cuisines, `7` system roles)
+-- 2. Canonical seed counts (`72` base settings + one Build 14 checkout setting, `117` cuisines, `7` roles)
 SELECT results_eq(
   'SELECT count(*)::int FROM public.platform_settings',
-  ARRAY[72],
-  'Exactly 72 Appendix M + D-09 platform settings are seeded'
+  ARRAY[73],
+  '72 Appendix M + D-09 settings plus configurable priority-delivery fee are present'
 );
 
 SELECT results_eq(

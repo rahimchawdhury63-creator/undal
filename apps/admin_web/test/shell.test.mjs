@@ -19,7 +19,7 @@ test('Admin Web shell SSR renders full HTML in both English and Bengali via Vite
     const { App } = await vite.ssrLoadModule('/src/App.tsx');
     const htmlEn = renderToStaticMarkup(createElement(App, { initialLocale: 'en' }));
     assert.match(htmlEn, /Undal Super Admin/);
-    assert.match(htmlEn, /72 settings keys registered/);
+    assert.match(htmlEn, /73 settings keys registered/);
 
     const htmlBn = renderToStaticMarkup(createElement(App, { initialLocale: 'bn' }));
     assert.match(htmlBn, /উন্দাল সুপার অ্যাডমিন/);

@@ -260,6 +260,30 @@ final class CustomerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Updates the active saved delivery pin and instructions without creating a duplicate address.
+  void updateActiveAddress({
+    required GeoPoint point,
+    required String streetAddress,
+    required String landmarkNote,
+  }) {
+    final SavedCustomerAddress previous = activeAddress;
+    _savedAddresses[_activeAddressIndex] = SavedCustomerAddress(
+      id: previous.id,
+      label: previous.label,
+      point: point,
+      plusCode: encodePlusCode(point),
+      addressText: streetAddress.trim().isEmpty
+          ? 'Pinned Road (${encodePlusCode(point)})'
+          : streetAddress.trim(),
+      landmarkNote: landmarkNote.trim(),
+      verdict: _draftPinVerdict,
+      isDefault: previous.isDefault,
+    );
+    _draftPin = point;
+    _pickupMapCenter = point;
+    notifyListeners();
+  }
+
   void deleteSavedAddress(String id) {
     if (_savedAddresses.length <= 1) return;
     _savedAddresses.removeWhere((SavedCustomerAddress a) => a.id == id);

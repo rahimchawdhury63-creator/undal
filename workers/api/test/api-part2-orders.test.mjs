@@ -108,8 +108,10 @@ test('W1 undal-api Part 2 E2E: Carts, Vouchers, Delivery & Self-Pickup Happy Pat
   await db.query(
     `INSERT INTO public.vouchers (
        code, title_en, kind, value_num, min_order_poisha, max_uses_per_user,
-       vendor_share_bps, budget_cap_poisha, starts_at, ends_at, is_active
-     ) VALUES ('SYLHET50', '৳50 Off', 'flat', 5000, 20000, 3, 2000, 100000, now() - interval '1 hour', now() + interval '7 days', true)`,
+       vendor_share_bps, budget_cap_poisha, starts_at, ends_at, is_active, first_order_only
+     ) VALUES
+       ('SYLHET50', '৳50 Off', 'flat', 5000, 20000, 3, 2000, 100000, now() - interval '1 hour', now() + interval '7 days', true, false),
+       ('FIRSTONLY', 'First order offer', 'flat', 1000, 0, 1, 0, 100000, now() - interval '1 hour', now() + interval '2 days', true, true)`,
   );
 
   const custJwt = await mintTestJwt(custId);
@@ -131,6 +133,14 @@ test('W1 undal-api Part 2 E2E: Carts, Vouchers, Delivery & Self-Pickup Happy Pat
     const json = res.status === 304 ? null : await res.json();
     return { status: res.status, headers: res.headers, json };
   };
+
+  const wallet = await call('GET', '/v1/customer/vouchers', custJwt);
+  assert.equal(wallet.status, 200);
+  assert.equal(wallet.headers.get('Cache-Control'), 'private, no-store');
+  assert.deepEqual(wallet.json.data.vouchers.map((row) => row.code).sort(), ['FIRSTONLY', 'SYLHET50']);
+  assert.equal('budget_cap_poisha' in wallet.json.data.vouchers[0], false);
+  const vendorWallet = await call('GET', '/v1/customer/vouchers', restJwt);
+  assert.equal(vendorWallet.status, 403);
 
   /* 1. Address save + zone resolution + Favourites toggle */
   const addrRes = await call('POST', '/v1/addresses', custJwt, {
@@ -194,6 +204,8 @@ test('W1 undal-api Part 2 E2E: Carts, Vouchers, Delivery & Self-Pickup Happy Pat
   assert.equal(placed1.status, 201);
   assert.equal(placed1.json.data.dispatch_notified, true);
   assert.equal(placed1.json.data.cod_collect_poisha, 317500);
+  const walletAfterFirstOrder = await call('GET', '/v1/customer/vouchers', custJwt);
+  assert.deepEqual(walletAfterFirstOrder.json.data.vouchers.map((row) => row.code), ['SYLHET50']);
   assert.equal(w2Webhooks.length, 1);
   assert.equal(w2Webhooks[0].sig.length, 64);
 

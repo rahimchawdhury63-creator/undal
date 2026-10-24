@@ -1,4 +1,4 @@
-/// Widget and state coverage for the customer commerce journey (`c-13..c-21`, Build Response 13).
+/// Widget and state coverage for the customer commerce journey (`c-13..c-21`, Build Responses 13–14).
 ///
 /// A deterministic fake W1 transport supplies one privacy-safe, UUID-backed storefront and verifies
 /// that guest intents resume, modifiers reach a single-vendor cart, and c-21 requires a W1 receipt.
@@ -41,7 +41,6 @@ void main() {
       throwsFormatException,
     );
   });
-
   group('Build 13 — live storefront, customizer, bundles, kitchen info and verified reviews', () {
     testWidgets('c-13 -> c-14 builds a current modifier basket and resumes checkout auth intent', (WidgetTester tester) async {
       _setViewport(tester);
@@ -305,6 +304,9 @@ final class _CommerceTransport implements CustomerHttpTransport {
     if (uri.path == '/v1/addresses') {
       return _ok(<String, Object?>{'address': <String, Object?>{'id': _addressId}});
     }
+    if (uri.path == '/v1/customer/vouchers' && method == 'GET') {
+      return _ok(<String, Object?>{'vouchers': <Object?>[]});
+    }
     if (uri.path == '/v1/cart' && method == 'GET') {
       cartReads += 1;
       return _ok(<String, Object?>{'cart': null, 'items': <Object?>[]});
@@ -318,9 +320,24 @@ final class _CommerceTransport implements CustomerHttpTransport {
           'food_payable_poisha': 12000,
           'tax_extracted_poisha': 571,
           'delivery_fee_poisha': 4000,
+          'priority_delivery_fee_poisha': 2000,
           'platform_fee_poisha': 500,
           'tip_poisha': 0,
           'cod_collect_poisha': 16500,
+          'line_items': <Object?>[
+            <String, Object?>{
+              'menu_item_id': _itemId,
+              'variant_id': _variantId,
+              'selections': <Object?>[
+                <String, Object?>{'kind': 'option', 'group_id': _optionGroupId, 'option_id': _optionId},
+              ],
+              'qty': 1,
+              'name_en': 'Shatkora bowl',
+              'name_bn': 'সাতকরা বাটি',
+              'unit_poisha': 12500,
+              'line_poisha': 12500,
+            },
+          ],
         },
       });
     }

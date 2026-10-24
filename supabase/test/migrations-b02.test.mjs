@@ -5,7 +5,7 @@
  * Verifies:
  *   1. Clean fresh apply AND full re-run idempotency of migrations `0001..0004`.
  *   2. 12 / 12 core tables enforce `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY`.
- *   3. 100% parity between `public.platform_settings` (`72` rows) and `@undal/shared-ts` `UNDAL_PLATFORM_SETTINGS`.
+ *   3. 100% parity between migration `0003`'s `72` seed rows and `@undal/shared-ts` `UNDAL_BASE_PLATFORM_SETTINGS`.
  *   4. 100% parity between `public.cuisine_taxonomy` (`117` rows) and `Appendix D`, plus Bengali + Banglish `pg_trgm` search.
  *   5. Append-only immutability (`ERRCODE 55000`), version history snapshots, cross-tenant RLS isolation,
  *      privilege-escalation column protection, private Storage isolation, and RBAC permission boundaries.
@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { UNDAL_PLATFORM_SETTINGS } from '../../packages/shared_ts/src/settings.ts';
+import { UNDAL_BASE_PLATFORM_SETTINGS } from '../../packages/shared_ts/src/settings.ts';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MIGRATIONS = [
@@ -68,7 +68,7 @@ test('B02-SQL-02: 72 platform_settings & 117 Appendix D cuisines match shared_ts
   const db = await createBootstrappedDb();
   try {
     const settingsRes = await db.query('SELECT key, group_key, value FROM public.platform_settings ORDER BY key');
-    const tsEntries = Object.entries(UNDAL_PLATFORM_SETTINGS).sort(([a], [b]) => a.localeCompare(b));
+    const tsEntries = Object.entries(UNDAL_BASE_PLATFORM_SETTINGS).sort(([a], [b]) => a.localeCompare(b));
     assert.equal(settingsRes.rows.length, tsEntries.length);
 
     for (let i = 0; i < tsEntries.length; i += 1) {

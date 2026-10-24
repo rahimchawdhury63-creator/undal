@@ -14,6 +14,7 @@ extension CustomerCommerceCheckoutOperations on CustomerCommerceState {
     _voucherErrorCode = null;
     _activeScreen = CustomerScreenId.c19VoucherPicker;
     _onChanged();
+    if (_readSession() != null) unawaited(refreshVoucherWallet());
   }
 
   /// Stores voucher text without accepting it locally.
@@ -48,7 +49,12 @@ extension CustomerCommerceCheckoutOperations on CustomerCommerceState {
       await _api.applyVoucher(accessToken: session.accessToken, code: code);
       _appliedVoucherCode = code;
       _voucherErrorCode = null;
-      await refreshServerQuote();
+      final bool quoteValid = await refreshServerQuote();
+      if (!quoteValid) {
+        _voucherErrorCode = _commerceErrorCode ?? 'VOUCHER_INVALID';
+        _onChanged();
+        return false;
+      }
       return true;
     } on CustomerApiProblem catch (error) {
       _voucherErrorCode = error.code;
@@ -107,6 +113,7 @@ extension CustomerCommerceCheckoutOperations on CustomerCommerceState {
     _suspendedScreen = null;
     _activeScreen = CustomerScreenId.c19VoucherPicker;
     _onChanged();
+    unawaited(refreshVoucherWallet());
   }
 
   /// Resumes c-20 after guest authentication and refreshes its current quote.
@@ -124,14 +131,24 @@ extension CustomerCommerceCheckoutOperations on CustomerCommerceState {
       _onChanged();
       return false;
     }
+    if (_quoteLoading) {
+      _quoteRevision++;
+      _quoteRefreshPending = true;
+      return false;
+    }
     final CustomerSession? session = _readSession();
     if (session == null || !_api.isConfigured || !_hasLiveSession) {
       _commerceErrorCode = 'LIVE_CHECKOUT_UNAVAILABLE';
       _onChanged();
       return false;
     }
+    _quoteLoading = true;
+    _serverQuote = null;
+    final int revision = ++_quoteRevision;
+    _onChanged();
     try {
       await _synchronizeCart(session);
+      if (_readSession()?.userId != session.userId) return false;
       final Map<String, Object?> quote = await _api.validateCart(
         accessToken: session.accessToken,
         priority: _priority,
@@ -139,18 +156,25 @@ extension CustomerCommerceCheckoutOperations on CustomerCommerceState {
       if (_serverPoisha(quote['cod_collect_poisha']) == null) {
         throw const CustomerApiProblem('CART_QUOTE_INVALID');
       }
+      if (revision != _quoteRevision || _readSession()?.userId != session.userId) return false;
       _serverQuote = quote;
       _commerceErrorCode = null;
-      _onChanged();
       return true;
     } on CustomerApiProblem catch (error) {
-      _commerceErrorCode = error.code;
-      _onChanged();
+      if (revision == _quoteRevision) _commerceErrorCode = error.code;
       return false;
     } on Object {
-      _commerceErrorCode = 'NETWORK_UNAVAILABLE';
-      _onChanged();
+      if (revision == _quoteRevision) _commerceErrorCode = 'NETWORK_UNAVAILABLE';
       return false;
+    } finally {
+      _quoteLoading = false;
+      _onChanged();
+      final bool refreshPending = _quoteRefreshPending;
+      _quoteRefreshPending = false;
+      if (refreshPending && revision != _quoteRevision && _readSession()?.userId == session.userId &&
+          _activeScreen == CustomerScreenId.c20Checkout) {
+        unawaited(refreshServerQuote());
+      }
     }
   }
 
@@ -269,9 +293,18 @@ extension CustomerCommerceCheckoutOperations on CustomerCommerceState {
     String? remoteAddressId;
     if (_readFulfilment() == UndalFulfilmentMode.delivery) {
       remoteAddressId = _liveAddressIds[address.id];
+      final String addressSignature = _addressSignature(address);
       if (remoteAddressId == null) {
         remoteAddressId = await _api.saveAddress(accessToken: session.accessToken, address: address);
         _liveAddressIds[address.id] = remoteAddressId;
+        _liveAddressSignatures[address.id] = addressSignature;
+      } else if (_liveAddressSignatures[address.id] != addressSignature) {
+        remoteAddressId = await _api.saveAddress(
+          accessToken: session.accessToken,
+          address: address,
+          addressId: remoteAddressId,
+        );
+        _liveAddressSignatures[address.id] = addressSignature;
       }
     }
     final Map<String, Object?> previous = await _api.loadCart(accessToken: session.accessToken);
@@ -329,6 +362,9 @@ extension CustomerCommerceCheckoutOperations on CustomerCommerceState {
     final DateTime now = DateTime.now().toUtc();
     return 'cod-${now.microsecondsSinceEpoch}-${now.millisecondsSinceEpoch}';
   }
+
+  String _addressSignature(SavedCustomerAddress address) =>
+      '${address.label}|${address.point.lat.toStringAsFixed(6)}|${address.point.lng.toStringAsFixed(6)}|${address.addressText}|${address.landmarkNote}';
 }
 
 int? _serverPoisha(Object? raw) {

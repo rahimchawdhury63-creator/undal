@@ -1,7 +1,7 @@
 /**
  * @file workers/api/src/routes/cart.ts
- * @description Single-vendor customer cart session, line-item mutations, promo voucher binding,
- * and server-authoritative `quote_customer_cart()` integer-poisha validation (`Build Response 7/13`).
+ * @description Single-vendor customer cart session, eligible voucher wallet, line-item mutations,
+ * promo voucher binding, and server-authoritative integer-poisha quotes (`Build Responses 7/14`).
  */
 
 import { requireIdempotencyKey } from '../domain-errors.ts';
@@ -14,7 +14,7 @@ function isNonNegativeInt(val: unknown, max = 10_000_000): val is number {
   return typeof val === 'number' && Number.isInteger(val) && val >= 0 && val <= max;
 }
 
-/** Handles `/v1/cart`, `/v1/cart/items`, `/v1/cart/voucher`, and `/v1/cart/validate`. */
+/** Handles customer cart mutations, current voucher-wallet offers, and W1 quote validation. */
 export async function handleCartRoute(
   request: Request,
   url: URL,
@@ -23,8 +23,15 @@ export async function handleCartRoute(
   requestId: string,
 ): Promise<Response | null> {
   const path = url.pathname;
-  if (!path.startsWith('/v1/cart')) return null;
+  const voucherWalletPath = path === '/v1/customer/vouchers';
+  if (!path.startsWith('/v1/cart') && !voucherWalletPath) return null;
   if (!principal) return jsonErr('SESSION_EXPIRED', requestId);
+
+  if (voucherWalletPath && request.method === 'GET') {
+    if (principal.role !== 'customer') return jsonErr('AUTH_FORBIDDEN_PERMISSION', requestId);
+    const vouchers = await db.listAvailableVouchers(principal.sub);
+    return jsonOk({ vouchers }, requestId, 200, { 'Cache-Control': 'private, no-store' });
+  }
 
   if (path === '/v1/cart' && request.method === 'GET') {
     const state = await db.getCartWithItems(principal.sub);

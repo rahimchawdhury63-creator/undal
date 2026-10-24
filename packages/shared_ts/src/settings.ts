@@ -1,8 +1,7 @@
 /**
  * @file packages/shared_ts/src/settings.ts
- * @description Canonical UNDAL Platform Settings Registry (`Appendix M` — all 62 operational keys
- * + 10 `D-09` pluggable auth provider flags = 72 typed entries) seeded into `public.platform_settings`
- * in `Build Response 2` and edited via Super Admin `C13–C15`.
+ * @description Canonical UNDAL Platform Settings Registry (`Appendix M` + `D-09` = 72 original
+ * seed entries, extended with the Build 14 priority-delivery surcharge for 73 runtime keys) edited via Super Admin `C13–C15`.
  */
 
 export interface PlatformSettingSeed<T = number | string | boolean> {
@@ -22,8 +21,8 @@ export interface PlatformSettingSeed<T = number | string | boolean> {
   readonly descriptionEn: string;
 }
 
-/** Complete typed defaults for every `platform_settings` key in `Appendix M`. */
-export const UNDAL_PLATFORM_SETTINGS = {
+/** Frozen 72-key Appendix M + D-09 seed registry applied by migrations `0001..0004`. */
+export const UNDAL_BASE_PLATFORM_SETTINGS = {
   'money.commission_pct': { group: 'money', defaultValue: 15, descriptionEn: 'Vendor commission % on discounted food payable' },
   'money.tax_vat_incl_pct': { group: 'money', defaultValue: 5, descriptionEn: 'VAT-inclusive extraction % (D-08: 5/105)' },
   'money.rider_bonus_pct': { group: 'money', defaultValue: 3, descriptionEn: 'Rider food bonus % from extracted tax stream (D-07)' },
@@ -106,6 +105,16 @@ export const UNDAL_PLATFORM_SETTINGS = {
   'auth.providers.twitter': { group: 'auth', defaultValue: false, descriptionEn: 'Enable X/Twitter OAuth (D-09 toggle)' },
   'auth.providers.linkedin': { group: 'auth', defaultValue: false, descriptionEn: 'Enable LinkedIn OAuth (D-09 toggle)' },
   'auth.providers.anonymous_browse': { group: 'auth', defaultValue: true, descriptionEn: 'Allow guest browsing before checkout' },
+} as const satisfies Record<string, PlatformSettingSeed>;
+
+/** Current runtime registry: the frozen seed set plus additive settings from later build responses. */
+export const UNDAL_PLATFORM_SETTINGS = {
+  ...UNDAL_BASE_PLATFORM_SETTINGS,
+  'money.priority_delivery_fee_poisha': {
+    group: 'money',
+    defaultValue: 2000,
+    descriptionEn: 'Customer surcharge for priority delivery (poisha)',
+  },
 } as const satisfies Record<string, PlatformSettingSeed>;
 
 export type PlatformSettingKey = keyof typeof UNDAL_PLATFORM_SETTINGS;

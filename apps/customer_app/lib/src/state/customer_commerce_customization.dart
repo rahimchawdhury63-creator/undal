@@ -4,6 +4,7 @@ part of 'customer_commerce_state.dart';
 extension CustomerCommerceCustomizationOperations on CustomerCommerceState {
   /// Opens c-14 for an item and initializes any server-required choices.
   void openItem(StorefrontMenuItem item) {
+    _editingLineKey = null;
     _activeItem = item;
     _itemQuantity = 1;
     _itemInstructions = '';
@@ -17,6 +18,35 @@ extension CustomerCommerceCustomizationOperations on CustomerCommerceState {
     for (final StorefrontChoiceGroup group in item.optionGroups) {
       final List<StorefrontChoice> defaults = group.choices.where((StorefrontChoice c) => c.available).take(group.minSelect).toList();
       if (defaults.isNotEmpty) _optionChoices[group.id] = defaults.map((StorefrontChoice c) => c.id).toSet();
+    }
+    _activeScreen = CustomerScreenId.c14ItemCustomizer;
+    _onChanged();
+  }
+
+  /// Reopens a configured c-18 basket row in c-14 without losing its quantity or choices.
+  void editBasketLine(String lineKey) {
+    final BasketLineItem? line = _basket.where((BasketLineItem row) => row.lineKey == lineKey).firstOrNull;
+    if (line == null || _pendingOrderIdempotencyKey != null) return;
+    _editingLineKey = line.lineKey;
+    _activeItem = line.item;
+    _itemQuantity = line.quantity;
+    _itemInstructions = line.specialInstructions;
+    _variantChoices.clear();
+    _optionChoices.clear();
+    _bundleChoices.clear();
+    if (line.variantId != null) {
+      for (final StorefrontVariantGroup group in line.item.variantGroups) {
+        if (group.variants.any((StorefrontChoice choice) => choice.id == line.variantId && choice.available)) {
+          _variantChoices[group.id] = line.variantId!;
+        }
+      }
+    }
+    for (final Map<String, Object?> selected in line.selections) {
+      if (selected['kind'] == 'option' && selected['group_id'] is String && selected['option_id'] is String) {
+        _optionChoices.putIfAbsent(selected['group_id'] as String, () => <String>{}).add(selected['option_id'] as String);
+      } else if (selected['kind'] == 'bundle' && selected['slot_id'] is String && selected['item_id'] is String) {
+        _bundleChoices.putIfAbsent(selected['slot_id'] as String, () => <String>{}).add(selected['item_id'] as String);
+      }
     }
     _activeScreen = CustomerScreenId.c14ItemCustomizer;
     _onChanged();
@@ -131,6 +161,7 @@ extension CustomerCommerceCustomizationOperations on CustomerCommerceState {
       selections: _serializeSelections(),
       note: _itemInstructions,
       confirmVendorReplacement: confirmVendorReplacement,
+      replaceLineKey: _editingLineKey,
     );
     if (result == CartAddResult.added) _commerceErrorCode = null;
     return result;

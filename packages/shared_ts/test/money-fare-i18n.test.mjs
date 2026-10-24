@@ -233,8 +233,11 @@ test('100% EN <=> BN i18n parity across shared_ts, ARB bundles, settings & error
     assert.equal(arbBn[arbKey], UNDAL_MESSAGES_BN[k], `app_bn.arb drift at ${arbKey}`);
   }
 
-  assert.equal(Object.keys(UNDAL_PLATFORM_SETTINGS).length, 72);
-  assert.equal(Object.keys(UNDAL_ERROR_CATALOG).length, 39);
+  assert.equal(Object.keys(UNDAL_PLATFORM_SETTINGS).length, 73);
+  assert.equal(Object.keys(UNDAL_ERROR_CATALOG).length, 42);
+  for (const code of ['VOUCHER_LIMIT_REACHED', 'VOUCHER_BUDGET_EXHAUSTED', 'VOUCHER_FIRST_ORDER_ONLY']) {
+    assert.equal(UNDAL_ERROR_CATALOG[code].httpStatus, 422, `${code} remains a localized client error`);
+  }
   assert.equal(Object.keys(UNDAL_LIGHT_COLORS).length, 21);
   assert.equal(Object.keys(UNDAL_DARK_COLORS).length, 21);
 });
