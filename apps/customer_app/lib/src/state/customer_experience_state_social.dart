@@ -232,7 +232,6 @@ extension CustomerExperienceSocialOperations on CustomerExperienceState {
       );
       if (!_sessionStillCurrent(session, generation)) return false;
       _supportThreadId = thread.id;
-      _supportOrderId = orderId;
       await loadSupportThreads();
       if (!_sessionStillCurrent(session, generation)) return false;
       await openSupportThread(thread.id);
@@ -387,7 +386,6 @@ extension CustomerExperienceSocialOperations on CustomerExperienceState {
     _supportSending = false;
     _supportError = null;
     _supportThreadId = null;
-    _supportOrderId = null;
     unawaited(stopTracking());
     _onChanged();
   }

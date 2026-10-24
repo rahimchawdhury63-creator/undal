@@ -82,7 +82,6 @@ final class CustomerExperienceState {
   bool _supportSending = false;
   String? _supportError;
   String? _supportThreadId;
-  String? _supportOrderId;
 
   Timer? _trackingPollTimer;
   Timer? _trackingReconcileTimer;
