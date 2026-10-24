@@ -100,6 +100,7 @@ class _PartnerDocumentVaultState extends State<PartnerDocumentVault> {
               children: <Widget>[
                 Expanded(
                   child: OutlinedButton.icon(
+                    key: ValueKey<String>('partner-upload-${spec.docType}'),
                     onPressed: !canUpload || busy ? null : () => _pickAndUpload(spec),
                     icon: busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.upload_file),
                     label: Text(approvedLocked ? _text('Approved · locked', 'অনুমোদিত · লক') : status == null ? _text('Choose file', 'ফাইল বাছুন') : _text('Re-upload', 'আবার আপলোড')),
@@ -108,6 +109,7 @@ class _PartnerDocumentVaultState extends State<PartnerDocumentVault> {
                 if (assetId != null) ...<Widget>[
                   const SizedBox(width: UndalSpacingTokens.xs),
                   IconButton(
+                    key: ValueKey<String>('partner-view-${spec.docType}'),
                     tooltip: _text('Open private document', 'ব্যক্তিগত নথি খুলুন'),
                     onPressed: busy ? null : () async {
                       try {

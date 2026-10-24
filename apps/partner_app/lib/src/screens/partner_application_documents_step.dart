@@ -68,6 +68,12 @@ class _PartnerApplicationDocumentsStepState extends State<PartnerApplicationDocu
   Widget build(BuildContext context) {
     final String screenId = widget.track == PartnerTrack.restaurant ? 'p-02' : 'p-03';
     final List<Map<String, Object?>> documents = _mapList(widget.application['documents']);
+    final List<int> prepOptions = <int>[5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 200];
+    final int? currentPrep = _prepMinutes;
+    if (currentPrep != null && !prepOptions.contains(currentPrep)) {
+      prepOptions.add(currentPrep);
+      prepOptions.sort();
+    }
     return SingleChildScrollView(
       key: ValueKey<String>('screen-$screenId'),
       padding: const EdgeInsets.all(UndalSpacingTokens.md),
@@ -104,7 +110,7 @@ class _PartnerApplicationDocumentsStepState extends State<PartnerApplicationDocu
               key: const ValueKey<String>('partner-prep-estimate'),
               value: _prepMinutes,
               decoration: InputDecoration(labelText: _text('Typical preparation time (minutes)', 'সাধারণ রান্নার সময় (মিনিট)'), border: const OutlineInputBorder()),
-              items: <int>[5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 200].map((int minutes) => DropdownMenuItem<int>(value: minutes, child: Text('$minutes ${_text('min', 'মিনিট')}'))).toList(growable: false),
+              items: prepOptions.map((int minutes) => DropdownMenuItem<int>(value: minutes, child: Text('$minutes ${_text('min', 'মিনিট')}'))).toList(growable: false),
               onChanged: widget.canEdit ? (int? minutes) => setState(() => _prepMinutes = minutes) : null,
             ),
             const SizedBox(height: UndalSpacingTokens.lg),

@@ -85,9 +85,8 @@ void main() {
     expect(tester.widget<AbsorbPointer>(mapAbsorber).absorbing, isTrue);
 
     await _openPartnerScreen(tester, 'p-02');
-    final Finder documentCard = find.byKey(const ValueKey<String>('partner-document-nid_front'));
-    final Finder uploadButton = find.descendant(of: documentCard, matching: find.byType(OutlinedButton));
-    final Finder viewButton = find.descendant(of: documentCard, matching: find.byType(IconButton));
+    final Finder uploadButton = find.byKey(const ValueKey<String>('partner-upload-nid_front'));
+    final Finder viewButton = find.byKey(const ValueKey<String>('partner-view-nid_front'));
     expect(tester.widget<OutlinedButton>(uploadButton).onPressed, isNull);
     expect(tester.widget<IconButton>(viewButton).onPressed, isNotNull);
 
@@ -104,9 +103,8 @@ void main() {
     expect(tester.widget<FilledButton>(find.byKey(const ValueKey<String>('partner-submit-application'))).onPressed, isNull);
 
     await _openPartnerScreen(tester, 'p-35');
-    final Finder vaultDocument = find.byKey(const ValueKey<String>('partner-document-nid_front'));
-    expect(tester.widget<OutlinedButton>(find.descendant(of: vaultDocument, matching: find.byType(OutlinedButton))).onPressed, isNull);
-    expect(tester.widget<IconButton>(find.descendant(of: vaultDocument, matching: find.byType(IconButton))).onPressed, isNotNull);
+    expect(tester.widget<OutlinedButton>(find.byKey(const ValueKey<String>('partner-upload-nid_front'))).onPressed, isNull);
+    expect(tester.widget<IconButton>(find.byKey(const ValueKey<String>('partner-view-nid_front'))).onPressed, isNotNull);
   });
 
   testWidgets('submitted home-kitchen applications lock menu, hygiene, and cook-to-order declarations', (WidgetTester tester) async {
@@ -167,13 +165,10 @@ void main() {
     await tester.pumpAndSettle();
     await _openPartnerScreen(tester, 'p-35');
 
-    final Finder documentCard = find.byKey(const ValueKey<String>('partner-document-nid_front'));
-    final OutlinedButton upload = tester.widget<OutlinedButton>(
-      find.descendant(of: documentCard, matching: find.byType(OutlinedButton)),
-    );
+    final OutlinedButton upload = tester.widget<OutlinedButton>(find.byKey(const ValueKey<String>('partner-upload-nid_front')));
     expect(upload.onPressed, isNull);
     expect(find.text('Approved · locked'), findsOneWidget);
-    expect(tester.widget<IconButton>(find.descendant(of: documentCard, matching: find.byType(IconButton))).onPressed, isNotNull);
+    expect(tester.widget<IconButton>(find.byKey(const ValueKey<String>('partner-view-nid_front'))).onPressed, isNotNull);
   });
 
   test('private upload uses only W1 tickets and authenticated Cloudinary delivery', () async {
