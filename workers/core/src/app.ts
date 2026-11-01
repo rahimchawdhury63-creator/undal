@@ -17,6 +17,7 @@ import { baseHeaders, failureResponse, successResponse } from "./middleware/enve
 import { clientIp, clientUserAgent, resolveRequestId } from "./middleware/request-id.ts";
 import type { Ctx, Env, RouteDefinition, RouteInput } from "./middleware/context.ts";
 import { AUTH_ROUTES } from "./routes/auth.ts";
+import { ORDER_ROUTES } from "./routes/orders.ts";
 
 /**
  * The pipeline, in the order a request meets it: identify, throttle, parse, authenticate,
@@ -30,7 +31,7 @@ import { AUTH_ROUTES } from "./routes/auth.ts";
  */
 
 /** The routes this Worker serves. Extending the API means adding a module here. */
-export const ROUTES: readonly RouteDefinition[] = [...AUTH_ROUTES];
+export const ROUTES: readonly RouteDefinition[] = [...AUTH_ROUTES, ...ORDER_ROUTES];
 
 /** A matched route plus the parameters its template captured. */
 interface Match {

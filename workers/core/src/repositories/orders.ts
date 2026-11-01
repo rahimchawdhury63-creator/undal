@@ -1,0 +1,170 @@
+/*
+ * Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.
+ * SPDX-License-Identifier: LicenseRef-PASVL-1.0
+ */
+
+import type { Db } from "../db/client.ts";
+import { sqlDatetime } from "../db/time.ts";
+import type { OrderState } from "../domain/order/states.ts";
+
+/**
+ * Reading and moving orders, in SQL that the domain never sees.
+ *
+ * The split matters: `domain/order/state-machine.ts` decides whether a move is legal, and this
+ * module performs it — with the state in the `WHERE` clause. That clause is the concurrency
+ * control: two requests racing to accept the same order cannot both succeed, and the loser gets
+ * `applied: false` instead of a silent overwrite. As `05 §6.1` requires, that beats an
+ * interactive transaction on an HTTP driver.
+ */
+
+/** The columns every order response is built from. */
+export interface OrderRow {
+  readonly id: Uint8Array;
+  readonly code: string;
+  readonly customer_user_id: Uint8Array;
+  readonly vendor_id: Uint8Array;
+  readonly zone_id: Uint8Array;
+  readonly fulfilment: string;
+  readonly state: OrderState;
+  readonly subtotal_paisa: number | string;
+  readonly discount_paisa: number | string;
+  readonly delivery_fee_paisa: number | string;
+  readonly small_order_fee_paisa: number | string;
+  readonly tax_paisa: number | string;
+  readonly tip_paisa: number | string;
+  readonly rounding_paisa: number | string;
+  readonly total_paisa: number | string;
+  readonly cash_collected_paisa: number | string | null;
+  readonly commission_paisa: number | string;
+  readonly rider_bonus_paisa: number | string;
+  readonly rider_payout_paisa: number | string;
+  readonly vendor_payout_paisa: number | string;
+  readonly surge_bps: number | string;
+  readonly prep_time_s: number | string | null;
+  readonly rider_id: Uint8Array | null;
+  readonly customer_note: string | null;
+  readonly placed_at: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+const COLUMNS =
+  "`id`, `code`, `customer_user_id`, `vendor_id`, `zone_id`, `fulfilment`, `state`, `subtotal_paisa`, " +
+  "`discount_paisa`, `delivery_fee_paisa`, `small_order_fee_paisa`, `tax_paisa`, `tip_paisa`, " +
+  "`rounding_paisa`, `total_paisa`, `cash_collected_paisa`, `commission_paisa`, `rider_bonus_paisa`, " +
+  "`rider_payout_paisa`, `vendor_payout_paisa`, `surge_bps`, `prep_time_s`, `rider_id`, " +
+  "`customer_note`, `placed_at`, `created_at`, `updated_at`";
+
+/** One order by id. */
+export async function findOrder(db: Db, orderId: Uint8Array): Promise<OrderRow | null> {
+  return db.first<OrderRow>(`SELECT ${COLUMNS} FROM \`orders\` WHERE \`id\` = ?`, [orderId]);
+}
+
+/** The next event sequence number for an order, which is per order and starts at 1. */
+export async function nextEventSeq(db: Db, orderId: Uint8Array): Promise<number> {
+  const row = await db.first<{ last: number | string | null }>(
+    "SELECT MAX(`seq`) AS last FROM `order_state_events` WHERE `order_id` = ?",
+    [orderId],
+  );
+  return Number(row?.last ?? 0) + 1;
+}
+
+/** The result of attempting a state move. */
+export interface MoveResult {
+  /** Whether this request won the race and the row now holds the new state. */
+  readonly applied: boolean;
+  /** The sequence number the event was written with, when it applied. */
+  readonly seq: number;
+}
+
+/**
+ * Move an order from one state to another, and append the event.
+ *
+ * The `UPDATE … WHERE state = ?` is the entire concurrency story: an order accepted a millisecond
+ * ago by another request no longer matches, affects zero rows, and this returns `applied: false`
+ * rather than writing a second event. `updated_at` is set explicitly because the schema has no
+ * triggers (`06 §1`), so a forgotten `updated_at` is a row that lies about when it changed.
+ */
+export async function moveState(
+  db: Db,
+  input: {
+    readonly orderId: Uint8Array;
+    readonly eventId: Uint8Array;
+    readonly from: OrderState;
+    readonly to: OrderState;
+    readonly actor: string;
+    readonly actorUserId: Uint8Array;
+    readonly event: string;
+    readonly reasonCode: string | null;
+    readonly reasonText: string | null;
+    readonly nowMs: number;
+    readonly extra?: Readonly<Record<string, string | number | null>>;
+  },
+): Promise<MoveResult> {
+  const now = sqlDatetime(new Date(input.nowMs));
+  const assignments = ["`state` = ?", "`updated_at` = ?"];
+  const values: unknown[] = [input.to, now];
+  for (const [column, value] of Object.entries(input.extra ?? {})) {
+    assignments.push(`\`${column}\` = ?`);
+    values.push(value);
+  }
+  values.push(input.orderId, input.from);
+
+  const updated = await db.execute(
+    `UPDATE \`orders\` SET ${assignments.join(", ")} WHERE \`id\` = ? AND \`state\` = ?`,
+    values,
+  );
+  if (updated.affectedRows !== 1) return { applied: false, seq: 0 };
+
+  const seq = await nextEventSeq(db, input.orderId);
+  await db.execute(
+    "INSERT INTO `order_state_events` (`id`, `order_id`, `seq`, `from_state`, `to_state`, `actor`, " +
+      "`actor_user_id`, `event`, `reason_code`, `reason_text`, `metadata`, `occurred_at`, `created_at`) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [
+      input.eventId,
+      input.orderId,
+      seq,
+      input.from,
+      input.to,
+      input.actor,
+      input.actorUserId,
+      input.event,
+      input.reasonCode,
+      input.reasonText,
+      "{}",
+      now,
+      now,
+    ],
+  );
+  return { applied: true, seq };
+}
+
+/** The orders a customer or vendor should see, newest first. */
+export async function listOrders(
+  db: Db,
+  filter: { readonly customerUserId?: Uint8Array; readonly vendorId?: Uint8Array; readonly limit: number },
+): Promise<OrderRow[]> {
+  const bounded = Math.min(Math.max(1, Math.trunc(filter.limit)), 100);
+  if (filter.customerUserId !== undefined) {
+    return db.query<OrderRow>(
+      `SELECT ${COLUMNS} FROM \`orders\` WHERE \`customer_user_id\` = ? ORDER BY \`created_at\` DESC LIMIT ?`,
+      [filter.customerUserId, bounded],
+    );
+  }
+  if (filter.vendorId !== undefined) {
+    return db.query<OrderRow>(
+      `SELECT ${COLUMNS} FROM \`orders\` WHERE \`vendor_id\` = ? ORDER BY \`created_at\` DESC LIMIT ?`,
+      [filter.vendorId, bounded],
+    );
+  }
+  throw new RangeError("listOrders: one of customerUserId or vendorId is required");
+}
+
+/** The vendor a user owns, if any. */
+export async function vendorForUser(db: Db, userId: Uint8Array): Promise<{ id: Uint8Array; status: string; open_state: string } | null> {
+  return db.first<{ id: Uint8Array; status: string; open_state: string }>(
+    "SELECT `id`, `status`, `open_state` FROM `vendors` WHERE `owner_user_id` = ? LIMIT 1",
+    [userId],
+  );
+}

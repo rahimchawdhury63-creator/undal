@@ -616,3 +616,16 @@ Workers placing in the same millisecond would race for the same number and one w
 Deriving the code from the id makes collisions impossible by construction (distinct ids, distinct
 codes at this bit width), needs no coordination, and keeps a code the customer can read down a
 phone line without a homoglyph in it — the alphabet omits `0/O` and `1/I`.
+## D64 — Order routes ask the state table; they never branch on state themselves
+
+A route that decides "can this be accepted?" with an `if` chain reimplements the machine and drifts
+from it the first time an edge changes. `accept`/`reject` therefore build a `TransitionContext` and
+hand it to the lifecycle, which returns either the target state or a refusal code that the route
+returns verbatim. The route contributes facts (who owns the order, the prep time, the reason), never
+the rule.
+
+Concurrency is the same question asked of the database rather than of memory: the move is
+`UPDATE orders SET state = ? WHERE id = ? AND state = ?`, and `affectedRows !== 1` means another
+writer got there first — surfaced as `applied: false` and answered with the refusal for the state the
+order is actually in, not a 500. Two vendors accepting at once must produce one ACCEPTED row and one
+event, and the loser must be told `ORDER_ALREADY_ACCEPTED`.
