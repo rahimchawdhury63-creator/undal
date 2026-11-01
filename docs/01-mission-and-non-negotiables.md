@@ -127,9 +127,15 @@ below 1000 bps or above 2500 bps.
 base is:
 
 ```
-taxable_base = commission + platform_share_of_small_order_fee
-             + platform_share_of_delivery_fee + rider_bonus_contribution
+taxable_base = commission
+             + platform_share_of_small_order_fee     (৳15 of the ৳25)
+             + platform_delivery_margin              (the delivery fee minus the rider's payout)
 ```
+
+**Pass-throughs are excluded**, because taxing money that merely moves through Undal would be both
+wrong and expensive: the rider's ৳5 and the vendor's ৳5 of the small-order fee, the 3% rider bonus
+the vendor funds and the rider receives in full, and tips are all outside the taxable base. The test
+suite asserts this with a property: for any order, `tax_paisa` depends only on the three terms above.
 
 VAT on the food itself is the vendor's own obligation under their BIN, and Undal records it on the
 invoice as an informational line rather than collecting it. The tax rate lives in
@@ -152,9 +158,11 @@ already recognise, but with the economics made explicit:
 
 ### 3.6 Rounding
 
-The final customer total is rounded **to the nearest whole taka**, because riders carry cash and no
-one in Bangladesh wants to hand over 37 paisa. The delta — at most ±50 paisa — is posted to a
-`ROUNDING_ADJUSTMENT` ledger account owned by the platform. It is never silently dropped, because a
+The final customer total is rounded **down to the whole taka**, because riders carry cash and no one
+in Bangladesh wants to hand over 37 paisa. Rounding down rather than to-nearest means the customer is
+never charged a paisa more than the arithmetic produced — the rule is trivially explainable and
+always in the customer's favour. The delta — at most 99 paisa — is posted to a
+`PLATFORM:EXPENSE_ROUNDING` ledger account. It is never silently dropped, because a
 silently dropped paisa is an invoice that does not balance, and
 [`24-finance-payouts-invoices.md §3`](24-finance-payouts-invoices.md) refuses to emit an invoice that
 does not balance to exactly zero.

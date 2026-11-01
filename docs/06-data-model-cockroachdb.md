@@ -725,22 +725,34 @@ practice. They exist because "in practice" is not a guarantee.
 
 ### 8.2 Postings for a delivered order
 
-A ৳450 subtotal order, delivery fee ৳62, small-order fee ৳25, tax ৳13, no discount, no tip, rider on
-a motorbike, 15% commission, 3% rider bonus:
+This is **Vector 01**, the canonical worked example used throughout the corpus. A ৳450 subtotal,
+3 800 m routed, motorbike, clear weather, no traffic delay, supply sufficient (surge 1.0×), 15%
+commission, 3% rider bonus, no discount, no tip. The fare derivation is
+[`10 §12.1`](10-fare-engine-math.md); the figures are:
+
+| Quantity | Paisa | ৳ |
+| --- | --- | --- |
+| Subtotal | 45 000 | 450.00 |
+| Delivery fee | 7 042 | 70.42 |
+| Small-order fee | 2 500 | 25.00 |
+| Tax (5% of the ৳87.72 platform base) | 439 | 4.39 |
+| Pre-rounding total | 54 981 | 549.81 |
+| **Cash collected (floored to the taka)** | **54 900** | **549.00** |
 
 | Account | Amount (paisa) | Meaning |
 | --- | --- | --- |
-| `RIDER:{id}:CASH_IN_HAND` | `+55 000` | The rider is holding ৳550 of Undal's and the vendor's money |
-| `VENDOR:{id}:PAYABLE` | `−37 150` | Undal owes the vendor ৳371.50 |
-| `RIDER:{id}:PAYABLE` | `−7 850` | Undal owes the rider ৳78.50 |
+| `RIDER:{id}:CASH_IN_HAND` | `+54 900` | The rider is holding ৳549 that is not theirs |
+| `VENDOR:{id}:PAYABLE` | `−37 400` | ৳450 − ৳67.50 commission − ৳13.50 rider-bonus funding + ৳5 fee share |
+| `RIDER:{id}:PAYABLE` | `−8 370` | ৳65.20 fare + ৳13.50 bonus + ৳5 fee share |
 | `PLATFORM:REVENUE_COMMISSION` | `−6 750` | 15% of ৳450 |
 | `PLATFORM:REVENUE_SMALL_ORDER` | `−1 500` | ৳15 of the ৳25 fee |
-| `PLATFORM:REVENUE_DELIVERY` | `−450` | Delivery fee margin after rider payout |
-| `PLATFORM:TAX_PAYABLE` | `−1 300` | 5% |
+| `PLATFORM:REVENUE_DELIVERY` | `−522` | The 8% delivery margin over the rider's fare |
+| `PLATFORM:TAX_PAYABLE` | `−439` | 5% of ৳87.72 |
+| `PLATFORM:EXPENSE_ROUNDING` | `+81` | The 81 paisa the platform absorbed by flooring |
 | **Sum** | **`0`** | |
 
-The derivation of each figure, and 40 more worked examples, is
-[`10 §12`](10-fare-engine-math.md).
+Every figure is derived, step by step, in [`10 §12.1`](10-fare-engine-math.md), alongside 39 more
+vectors including rain surge, bicycle radius limits, pick-up with no rider, and a two-order bundle.
 
 ### 8.3 Invoices
 
