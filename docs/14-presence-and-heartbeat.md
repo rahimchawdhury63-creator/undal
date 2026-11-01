@@ -147,7 +147,7 @@ devices there is no alarm and the DO is evicted from memory entirely. The `no-cr
 
 Without Durable Objects, `undal-realtime` keeps the WebSocket inside the Worker invocation and the
 deadline inside a plain `setTimeout`. The Worker lives as long as the socket does, which is exactly
-what is needed. Absence is written to `presence_sessions` in CockroachDB and published through a
+what is needed. Absence is written to `presence_sessions` in TiDB and published through a
 `LISTEN`-style poll on the SSE fan-out path.
 
 The measured difference: p50 detection 1.7 s (DO) versus 1.9 s (free). Both inside two seconds.

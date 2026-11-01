@@ -42,7 +42,7 @@ ABSOLUTE RULES — violating any one of these fails the build
   5. No file over 700 lines. CI enforces it. Split by responsibility, not by line count.
   6. Every exported symbol carries a doc comment that says why, not what. CI enforces coverage.
   7. Money is integer paisa. Never float. Never. CI greps for float arithmetic in money paths.
-  8. Free tier only. Cloudflare Workers + Pages + D1, CockroachDB Serverless, imgbb, Cloudinary,
+  8. Free tier only. Cloudflare Workers + Pages + D1, TiDB Cloud Starter, imgbb, Cloudinary,
      Firebase FCM, OSM/OSRM, GitHub Actions. No paid service, no trial that expires, no credit card.
   9. Responsive from 200 px to 3840 px with zero layout breakage at any of the 50 breakpoints listed
      in docs/03-brand-and-design-system.md §9. CI screenshots every one.
@@ -52,7 +52,7 @@ WHAT YOU ARE BUILDING
   3 Cloudflare Workers:  undal-core (TypeScript), undal-realtime (TypeScript), undal-brain (Python)
   1 Cloudflare Pages project with two targets: the SEO-prerendered storefront and the admin SPA
   3 Android apps in Kotlin: Undal (customer), Undal Partner, Undal Rider
-  1 CockroachDB schema, migrated from Actions, no CLI
+  1 TiDB schema, migrated from Actions, no CLI
   1 Cloudflare D1 database for ephemeral rider location channels
   GitHub Actions for: migrations, worker deploys, Pages deploys, keystore generation, signed APK and
   AAB builds, unit tests, property tests, money-invariant tests, routing tests, responsive screenshot
@@ -88,7 +88,7 @@ Begin with Response 1: docs/_plan/UNDERSTANDING.md. Nothing else.
 | Group | Documents |
 | --- | --- |
 | Foundation | `01` mission · `02` reference analysis · `03` design system · `04` motion |
-| Architecture | `05` system · `06` CockroachDB · `07` D1 · `08` API contract |
+| Architecture | `05` system · `06` TiDB · `07` D1 · `08` API contract |
 | The Brain | `09` overview · `10` fare math · `11` dispatch · `12` batching · `13` ranking |
 | Realtime | `14` presence · `15` wake-up alarm |
 | Clients | `16` Android foundation · `17` customer · `18` partner · `19` rider · `20` web · `21` admin · `22` super map |

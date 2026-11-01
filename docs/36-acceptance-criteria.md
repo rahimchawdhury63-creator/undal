@@ -29,7 +29,7 @@ A criterion with no proof is not a criterion; it is a hope. Every row has one.
 | --- | --- | --- |
 | A1 | Exactly three Cloudflare Workers are deployed: `undal-core` (TS), `undal-realtime` (TS), `undal-brain` (Python) | `deploy-workers.yml` health checks |
 | A2 | The website and admin panel are hosted on Cloudflare Pages | `deploy-web.yml`, `deploy-admin.yml` |
-| A3 | CockroachDB Cloud (free) is the only relational store, with PostGIS geography columns | `verify-schema.yml` |
+| A3 | TiDB Cloud Starter (free) is the only relational store, and its integer geospatial layer returns results identical to the geometry it replaced | `verify-schema.yml` · `no-postgres-dialect` · `geo-parity` |
 | A4 | Cloudflare D1 holds **only** rider real-time location data | `d1-scope` test: D1 contains exactly 2 tables |
 | A5 | All public images are on imgbb | `media-destination` CI job |
 | A6 | All sensitive documents are on Cloudinary with `access_mode: authenticated` | Same job + a 401 test on raw URLs |

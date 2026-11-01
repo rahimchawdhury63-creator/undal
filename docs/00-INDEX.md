@@ -191,7 +191,7 @@ Read top to bottom; an arrow means "the lower document assumes the upper one".
 | `doc 07 §4` | Section 4 of document `07-d1-live-tracking.md`. |
 | ৳ | Bangladeshi Taka. Always rendered with the ৳ sign, never "BDT" in user-facing copy. |
 | **paisa** | 1/100 of a taka. **All money in code and database is an integer count of paisa.** |
-| `TABLE.column` | A CockroachDB column, e.g. `orders.subtotal_paisa`. |
+| `TABLE.column` | A TiDB column, e.g. `orders.subtotal_paisa`. |
 | **Actor** | One of: Customer, Partner, Rider, Admin, System. |
 | **Surface** | One of: Customer App, Partner App, Rider App, Web Storefront, Admin Panel. |
 
@@ -222,7 +222,7 @@ explicitly.
 | Invoice number | `UND/{V\|R}/{YYYY}/{WW}/{seq}` | `UND/V/2026/44/00017` |
 | Vendor slug | kebab-case, unique per zone | `the-burger-junction-sylhet` |
 
-UUID v7 is chosen over v4 because CockroachDB range-splits on primary key, and time-ordered keys keep
+UUID v7 is chosen over v4 because TiDB region-splits on primary key, and time-ordered keys keep
 recent-order scans in a small number of ranges. The hotspot risk this normally creates is mitigated by
 the zone-sharded secondary indexes described in [`06-data-model-tidb.md §12`](06-data-model-tidb.md).
 

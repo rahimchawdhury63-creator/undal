@@ -289,14 +289,14 @@ the point: the number is a measurement, not a marketing claim, and it is allowed
 | Empty states | `docs/features/empty-states.json` | 44 |
 | Exception triggers | `docs/features/exceptions.json` | 22 |
 | Config keys | `docs/features/config-keys.json` | 147 |
-| Secrets | `.env.example` | 44 |
+| Secrets | `.env.example` | 43 |
 | Screens | `docs/features/screens.json` | 283 |
 | API endpoints | `packages/contracts` | 412 |
 | SSE events | `docs/features/sse-events.json` | 46 |
 | Reason codes | `docs/features/reasons.json` | 94 |
 | Acceptance criteria | [`36`](36-acceptance-criteria.md) | 179 |
 | Properties | [`30 §2`](30-testing-and-verification.md) | 64 |
-| Guardrails | [`28 §3.1`](28-cicd-github-actions.md) | 28 |
+| Guardrails | [`28 §3.1`](28-cicd-github-actions.md) | 30 |
 | Workflows | `.github/workflows/` | 23 |
 | Cuisine categories | `docs/features/cuisines.json` | 118 |
 | Search synonyms | `docs/features/synonyms.json` | 340 |

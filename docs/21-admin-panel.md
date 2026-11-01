@@ -67,7 +67,7 @@ consequence of the register, not a target the register was built to hit.
 │ 📊 Insight│                                                             │
 │ ⚙ System │                                                             │
 ├──────────┴─────────────────────────────────────────────────────────────┤
-│  🟢 Core 41ms  🟢 Realtime 18ms  🟢 Brain 6ms  🟢 CRDB 23ms  🟢 D1 9ms │
+│  🟢 Core 41ms  🟢 Realtime 18ms  🟢 Brain 6ms  🟢 TiDB  — ms  🟢 D1 9ms │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 

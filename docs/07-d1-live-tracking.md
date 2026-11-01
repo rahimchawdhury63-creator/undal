@@ -372,7 +372,7 @@ DELETE FROM rider_current   WHERE rider_id = ?1;
 
 ### 6.2 What survives, and where
 
-Erasure removes the **live channel**, not the business record. What is retained in CockroachDB:
+Erasure removes the **live channel**, not the business record. What is retained in TiDB:
 
 | Retained | Table | Why |
 | --- | --- | --- |

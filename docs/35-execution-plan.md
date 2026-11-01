@@ -176,7 +176,7 @@ cache sizing · whether MapLibre or Leaflet-in-WebView for the rider's offline m
 fork point versus `com.vk.knet:okcronet` · baseline-profile generation strategy · Hilt versus
 manual DI for `core:testing`.
 
-**Workers (7):** Hono middleware ordering details · the exact CockroachDB connection pooling
+**Workers (7):** Hono middleware ordering details · the exact TiDB connection pooling
 approach under Workers' request model · whether Pyodide or a pure-WASM Python for `brain` ·
 KV versus Cache API for the feature store hot tier · the SSE heartbeat frame format · the service
 binding error-propagation convention · the retry-budget algebra across nested service calls.
@@ -185,11 +185,11 @@ binding error-propagation convention · the retry-budget algebra across nested s
 adopt) · CSS Modules versus vanilla-extract · the virtualisation library for admin grids · the
 chart library · the service-worker framework or hand-rolled.
 
-**Data (5):** the UUID v7 generation source, since CockroachDB's `gen_random_uuid()` is v4 and
+**Data (3):** ~~the UUID v7 generation source~~ — **closed by the TiDB migration**: TiDB has no `gen_random_uuid()` at all, so the application generates v7 in one place per language against a shared test vector ([`06 §1`](06-data-model-tidb.md) rule 2). Remaining:
 [`00 §4.3`](00-INDEX.md) requires v7 — decide between a client-side generator and a SQL function,
 and prove monotonicity under concurrency · whether `order_items` snapshots store the full item or
 a delta · the `brain_traces` partitioning strategy · the materialised-view refresh approach for
-`vendor_stats` · the exact PostGIS index parameters.
+`vendor_stats`. ~~The exact PostGIS index parameters~~ — **closed**: there is no spatial index, and the cell-grid constants are frozen in [`06 §4.1.1`](06-data-model-tidb.md).
 
 **Process (4):** the Turborepo task graph · whether to adopt a changeset tool · the
 screenshot-diff tolerance · the flaky-test quarantine mechanism.

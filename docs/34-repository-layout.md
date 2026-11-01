@@ -134,7 +134,7 @@ workers/
 │   └── src/
 │       ├── index.ts
 │       ├── hubs/                      ZoneHub, OrderHub, RiderPin
-│       ├── coordination/              DurableObjectCoordinator | CockroachCoordinator
+│       ├── coordination/              DurableObjectCoordinator | TiDBCoorhCoordinator
 │       ├── presence/                  heartbeat, deadlines, escalation
 │       ├── fcm/                       token minting, payload builders, sender
 │       ├── d1/                        position writes, ring buffer, erasure
