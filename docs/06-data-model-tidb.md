@@ -90,6 +90,23 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
    > migration and it is specified in full in §4.1, including the `geo-parity` CI gate that proves
    > the replacement returns identical results to the geometry it replaces.
 
+### 1.1 Reserved words
+
+MySQL's reserved-word list is longer than CockroachDB's, and three column names in this schema
+collide with it. They are **quoted, not renamed** — `permissions.key`, `admin_roles.key` and
+`audit_log.before` keep exactly the names they had, because renaming a column to satisfy a parser
+would change the surface that [`27 §5`](27-security-rbac-audit.md) and the RBAC middleware read:
+
+```sql
+`key`      VARCHAR(64) PRIMARY KEY
+`before`   JSON
+`after`    JSON        -- not reserved, but quoted alongside `before` so the pair reads as one
+```
+
+Every one of the 292 column names in this document was checked against the MySQL 8.0 reserved-word
+list, and every DDL statement here is parsed as MySQL by CI as part of the `no-postgres-dialect`
+guardrail. A schema that only fails at `migrate.yml` time has already wasted a deploy.
+
 ---
 
 ## 2. Table inventory
