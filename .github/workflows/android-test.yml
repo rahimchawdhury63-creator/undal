@@ -49,7 +49,6 @@ jobs:
     # build file, so the job switches on the moment the module lands — it is not a date, a
     # label or a switch somebody has to remember to flip.
   robolectric-screenshots:
-    if: hashFiles('android/shared/screenshots/build.gradle.kts') != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -65,7 +64,13 @@ jobs:
           gradle-version: "8.10.2"
       - name: Pixel-diff every registered screen
         working-directory: android
-        run: gradle :shared:screenshots:verifyPaparazzi --no-daemon
+        run: |
+          set -euo pipefail
+          if [ ! -f "shared/screenshots/build.gradle.kts" ]; then
+            echo "::notice::shared:screenshots does not exist yet (it arrives with the storefront); nothing to diff"
+            exit 0
+          fi
+          gradle :shared:screenshots:verifyPaparazzi --no-daemon
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

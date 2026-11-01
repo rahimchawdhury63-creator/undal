@@ -24,7 +24,6 @@ jobs:
     # build file, so the job switches on the moment the module lands — it is not a date, a
     # label or a switch somebody has to remember to flip.
   instrumented:
-    if: hashFiles('android/shared/alarm/build.gradle.kts') != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -40,7 +39,14 @@ jobs:
           gradle-version: "8.10.2"
       - name: Build the alarm test APKs
         working-directory: android
-        run: gradle :shared:alarm:assembleDebug :shared:alarm:assembleDebugAndroidTest --no-daemon
+        # Gated on the module's build file: shared:alarm arrives with the alarm (R13).
+        run: |
+          set -euo pipefail
+          if [ ! -f "shared/alarm/build.gradle.kts" ]; then
+            echo "::notice::shared:alarm does not exist yet (it arrives in R13); nothing to build"
+            exit 0
+          fi
+          gradle :shared:alarm:assembleDebug :shared:alarm:assembleDebugAndroidTest --no-daemon
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}

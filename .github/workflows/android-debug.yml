@@ -20,11 +20,7 @@ permissions:
   contents: read
 
 jobs:
-    # The app modules arrive in their own responses (R17–R19). The gate is the module's own
-    # build file, so the job switches on the moment the module lands — it is not a date, a
-    # label or a switch somebody has to remember to flip.
   assemble:
-    if: hashFiles(format('android/app/{0}/build.gradle.kts', matrix.app)) != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -46,7 +42,15 @@ jobs:
         working-directory: android
         env:
           PUBLIC_API_BASE: ${{ vars.PUBLIC_API_BASE }}
-        run: gradle ":app:${{ matrix.app }}:assembleDebug" --no-daemon --stacktrace
+        # A job-level `hashFiles` guard makes GitHub reject the whole file, so the gate lives
+        # here, where it also prints a notice explaining why the run built nothing.
+        run: |
+          set -euo pipefail
+          if [ ! -f "app/${{ matrix.app }}/build.gradle.kts" ]; then
+            echo "::notice::app/${{ matrix.app }} does not exist yet (it arrives in R17-R19); nothing to assemble"
+            exit 0
+          fi
+          gradle ":app:${{ matrix.app }}:assembleDebug" --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: undal-${{ matrix.app }}-debug

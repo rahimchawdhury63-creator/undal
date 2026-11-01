@@ -26,7 +26,6 @@ jobs:
     # build file, so the job switches on the moment the module lands — it is not a date, a
     # label or a switch somebody has to remember to flip.
   release:
-    if: hashFiles(format('android/app/{0}/build.gradle.kts', matrix.app)) != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
