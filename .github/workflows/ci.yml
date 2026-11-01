@@ -32,7 +32,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: The geospatial layer agrees three ways
+        env:
+          GEO_PARITY_REQUIRED: "1"
+        run: python3 scripts/geo/parity.py
       - name: All thirty-one rules pass on clean code
+        env:
+          GEO_PARITY_REQUIRED: "1"
         run: python3 scripts/guardrails/run.py
       - name: Every rule still rejects its bad fixture
         run: python3 scripts/guardrails/run.py --fixtures
@@ -58,6 +67,37 @@ jobs:
       - name: TypeScript, strict
         run: pnpm -r typecheck
 
+  schema:
+    name: schema, constraints and generated artefacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Every table in 06 §2 is created by a migration
+        run: python3 scripts/db/check_schema_parity.py
+      - name: Statements still split and apply in order
+        working-directory: scripts/db
+        run: python3 -m unittest test_migrate
+      - name: Regenerate the constraints and prove nothing changed
+        run: |
+          python3 scripts/db/extract_constraints.py
+          git diff --exit-code packages/contracts/src/constraints.json packages/contracts/src/constraints/generated.ts
+      - name: Regenerate the expected schema
+        run: |
+          python3 scripts/db/expected.py
+          git diff --exit-code db/expected.json
+
   workers:
     name: workers (core, realtime, brain)
     runs-on: ubuntu-24.04
@@ -79,7 +119,11 @@ jobs:
         run: pnpm --filter undal-core --filter undal-realtime test
       - name: Python worker
         working-directory: workers/brain
-        run: python3 -m unittest discover -s test
+        env:
+          PYTHONPATH: src
+        # `test` is a stdlib package name, so discovery is rooted at the test
+        # directory itself; `-s test -t test` is what makes the import work.
+        run: python3 -m unittest discover -s test -t test -p 'test_*.py'
 
   money-differential:
     name: paisa differential (TS and Python)
@@ -115,16 +159,18 @@ jobs:
   summary:
     name: ci
     if: always()
-    needs: [guardrails, contracts, workers, money-differential]
+    needs: [guardrails, schema, contracts, workers, money-differential]
     runs-on: ubuntu-24.04
     steps:
       - name: Fail unless every job succeeded
         run: |
           echo "guardrails=${{ needs.guardrails.result }}"
+          echo "schema=${{ needs.schema.result }}"
           echo "contracts=${{ needs.contracts.result }}"
           echo "workers=${{ needs.workers.result }}"
           echo "money-differential=${{ needs.money-differential.result }}"
           test "${{ needs.guardrails.result }}" = "success"
+          test "${{ needs.schema.result }}" = "success"
           test "${{ needs.contracts.result }}" = "success"
           test "${{ needs.workers.result }}" = "success"
           test "${{ needs.money-differential.result }}" = "success"

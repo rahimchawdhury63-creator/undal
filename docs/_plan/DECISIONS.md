@@ -315,3 +315,84 @@ invoke arrive with the migration pipeline (R6) and the Brain (R17).
 fails loudly at a named missing script is better than a button discovered missing at 2 a.m. with a
 broken deployment — the failure names its own remedy. Nothing here runs on push, so the gate that
 guards every commit is unaffected, and no step in any of them pretends to have done work it did not do.
+
+---
+
+## D42 — The 109 table names are the schema; the document's total of 99 was a slip
+
+**Decision.** `db/migrations` creates the 109 tables `06 §2` names, and the document's total row now
+says 109.
+
+**Rejected.** Implementing 99 tables and dropping ten names, or keeping 99 and hiding the gap.
+
+**Why.** The per-group counts in that table were correct from the start — 14, 8, 12, 12, 12, 15, 12,
+10, 14 — and they always summed to 109; the total was the only wrong cell. Ten tables cannot be
+dropped to satisfy a typo, so the names win and `scripts/db/check_schema_parity.py` now compares the
+inventory to the migrations on every push.
+
+## D43 — `CHECK` is declared in SQL and enforced in TypeScript
+
+**Decision.** `scripts/db/extract_constraints.py` parses every `CHECK` out of the migrations, writes
+`packages/contracts/src/constraints.json`, and generates `constraints/generated.ts`: 164 validators
+across 76 tables, each carrying the SQL it came from.
+
+**Rejected.** Trusting the DDL, and trusting a hand-written validator list beside it.
+
+**Why.** TiDB parses `CHECK` and does not enforce it, so the DDL alone would look guarded and enforce
+nothing. The generator is a real parser (tokens, recursive descent, arithmetic and `NOT IN`
+precedence), not a regex: every generated expression is proven to parse as JavaScript by `node
+--check` at generation time, and `tsc` proves it again in CI. Anything the parser does not understand
+is a hard failure, because a validator that skips a rule silently is worse than no validator.
+
+## D44 — Foreign keys stay where the specification put them
+
+**Decision.** Tables defined in the corpus keep their `REFERENCES` clauses; tables authored against
+the inventory get them too, except the three the corpus names as deliberately unkeyed (`order_items`,
+`order_state_events`, `order_offers`).
+
+**Rejected.** Removing every foreign key to make migration order easier, and adding keys to the three
+high-write tables for uniformity.
+
+**Why.** An orphaned ledger row is a reconciliation bug nobody can fix after the fact, while an
+orphaned order item is a row that outlives a cancelled order by design. The exception is documented
+where it applies — in the migration that creates each of those three tables — rather than in a policy
+statement a reader has to find.
+
+## D45 — `platform_config`'s primary key is ascending
+
+**Decision.** `PRIMARY KEY (key, zone_id, effective_at)`, with no `DESC`.
+
+**Rejected.** The `DESC` the specification wrote, which is legal on a secondary index and not on a
+primary key.
+
+**Why.** MySQL rejects a descending column in a primary key; TiDB parses it inconsistently across
+versions. "Latest value for this key" is a backward index scan on the same key, which TiDB serves
+without a second index, so nothing is lost but the parse failure the SQL validator caught.
+
+## D46 — The geospatial layer is checked three ways, every push
+
+**Decision.** `scripts/geo/parity.py` runs 6 000 deterministic cases through the exported
+TypeScript functions, an independent Python mirror, and SQL, and writes
+`.artifacts/geo/parity.json`. The `geo-parity` rule fails the build on any mismatch, and in CI
+(`GEO_PARITY_REQUIRED=1`) also fails when the artifact is missing.
+
+**Rejected.** A shared constants file, a formula copied into three languages, and a check that
+silently passes when no artifact exists.
+
+**Why.** It earned its keep on the first run. SQLite's `/` on two integers truncates where MySQL's
+divides into a DECIMAL, so the "same" floor expression gave a different cell for every negative
+coordinate; the probe also caught that `haversineMeters` returns whole metres, which the Python
+mirror was comparing at three decimals. A check that cannot disagree is not a check.
+
+## D47 — The ledger records statements, not files
+
+**Decision.** `scripts/db/migrate.py` writes one `schema_migrations` row per statement, with the
+file's SHA-256, and refuses to continue if an applied statement's checksum changed.
+
+**Rejected.** One row per file, and a `--force` escape hatch.
+
+**Why.** TiDB auto-commits DDL: a file that fails at statement 7 leaves six statements applied and no
+rollback. A per-file ledger would then either re-run all six (they are idempotent, but the window in
+between is wrong) or mark the file applied and skip statement 7 forever. Per-statement resume plus an
+immutability check is the only combination that is safe when the platform has no transactions around
+DDL.

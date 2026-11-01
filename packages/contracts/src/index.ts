@@ -29,3 +29,23 @@ export {
   type Cursor,
   type CursorPage,
 } from "./common/pagination.ts";
+
+export { LAT_CELL_DIVISOR, LON_CELL_DIVISOR, cellFor, cellLatIndex, cellLonIndex, cellsWithin } from "./db/cell.ts";
+export {
+  bboxOf,
+  haversineMeters,
+  inBbox,
+  isOnSegment,
+  pointInRing,
+  type BboxE7,
+  type PointE7,
+} from "./db/geo.ts";
+export {
+  UUID_BYTES,
+  binToUuid,
+  isUuid,
+  uuidToBin,
+  uuidv7,
+  uuidv7Timestamp,
+  type UuidBytes,
+} from "./db/uuid.ts";

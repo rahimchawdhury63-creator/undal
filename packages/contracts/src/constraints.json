@@ -1,0 +1,1155 @@
+{
+  "generated_by": "scripts/db/extract_constraints.py",
+  "note": "TiDB does not enforce CHECK; these validators are the enforcement (06 \u00a71.2).",
+  "count": 164,
+  "constraints": [
+    {
+      "table": "users",
+      "name": "chk_users_inline_1",
+      "expression": "actor_type IN ('CUSTOMER','VENDOR_OWNER','RIDER','ADMIN')",
+      "source": "001_identity.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "users",
+      "name": "chk_users_inline_2",
+      "expression": "status IN ('ACTIVE','SUSPENDED','PENDING_REVIEW','DEACTIVATED','BANNED')",
+      "source": "001_identity.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "devices",
+      "name": "chk_devices_inline_1",
+      "expression": "platform IN ('ANDROID','WEB')",
+      "source": "001_identity.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "devices",
+      "name": "chk_devices_inline_2",
+      "expression": "app_flavour IN ('CUSTOMER','PARTNER','RIDER')",
+      "source": "001_identity.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "permissions",
+      "name": "chk_permissions_inline_1",
+      "expression": "risk IN ('LOW','MEDIUM','HIGH','CRITICAL')",
+      "source": "001_identity.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "user_profiles",
+      "name": "chk_user_profiles_inline_1",
+      "expression": "`locale` IN ('bn','en')",
+      "source": "001_identity.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "login_attempts",
+      "name": "chk_login_attempts_inline_1",
+      "expression": "`outcome` IN ('SUCCESS','BAD_PASSWORD','LOCKED','UNKNOWN_USER','DEVICE_MISMATCH','TOTP_FAILED')",
+      "source": "001_identity.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "oauth_identities",
+      "name": "chk_oauth_identities_inline_1",
+      "expression": "`provider` IN ('GOOGLE','FACEBOOK')",
+      "source": "001_identity.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "zones",
+      "name": "chk_zones_inline_1",
+      "expression": "status IN ('DRAFT','ACTIVE','PAUSED','RETIRED')",
+      "source": "002_geography.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "addresses",
+      "name": "chk_addresses_inline_1",
+      "expression": "label IN ('HOME','WORK','OTHER')",
+      "source": "002_geography.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "zone_pricing",
+      "name": "chk_zone_pricing_inline_1",
+      "expression": "vehicle IN ('MOTORBIKE','BICYCLE')",
+      "source": "002_geography.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "zone_pricing",
+      "name": "chk_zone_pricing_inline_2",
+      "expression": "base_fare_paisa >= 0",
+      "source": "002_geography.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "zone_pricing",
+      "name": "chk_zone_pricing_inline_3",
+      "expression": "per_km_paisa >= 0",
+      "source": "002_geography.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "zone_hours",
+      "name": "chk_zone_hours_inline_1",
+      "expression": "`weekday` BETWEEN 0 AND 6",
+      "source": "002_geography.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "geocode_cache",
+      "name": "chk_geocode_cache_inline_1",
+      "expression": "`provider` IN ('NOMINATIM','MANUAL')",
+      "source": "002_geography.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendors",
+      "name": "chk_vendors_inline_1",
+      "expression": "kind IN ('RESTAURANT','HOME_KITCHEN','CLOUD_KITCHEN','GROCERY')",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendors",
+      "name": "chk_vendors_inline_2",
+      "expression": "status IN ('DRAFT','SUBMITTED','UNDER_REVIEW','NEEDS_INFO', 'APPROVED','SUSPENDED','REJECTED','RETIRED')",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendors",
+      "name": "chk_vendors_inline_3",
+      "expression": "open_state IN ('OPEN','BUSY','PAUSED','CLOSED','UNREACHABLE')",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendors",
+      "name": "chk_vendors_inline_4",
+      "expression": "busy_level BETWEEN 0 AND 3",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendors",
+      "name": "chk_vendors_inline_5",
+      "expression": "commission_bps BETWEEN 0 AND 5000",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendors",
+      "name": "chk_vendors_inline_6",
+      "expression": "rider_bonus_bps BETWEEN 0 AND 2000",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendor_profiles",
+      "name": "chk_vendor_profiles_inline_1",
+      "expression": "`avg_prep_minutes` BETWEEN 5 AND 120",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendor_documents",
+      "name": "chk_vendor_documents_inline_1",
+      "expression": "`kind` IN ('TRADE_LICENSE','TIN_CERTIFICATE','NID','BANK_STATEMENT','FSSAI')",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendor_documents",
+      "name": "chk_vendor_documents_inline_2",
+      "expression": "`status` IN ('PENDING','VERIFIED','REJECTED','EXPIRED')",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendor_hours",
+      "name": "chk_vendor_hours_inline_1",
+      "expression": "`weekday` BETWEEN 0 AND 6",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendor_contacts",
+      "name": "chk_vendor_contacts_inline_1",
+      "expression": "`role` IN ('OWNER','MANAGER','KITCHEN','ACCOUNTS')",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendor_stats",
+      "name": "chk_vendor_stats_inline_1",
+      "expression": "`orders_completed` >= 0",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendor_stats",
+      "name": "chk_vendor_stats_inline_2",
+      "expression": "`orders_rejected` >= 0",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendor_stats",
+      "name": "chk_vendor_stats_inline_3",
+      "expression": "`gmv_paisa` >= 0",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendor_pause_log",
+      "name": "chk_vendor_pause_log_inline_1",
+      "expression": "`reason` IN ('KITCHEN_BACKLOG','STAFF_SHORTAGE','ITEM_UNAVAILABLE','CLOSING','MANUAL')",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "vendor_commission_overrides",
+      "name": "chk_vendor_commission_overrides_inline_1",
+      "expression": "`commission_bps` BETWEEN 0 AND 3000",
+      "source": "003_vendors.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "modifier_groups",
+      "name": "chk_modifier_groups_inline_1",
+      "expression": "selection IN ('SINGLE','MULTIPLE')",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "modifier_groups",
+      "name": "chk_modifier_groups_inline_2",
+      "expression": "min_select >= 0",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "modifier_groups",
+      "name": "chk_modifier_groups_inline_3",
+      "expression": "max_select >= 1",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "modifier_groups",
+      "name": "chk_modifier_groups_inline_4",
+      "expression": "max_select >= min_select",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "modifier_groups",
+      "name": "chk_modifier_groups_inline_5",
+      "expression": "NOT is_required OR min_select >= 1",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "menu_items",
+      "name": "chk_menu_items_inline_1",
+      "expression": "price_paisa >= 0",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "menu_items",
+      "name": "chk_menu_items_inline_2",
+      "expression": "compare_at_paisa IS NULL OR compare_at_paisa > price_paisa",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "menu_items",
+      "name": "chk_menu_items_inline_3",
+      "expression": "spice_level BETWEEN 0 AND 3",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "menu_items",
+      "name": "chk_menu_items_inline_4",
+      "expression": "availability IN ('AVAILABLE','SOLD_OUT','HIDDEN','SCHEDULED')",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "item_variants",
+      "name": "chk_item_variants_inline_1",
+      "expression": "`price_paisa` >= 0",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "item_availability",
+      "name": "chk_item_availability_inline_1",
+      "expression": "`weekday` BETWEEN 0 AND 6",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "item_stats",
+      "name": "chk_item_stats_inline_1",
+      "expression": "`orders_count` >= 0",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "item_stats",
+      "name": "chk_item_stats_inline_2",
+      "expression": "`quantity_sold` >= 0",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "item_stats",
+      "name": "chk_item_stats_inline_3",
+      "expression": "`revenue_paisa` >= 0",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "item_media",
+      "name": "chk_item_media_inline_1",
+      "expression": "`kind` IN ('PHOTO','THUMBNAIL')",
+      "source": "004_menu.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "riders",
+      "name": "chk_riders_inline_1",
+      "expression": "vehicle IN ('MOTORBIKE','BICYCLE')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "riders",
+      "name": "chk_riders_inline_2",
+      "expression": "status IN ('DRAFT','SUBMITTED','UNDER_REVIEW','NEEDS_INFO', 'APPROVED','SUSPENDED','REJECTED','RETIRED')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "riders",
+      "name": "chk_riders_inline_3",
+      "expression": "shift_state IN ('OFFLINE','VERIFYING','ONLINE','ON_ORDER','BREAK','CASH_LOCKED')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "riders",
+      "name": "chk_riders_inline_4",
+      "expression": "payout_method IN ('BKASH','NAGAD','BANK')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_shifts",
+      "name": "chk_rider_shifts_inline_1",
+      "expression": "end_reason IS NULL OR end_reason IN ('RIDER_ENDED','AUTO_OFFLINE','ADMIN_ENDED','CASH_OVERDUE','APP_CRASH')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_documents",
+      "name": "chk_rider_documents_inline_1",
+      "expression": "`kind` IN ('NID_FRONT','NID_BACK','DRIVING_LICENSE','VEHICLE_REGISTRATION','SELFIE','POLICE_CLEARANCE')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_documents",
+      "name": "chk_rider_documents_inline_2",
+      "expression": "`status` IN ('PENDING','VERIFIED','REJECTED','EXPIRED')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_vehicles",
+      "name": "chk_rider_vehicles_inline_1",
+      "expression": "`vehicle_type` IN ('MOTORCYCLE','BICYCLE','ON_FOOT')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_stats",
+      "name": "chk_rider_stats_inline_1",
+      "expression": "`deliveries` >= 0",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_stats",
+      "name": "chk_rider_stats_inline_2",
+      "expression": "`distance_m` >= 0",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_stats",
+      "name": "chk_rider_stats_inline_3",
+      "expression": "`earnings_paisa` >= 0",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_penalties",
+      "name": "chk_rider_penalties_inline_1",
+      "expression": "`kind` IN ('LATE_PICKUP','NO_ACCEPT','CASH_SHORT','CUSTOMER_COMPLAINT','PROOF_MISSING','OFF_ROUTE')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_penalties",
+      "name": "chk_rider_penalties_inline_2",
+      "expression": "`amount_paisa` >= 0",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_cash_balances",
+      "name": "chk_rider_cash_balances_inline_1",
+      "expression": "`collected_paisa` >= 0",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_cash_balances",
+      "name": "chk_rider_cash_balances_inline_2",
+      "expression": "`deposited_paisa` >= 0",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_cash_settlements",
+      "name": "chk_rider_cash_settlements_inline_1",
+      "expression": "`amount_paisa` >= 0",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_cash_settlements",
+      "name": "chk_rider_cash_settlements_inline_2",
+      "expression": "`method` IN ('BKASH','NAGAD','CASH_TO_OPS')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_cash_settlements",
+      "name": "chk_rider_cash_settlements_inline_3",
+      "expression": "`status` IN ('PENDING','CONFIRMED','REJECTED')",
+      "source": "005_riders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_1",
+      "expression": "fulfilment IN ('DELIVERY','PICKUP')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_2",
+      "expression": "state IN ('DRAFT','PLACED','ACCEPTED','REJECTED','RIDER_SEARCH', 'RIDER_ASSIGNED','PICKED_UP','ARRIVED','DELIVERED','SETTLED', 'AUTO_CANCELLED','CANCELLED_BY_CUSTOMER','CANCELLED_BY_VENDOR', 'CANCELLED_BY_ADMIN','REASSIGNING','DISPUTED')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_3",
+      "expression": "subtotal_paisa >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_4",
+      "expression": "discount_paisa >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_5",
+      "expression": "delivery_fee_paisa >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_6",
+      "expression": "small_order_fee_paisa >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_7",
+      "expression": "tax_paisa >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_8",
+      "expression": "tip_paisa >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_9",
+      "expression": "total_paisa >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_10",
+      "expression": "fare_source IN ('BRAIN','FALLBACK','ADMIN_OVERRIDE')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_11",
+      "expression": "distance_source IN ('OSRM','ESTIMATED')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_12",
+      "expression": "prep_time_source IS NULL OR prep_time_source IN ('SUGGESTED','VENDOR_SET','DEFAULT')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_inline_13",
+      "expression": "payment_method = 'COD'",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_state_events",
+      "name": "chk_order_state_events_inline_1",
+      "expression": "actor_type IN ('CUSTOMER','VENDOR','RIDER','ADMIN','SYSTEM')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_items",
+      "name": "chk_order_items_inline_1",
+      "expression": "`unit_price_paisa` >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_items",
+      "name": "chk_order_items_inline_2",
+      "expression": "`quantity` BETWEEN 1 AND 20",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_items",
+      "name": "chk_order_items_inline_3",
+      "expression": "`line_total_paisa` >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_fees",
+      "name": "chk_order_fees_inline_1",
+      "expression": "`kind` IN ('DELIVERY','SMALL_ORDER','SURGE','PLATFORM','PACKAGING','TIP','WEATHER')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_fees",
+      "name": "chk_order_fees_inline_2",
+      "expression": "`amount_paisa` >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_discounts",
+      "name": "chk_order_discounts_inline_1",
+      "expression": "`source` IN ('PROMO','CAMPAIGN','LOYALTY','REFERRAL','MANUAL')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_discounts",
+      "name": "chk_order_discounts_inline_2",
+      "expression": "`amount_paisa` >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_discounts",
+      "name": "chk_order_discounts_inline_3",
+      "expression": "`funded_by` IN ('PLATFORM','VENDOR')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_proofs",
+      "name": "chk_order_proofs_inline_1",
+      "expression": "`kind` IN ('PICKUP_QR','DELIVERY_PHOTO','HANDOVER_SELFIE','CUSTOMER_SIGNATURE')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_cancellations",
+      "name": "chk_order_cancellations_inline_1",
+      "expression": "`actor_kind` IN ('CUSTOMER','VENDOR','RIDER','ADMIN','SYSTEM')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_cancellations",
+      "name": "chk_order_cancellations_inline_2",
+      "expression": "`refund_paisa` >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_ratings",
+      "name": "chk_order_ratings_inline_1",
+      "expression": "`target` IN ('VENDOR','RIDER')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_ratings",
+      "name": "chk_order_ratings_inline_2",
+      "expression": "`stars` BETWEEN 1 AND 5",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_disputes",
+      "name": "chk_order_disputes_inline_1",
+      "expression": "`opened_by_kind` IN ('CUSTOMER','VENDOR','RIDER','ADMIN')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_disputes",
+      "name": "chk_order_disputes_inline_2",
+      "expression": "`kind` IN ('WRONG_ITEM','MISSING_ITEM','COLD_FOOD','LATE','CASH_MISMATCH','DAMAGED','OTHER')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_disputes",
+      "name": "chk_order_disputes_inline_3",
+      "expression": "`status` IN ('OPEN','INVESTIGATING','RESOLVED','REJECTED')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_disputes",
+      "name": "chk_order_disputes_inline_4",
+      "expression": "`resolution_paisa` >= 0",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_dispute_messages",
+      "name": "chk_order_dispute_messages_inline_1",
+      "expression": "`author_kind` IN ('CUSTOMER','VENDOR','RIDER','ADMIN')",
+      "source": "006_orders.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_offers",
+      "name": "chk_order_offers_inline_1",
+      "expression": "response IS NULL OR response IN ('ACCEPTED','REJECTED','EXPIRED','WITHDRAWN')",
+      "source": "007_dispatch.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_assignments",
+      "name": "chk_order_assignments_inline_1",
+      "expression": "`end_reason` IN ('DELIVERED','REASSIGNED','CANCELLED','ABANDONED')",
+      "source": "007_dispatch.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_batches",
+      "name": "chk_order_batches_inline_1",
+      "expression": "`state` IN ('OPEN','DISPATCHED','COMPLETED','CANCELLED')",
+      "source": "007_dispatch.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "order_batches",
+      "name": "chk_order_batches_inline_2",
+      "expression": "`max_members` BETWEEN 1 AND 5",
+      "source": "007_dispatch.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "weather_observations",
+      "name": "chk_weather_observations_inline_1",
+      "expression": "`condition` IN ('CLEAR','CLOUDY','RAIN','HEAVY_RAIN','STORM','FOG','HEAT_WAVE')",
+      "source": "007_dispatch.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "ledger_accounts",
+      "name": "chk_ledger_accounts_inline_1",
+      "expression": "kind IN ('ASSET','LIABILITY','REVENUE','EXPENSE','EQUITY')",
+      "source": "008_ledger.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "ledger_accounts",
+      "name": "chk_ledger_accounts_inline_2",
+      "expression": "owner_type IN ('PLATFORM','VENDOR','RIDER','CUSTOMER')",
+      "source": "008_ledger.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rounding_adjustments",
+      "name": "chk_rounding_adjustments_inline_1",
+      "expression": "`delta_paisa` <= 0 AND `delta_paisa` > -100",
+      "source": "008_ledger.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "tax_records",
+      "name": "chk_tax_records_inline_1",
+      "expression": "`tax_kind` IN ('VAT','AIT')",
+      "source": "008_ledger.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "tax_records",
+      "name": "chk_tax_records_inline_2",
+      "expression": "`taxable_paisa` >= 0",
+      "source": "008_ledger.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "tax_records",
+      "name": "chk_tax_records_inline_3",
+      "expression": "`rate_bps` >= 0",
+      "source": "008_ledger.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "tax_records",
+      "name": "chk_tax_records_inline_4",
+      "expression": "`amount_paisa` >= 0",
+      "source": "008_ledger.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "payout_periods",
+      "name": "chk_payout_periods_inline_1",
+      "expression": "party_type IN ('VENDOR','RIDER')",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "payout_periods",
+      "name": "chk_payout_periods_inline_2",
+      "expression": "iso_week BETWEEN 1 AND 53",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "payout_periods",
+      "name": "chk_payout_periods_inline_3",
+      "expression": "status IN ('OPEN','GENERATING','GENERATED','CLOSED')",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "payout_transactions",
+      "name": "chk_payout_transactions_inline_1",
+      "expression": "`payee_kind` IN ('VENDOR','RIDER','PLATFORM')",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "payout_transactions",
+      "name": "chk_payout_transactions_inline_2",
+      "expression": "`amount_paisa` >= 0",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "payout_transactions",
+      "name": "chk_payout_transactions_inline_3",
+      "expression": "`method` IN ('BKASH','NAGAD','BANK','CASH')",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "payout_transactions",
+      "name": "chk_payout_transactions_inline_4",
+      "expression": "`status` IN ('QUEUED','SENT','FAILED','REVERSED','PAID')",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "invoices",
+      "name": "chk_invoices_inline_1",
+      "expression": "party_type IN ('VENDOR','RIDER')",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "invoices",
+      "name": "chk_invoices_inline_2",
+      "expression": "status IN ('DRAFT','GENERATED','VERIFIED','PAID','DISPUTED','VOID')",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "invoice_lines",
+      "name": "chk_invoice_lines_inline_1",
+      "expression": "`kind` IN ('ORDER_COMMISSION','DELIVERY_MARGIN','SUBVENTION','PENALTY','ADJUSTMENT','TAX','PAYOUT')",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "invoice_documents",
+      "name": "chk_invoice_documents_inline_1",
+      "expression": "`size_bytes` > 0 AND `size_bytes` <= 1048576",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "invoice_documents",
+      "name": "chk_invoice_documents_inline_2",
+      "expression": "`storage` IN ('CLOUDINARY','IMGBB','D1')",
+      "source": "009_invoices.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "promo_codes",
+      "name": "chk_promo_codes_inline_1",
+      "expression": "`kind` IN ('PERCENT','FLAT','FREE_DELIVERY')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "promo_codes",
+      "name": "chk_promo_codes_inline_2",
+      "expression": "`value_bps` BETWEEN 0 AND 10000",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "promo_codes",
+      "name": "chk_promo_codes_inline_3",
+      "expression": "`value_paisa` >= 0",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "promo_redemptions",
+      "name": "chk_promo_redemptions_inline_1",
+      "expression": "`discount_paisa` >= 0",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "campaigns",
+      "name": "chk_campaigns_inline_1",
+      "expression": "`kind` IN ('DISCOUNT','FREE_DELIVERY','BONUS','REFERRAL')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "campaign_budgets",
+      "name": "chk_campaign_budgets_inline_1",
+      "expression": "`budget_paisa` >= 0",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "campaign_budgets",
+      "name": "chk_campaign_budgets_inline_2",
+      "expression": "`spent_paisa` >= 0",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "campaign_redemptions",
+      "name": "chk_campaign_redemptions_inline_1",
+      "expression": "`amount_paisa` >= 0",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "referrals",
+      "name": "chk_referrals_inline_1",
+      "expression": "`status` IN ('PENDING','QUALIFIED','REWARDED','VOID')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "referrals",
+      "name": "chk_referrals_inline_2",
+      "expression": "`reward_paisa` >= 0",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "loyalty_tiers",
+      "name": "chk_loyalty_tiers_inline_1",
+      "expression": "`discount_bps` BETWEEN 0 AND 2000",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "customer_loyalty",
+      "name": "chk_customer_loyalty_inline_1",
+      "expression": "`points` >= 0",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "reminders",
+      "name": "chk_reminders_inline_1",
+      "expression": "`kind` IN ('CART_ABANDONED','RATING_PENDING','ORDER_AGAIN','CASH_DUE','SHIFT_START')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "reminders",
+      "name": "chk_reminders_inline_2",
+      "expression": "`status` IN ('SCHEDULED','SENT','CANCELLED','FAILED')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "reminder_sends",
+      "name": "chk_reminder_sends_inline_1",
+      "expression": "`channel` IN ('FCM','SMS')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "reminder_sends",
+      "name": "chk_reminder_sends_inline_2",
+      "expression": "`outcome` IN ('DELIVERED','FAILED','SUPPRESSED')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "support_tickets",
+      "name": "chk_support_tickets_inline_1",
+      "expression": "`requester_kind` IN ('CUSTOMER','VENDOR','RIDER','GUEST')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "support_tickets",
+      "name": "chk_support_tickets_inline_2",
+      "expression": "`priority` IN ('LOW','NORMAL','HIGH','URGENT')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "support_tickets",
+      "name": "chk_support_tickets_inline_3",
+      "expression": "`status` IN ('OPEN','PENDING','RESOLVED','CLOSED')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "support_messages",
+      "name": "chk_support_messages_inline_1",
+      "expression": "`author_kind` IN ('CUSTOMER','VENDOR','RIDER','AGENT','SYSTEM')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "exceptions",
+      "name": "chk_exceptions_inline_1",
+      "expression": "`kind` IN ('STUCK_ORDER','CASH_SHORT','OFFER_LOOP','LATE_PICKUP','PAYOUT_FAILED','SCHEMA_DRIFT','AUDIT_GAP')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "exceptions",
+      "name": "chk_exceptions_inline_2",
+      "expression": "`severity` IN ('INFO','WARN','ERROR','CRITICAL')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "exceptions",
+      "name": "chk_exceptions_inline_3",
+      "expression": "`status` IN ('OPEN','ACKNOWLEDGED','RESOLVED','IGNORED')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "notification_log",
+      "name": "chk_notification_log_inline_1",
+      "expression": "`channel` IN ('FCM','SMS','EMAIL')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "notification_log",
+      "name": "chk_notification_log_inline_2",
+      "expression": "`outcome` IN ('SENT','DELIVERED','FAILED','SUPPRESSED')",
+      "source": "010_support.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "brain_traces",
+      "name": "chk_brain_traces_inline_1",
+      "expression": "kind IN ('FARE','DISPATCH','BATCH','RANK','FORECAST','PREPTIME')",
+      "source": "011_brain.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "ops_logs",
+      "name": "chk_ops_logs_inline_1",
+      "expression": "`level` IN ('DEBUG','INFO','WARN','ERROR')",
+      "source": "011_brain.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "effect_dead_letters",
+      "name": "chk_effect_dead_letters_inline_1",
+      "expression": "`status` IN ('PENDING','REPLAYED','ABANDONED')",
+      "source": "011_brain.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_total_whole_taka",
+      "expression": "MOD(`total_paisa`, 100) = 0",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_rounding_bounded",
+      "expression": "`rounding_paisa` BETWEEN -99 AND 99",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_total_covers_subtotal",
+      "expression": "`total_paisa` >= `subtotal_paisa` - `discount_paisa`",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "orders",
+      "name": "chk_orders_delivery_has_point",
+      "expression": "`fulfilment` = 'PICKUP' OR `delivery_lat_e7` IS NOT NULL",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "order_items",
+      "name": "chk_order_items_line_total",
+      "expression": "`line_total_paisa` = `unit_price_paisa` * `quantity`",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "order_fees",
+      "name": "chk_order_fees_tip_has_no_rate",
+      "expression": "NOT (`kind` = 'TIP' AND `rate_bps` IS NOT NULL)",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "ledger_postings",
+      "name": "chk_ledger_postings_nonzero",
+      "expression": "`amount_paisa` <> 0",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "ledger_entries",
+      "name": "chk_ledger_entries_reversal_not_self",
+      "expression": "`reverses_id` IS NULL OR `reverses_id` <> `id`",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "invoices",
+      "name": "chk_invoices_net_not_negative",
+      "expression": "`net_payable_paisa` >= 0",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "invoices",
+      "name": "chk_invoices_pdf_bounded",
+      "expression": "`pdf_bytes` IS NULL OR (`pdf_bytes` > 0 AND `pdf_bytes` <= 1048576)",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "audit_log",
+      "name": "chk_audit_log_hash_len",
+      "expression": "OCTET_LENGTH(`hash`) = 32",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "audit_log",
+      "name": "chk_audit_log_prev_hash_len",
+      "expression": "`prev_hash` IS NULL OR OCTET_LENGTH(`prev_hash`) = 32",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "generation_locks",
+      "name": "chk_generation_lock_lease_after_creation",
+      "expression": "`lease_until` > `created_at`",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "rider_cash_settlements",
+      "name": "chk_cash_settlement_reference",
+      "expression": "`method` = 'CASH_TO_OPS' OR `trx_id` IS NOT NULL",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "payout_transactions",
+      "name": "chk_payout_sent_has_time",
+      "expression": "`status` NOT IN ('SENT','PAID') OR `sent_at` IS NOT NULL",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    },
+    {
+      "table": "vendor_commission_overrides",
+      "name": "chk_commission_window_ordered",
+      "expression": "`effective_to` IS NULL OR `effective_to` > `effective_from`",
+      "source": "012_constraints_deferred.sql",
+      "origin": "deferred"
+    }
+  ]
+}

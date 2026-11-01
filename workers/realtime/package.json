@@ -11,6 +11,12 @@
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@undal/contracts": "workspace:*" },
-  "devDependencies": { "@types/node": "22.7.4", "wrangler": "3.80.4" }
+  "dependencies": {
+    "@undal/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20241022.0",
+    "@types/node": "22.7.4",
+    "wrangler": "3.80.4"
+  }
 }

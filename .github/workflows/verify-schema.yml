@@ -29,4 +29,4 @@ jobs:
       - name: Compare live schema to docs/schema/expected.json
         env:
           TIDB_MIGRATION_URL: ${{ secrets.TIDB_MIGRATION_URL }}
-        run: python3 scripts/db/verify-schema.py --expected docs/schema/expected.json
+        run: python3 scripts/db/verify_schema.py --expected docs/schema/expected.json

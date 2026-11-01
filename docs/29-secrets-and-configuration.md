@@ -197,7 +197,9 @@ CREATE TABLE `platform_config` (
   `effective_at` DATETIME(6)  NOT NULL,      -- UTC; connections pin time_zone='+00:00'
   `created_by`   BINARY(16)   NOT NULL,
   `reason`       VARCHAR(255) NOT NULL,
-  PRIMARY KEY (`key`, `zone_id`, `effective_at` DESC)
+  -- Ascending, because a primary key column cannot be DESC. "Latest value for this key"
+  -- is a backward index scan on the same key, which TiDB serves without a second index.
+  PRIMARY KEY (`key`, `zone_id`, `effective_at`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 ```
 

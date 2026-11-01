@@ -152,6 +152,10 @@ def rel_is_generated(rel: str) -> bool:
         "/generated/" in lowered
         or lowered.endswith(".generated.ts")
         or lowered.endswith(".generated.kt")
+        # A `generated.ts` written by a committed generator: its length is the
+        # number of rules in the schema, so a 700-line cap would be a cap on how
+        # many invariants the database is allowed to declare.
+        or lowered.endswith("/generated.ts")
         or lowered.startswith("packages/contracts/openapi.json")
     )
 

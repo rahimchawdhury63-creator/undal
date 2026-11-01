@@ -98,12 +98,21 @@ def check(root: Path) -> list[Finding]:
 
     corpus = _reference_corpus(root)
     scripts = [p for p in walk(root / "scripts", {".py", ".mjs", ".sh"}) if read(p)]
-    for path in scripts:
-        rel = relative(path, root)
-        if rel.startswith("scripts/guardrails/"):
+    sources = {relative(path, root): read(path) for path in scripts}
+    for rel, text in sources.items():
+        if rel.startswith("scripts/guardrails/") and rel != "scripts/guardrails/run.py":
             # The runner imports these; the runner itself must be referenced.
-            if rel != "scripts/guardrails/run.py":
-                continue
-        if rel not in corpus:
-            findings.append(Finding("no-local-tooling", rel, 0, "no workflow or manifest invokes this script"))
+            continue
+        if rel in corpus:
+            continue
+        module = rel.rsplit(".", 1)[0].replace("/", ".")
+        imported_elsewhere = any(
+            module in body or module.rsplit(".", 1)[-1] in body
+            for other, body in sources.items()
+            if other != rel
+        )
+        discovered_as_test = "/test_" in rel and "unittest" in corpus
+        if imported_elsewhere or discovered_as_test:
+            continue
+        findings.append(Finding("no-local-tooling", rel, 0, "no workflow or manifest invokes this script"))
     return findings

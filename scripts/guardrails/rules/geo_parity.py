@@ -15,6 +15,7 @@ refuses any mismatch.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from lib import Finding, read
@@ -23,6 +24,10 @@ from lib import Finding, read
 def check(root: Path) -> list[Finding]:
     artifact = root / ".artifacts" / "geo" / "parity.json"
     if not artifact.is_file():
+        if os.environ.get("GEO_PARITY_REQUIRED") == "1":
+            # In CI the probe runs just before this rule, so a missing artifact
+            # means the probe crashed — the one case where silence is a lie.
+            return [Finding("geo-parity", ".artifacts/geo/parity.json", 0, "parity artifact is missing; scripts/geo/parity.py did not run")]
         return []
     findings: list[Finding] = []
     rel = artifact.relative_to(root).as_posix()

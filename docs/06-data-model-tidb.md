@@ -230,7 +230,12 @@ actually checked" is not a state the platform can be in.
 | Money | `ledger_accounts`, `ledger_entries`, `ledger_postings`, `payout_periods`, `invoices`, `invoice_lines`, `invoice_documents`, `payout_transactions`, `platform_config`, `config_audit`, `tax_records`, `rounding_adjustments` | 12 |
 | Marketing | `promo_codes`, `promo_redemptions`, `campaigns`, `campaign_budgets`, `campaign_redemptions`, `referrals`, `loyalty_tiers`, `customer_loyalty`, `reminders`, `reminder_sends` | 10 |
 | Operations | `audit_log`, `audit_verifications`, `ops_errors`, `ops_metrics`, `ops_logs`, `effect_dead_letters`, `brain_traces`, `dispatch_locks`, `generation_locks`, `exceptions`, `support_tickets`, `support_messages`, `weather_observations`, `notification_log` | 14 |
-| **Total** | | **99** |
+| **Total** | | **109** |
+
+> The rows above sum to 109, not the 99 this table used to claim: the per-group counts were
+> always right and the total was an arithmetic slip, recorded as D43 in `_plan/DECISIONS.md`.
+> The migrations implement the 109 names, and `check_schema_parity` fails the build if the two
+> lists ever disagree again.
 
 Three tables are new, and all three exist because a database mechanism went away rather than
 because a feature arrived:
@@ -241,7 +246,7 @@ because a feature arrived:
 | `audit_verifications` | Nothing — it is new. It records every run of the audit-chain verifier so that a **gap in verification** is itself detectable, which matters more now that the WORM trigger is gone | [`27 §4.2`](27-security-rbac-audit.md) |
 | `generation_locks` | `pg_advisory_lock`, used by invoice generation. MySQL's `GET_LOCK()` is session-scoped and the HTTP driver has no durable session, so the lock becomes a row with a lease | [`24 §4.1`](24-finance-payouts-invoices.md) |
 
-No business table was added, renamed or removed. The 96 tables that modelled the platform still
+No business table was added, renamed or removed. The 106 tables that modelled the platform still
 model the platform.
 
 ---

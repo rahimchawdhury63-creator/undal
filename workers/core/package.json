@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "undal-core \u2014 the catalogue, order lifecycle, cash and admin API.",
+  "description": "undal-core — the catalogue, order lifecycle, cash and admin API.",
   "license": "LicenseRef-PASVL-1.0",
   "scripts": {
     "dev": "wrangler dev",
@@ -16,7 +16,8 @@
     "@undal/money": "workspace:*"
   },
   "devDependencies": {
-    "wrangler": "3.80.4",
-    "@types/node": "22.7.4"
+    "@cloudflare/workers-types": "4.20241022.0",
+    "@types/node": "22.7.4",
+    "wrangler": "3.80.4"
   }
 }
