@@ -85,7 +85,7 @@ consequence of the register, not a target the register was built to hit.
 
 ### 3.1 Roles
 
-Seven system roles, created **by migration as schema** ([`06`](06-data-model-cockroachdb.md)) and
+Seven system roles, created **by migration as schema** ([`06`](06-data-model-tidb.md)) and
 therefore not seed data:
 
 | Role | Scope |
@@ -174,7 +174,7 @@ A Leaflet editor with:
 
 ### 5.2 Pricing matrix
 
-Per zone, temporally versioned ([`06`](06-data-model-cockroachdb.md) — new row, never mutate):
+Per zone, temporally versioned ([`06`](06-data-model-tidb.md) — new row, never mutate):
 base fares, per-km rates, included distance, traffic compensation, minimum and maximum delivery
 fee, bicycle radius, motorbike radius, commission rate, tax rate, small-order threshold and fee,
 rider bonus rate, weather premiums, surge band parameters.

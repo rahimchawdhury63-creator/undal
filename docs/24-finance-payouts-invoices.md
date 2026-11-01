@@ -109,7 +109,7 @@ platform keeps **৳72.72** gross, of which **৳3.64** is tax payable, leaving 
 > **Note for the building agent.** This section is the authority for order postings. Where a
 > worked figure elsewhere in the corpus disagrees — in particular the tax lines in the forty fare
 > vectors of [`10 §12`](10-fare-engine-math.md) and the example in
-> [`06 §8.2`](06-data-model-cockroachdb.md), some of which were drafted with a taxable base that
+> [`06 §8.2`](06-data-model-tidb.md), some of which were drafted with a taxable base that
 > wrongly included the rider bonus — recompute from the formulas in
 > [`10 §3`–`§10`](10-fare-engine-math.md) under the three invariants above and treat the printed
 > figure as prose error, not as a rule. The implementation must make `ledger-closure` pass; a

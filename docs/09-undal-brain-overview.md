@@ -299,7 +299,7 @@ samples.
 
 ## 6. Traces: how every decision explains itself
 
-Every Brain call writes a `brain_traces` row ([`06 §9`](06-data-model-cockroachdb.md)).
+Every Brain call writes a `brain_traces` row ([`06 §9`](06-data-model-tidb.md)).
 
 ```jsonc
 {

@@ -3,7 +3,7 @@ Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.
 SPDX-License-Identifier: LicenseRef-PASVL-1.0
 -->
 
-# 06 — Data Model (CockroachDB)
+# 06 — Data Model (TiDB)
 
 > The system of record. 96 tables, serializable isolation, integer-paisa money, spatial types for
 > zones and proximity. Migrations are numbered SQL files applied by a GitHub Actions workflow — no

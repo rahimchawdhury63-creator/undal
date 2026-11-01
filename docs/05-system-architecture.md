@@ -448,7 +448,7 @@ TLS verification uses the cluster CA. The certificate is **embedded at build tim
 `COCKROACH_CA_CERT` secret rather than fetched at runtime, because a Worker cannot write to
 `$HOME/.postgresql/` and a runtime fetch is both a latency cost and an availability dependency.
 
-Full schema: [`06`](06-data-model-cockroachdb.md).
+Full schema: [`06`](06-data-model-tidb.md).
 
 ### 6.2 Cloudflare D1 — the live-location channel
 
@@ -615,7 +615,7 @@ the production deploy workflow. See [`28 §9`](28-cicd-github-actions.md).
 
 ## 13. Reading on
 
-Next: [`06-data-model-cockroachdb.md`](06-data-model-cockroachdb.md) — all 96 tables.
+Next: [`06-data-model-tidb.md`](06-data-model-tidb.md) — all 96 tables.
 
 ---
 

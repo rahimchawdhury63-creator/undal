@@ -374,7 +374,7 @@ on:
 | Verification | `verify-schema.yml` runs afterwards and compares the live schema against `docs/schema/expected.json`, failing on any drift |
 | Summary | Statements executed, rows affected, duration, and the new schema hash, all in the job summary |
 
-The twelve migrations are listed in [`06`](06-data-model-cockroachdb.md).
+The twelve migrations are listed in [`06`](06-data-model-tidb.md).
 
 ---
 

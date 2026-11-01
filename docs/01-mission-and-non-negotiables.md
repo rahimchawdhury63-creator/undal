@@ -389,7 +389,7 @@ Every document in this corpus refers back to these states. This is the canonical
 
 The full state machine, with the transition table, the guard conditions, the events emitted, and the
 compensating ledger postings for every reversal, is in
-[`06-data-model-cockroachdb.md §7`](06-data-model-cockroachdb.md) and
+[`06-data-model-tidb.md §7`](06-data-model-tidb.md) and
 [`08-api-contract.md §6`](08-api-contract.md).
 
 ---

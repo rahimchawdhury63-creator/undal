@@ -423,7 +423,7 @@ normal (a customer with no change); systematic ones are not.
 
 ## 6. State transitions → effects
 
-The complete effect table. This is what [`06 §7.3`](06-data-model-cockroachdb.md)'s transitions
+The complete effect table. This is what [`06 §7.3`](06-data-model-tidb.md)'s transitions
 actually do.
 
 | Transition | FCM | SSE events | Ledger | Other |

@@ -237,7 +237,7 @@ already expects is missing, and an argument for where Undal goes further.
 | Collapsing cover header | Cover photo collapses to a title bar on scroll | **Take**, continuously driven (reference B §4.2.2). |
 | Sticky category tabs | Menu sections become sticky tabs that track scroll | **Take**, with two-way binding: scrolling moves the tab, tapping the tab scrolls. |
 | Dish bottom sheet | Half-sheet with image, description, modifiers, quantity, add button | **Take**, with the shared-element flight from reference A §3.2.4. |
-| Required / optional modifier groups | Radio for required, checkbox for optional, min/max enforcement | **Take**, fully modelled in the schema ([`06 §5`](06-data-model-cockroachdb.md)). |
+| Required / optional modifier groups | Radio for required, checkbox for optional, min/max enforcement | **Take**, fully modelled in the schema ([`06 §5`](06-data-model-tidb.md)). |
 | Special instructions | Free text per item | **Take**, with a 140-character limit and an allergy quick-chip row. |
 | Out-of-stock items | Greyed with a label | **Take**, plus a "notify me" that uses the customer's existing FCM token at no cost. |
 | Cart persistence per vendor | One open cart per vendor; switching warns | **Take.** Undal allows up to 3 parked carts and surfaces them in a drawer. |

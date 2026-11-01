@@ -206,7 +206,7 @@ It will be wrong somewhere. Forty documents written ahead of implementation alwa
 | Situation | Action |
 | --- | --- |
 | A stated number is arithmetically wrong | **The tests are the arbiter.** Recompute from the formulas, fix the document, note it in the response summary. [`24 §2.3`](24-finance-payouts-invoices.md) is the worked example of this |
-| Two documents disagree | The more specific one wins: [`24`](24-finance-payouts-invoices.md) over [`10`](10-fare-engine-math.md) for postings; [`10`](10-fare-engine-math.md) over everything for fare formulas; [`06`](06-data-model-cockroachdb.md) over everything for schema |
+| Two documents disagree | The more specific one wins: [`24`](24-finance-payouts-invoices.md) over [`10`](10-fare-engine-math.md) for postings; [`10`](10-fare-engine-math.md) over everything for fare formulas; [`06`](06-data-model-tidb.md) over everything for schema |
 | A design cannot be implemented as specified | Implement the **intent**, document the deviation, and explain the constraint that forced it |
 | A free-tier limit makes something impossible | Say so plainly, implement the best available alternative, and record it in [`39`](39-risk-register-and-truths.md) |
 | A requirement conflicts with user safety or honesty | Safety and honesty win. Explain why in the response |
