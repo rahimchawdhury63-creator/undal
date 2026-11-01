@@ -274,6 +274,15 @@ trigger test.
 
 ### R7 · Brain: fare engine — B5 · 50 files · 12 000 lines
 
+> **Progress.** R7a (this response): `lib/paisa.py` (the Brain's own copy of the money law, with a
+> parity test against the package the differential holds), `fare/constants.py` (every value of
+> `10 §2`, with the traffic block *derived*), `fare/surge.py` (bands, bridges, hysteresis),
+> `fare/ride_core.py`, `fare/delivery_fee.py`; `test/test_surge_curve.py` (20 001 sweep points,
+> four properties, the documented table) and `test/test_fare_core.py` (vector 01 by hand, traffic
+> blocking, clamps, paisa parity). Vector 01 reproduces to the paisa: core 6 520, fee 7 042,
+> margin 522. Remaining for the R7 gate: `rider_payout`, `small_order`, `tax`, `assemble`,
+> `explain`, `bundle`, `engine` + `main.py` dispatch, the 40 vectors, and the 25 money properties.
+
 - `workers/brain/src/` — `main.py` (engine dispatch, 400 ms budget), `lib/{paisa,geo,stats,time}.py`,
   `fare/{constants,surge,ride_core,delivery_fee,rider_payout,small_order,tax,assemble,explain,
   bundle,engine}.py`

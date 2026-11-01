@@ -40,6 +40,8 @@ export interface DeliveredInput {
   readonly smallOrderFeePaisa?: number;
   /** The part of the small-order fee that goes to the rider. */
   readonly smallOrderRiderSharePaisa?: number;
+  /** The part that goes to the vendor, who is owed more because of it. */
+  readonly smallOrderVendorSharePaisa?: number;
 }
 
 /** The arithmetic a delivered order implies, exported so the invoice and the app agree. */
@@ -52,6 +54,7 @@ export interface DeliveredBreakdown {
   readonly riderBonusPaisa: number;
   readonly taxableBasePaisa: number;
   readonly taxPaisa: number;
+  readonly smallOrderVendorPaisa: number;
   readonly smallOrderPlatformPaisa: number;
   readonly rawTotalPaisa: number;
   readonly cashCollectedPaisa: number;
@@ -68,7 +71,10 @@ export function deliveredBreakdown(input: DeliveredInput): DeliveredBreakdown {
   const tip = input.tipPaisa ?? 0;
   const smallOrderFee = input.smallOrderFeePaisa ?? 0;
   const smallOrderShare = input.smallOrderRiderSharePaisa ?? 0;
-  const smallOrderPlatform = smallOrderFee - smallOrderShare;
+  const smallOrderVendor = input.smallOrderVendorSharePaisa ?? 0;
+  // `10 §8`: the fee is split three ways, and the platform keeps only what is left. A
+  // two-way split here would quietly move the vendor's ৳5 onto the platform's revenue line.
+  const smallOrderPlatform = smallOrderFee - smallOrderShare - smallOrderVendor;
 
   const platformDeliveryMarginPaisa = applyRate(input.rideCorePaisa, DELIVERY_MARGIN_BPS);
   const deliveryFeePaisa = input.rideCorePaisa + platformDeliveryMarginPaisa;
@@ -89,6 +95,7 @@ export function deliveredBreakdown(input: DeliveredInput): DeliveredBreakdown {
     riderBonusPaisa,
     taxableBasePaisa,
     taxPaisa,
+    smallOrderVendorPaisa: smallOrderVendor,
     smallOrderPlatformPaisa: smallOrderPlatform,
     rawTotalPaisa,
     cashCollectedPaisa: floored.total,
@@ -112,7 +119,7 @@ export function orderDelivered(input: DeliveredInput): PostingSet {
     { account: riderCashAccount(input.riderId), amountPaisa: money.cashCollectedPaisa },
     {
       account: vendorAccount(input.vendorId),
-      amountPaisa: -(money.subtotalPaisa - money.commissionPaisa - money.riderBonusPaisa),
+      amountPaisa: -(money.subtotalPaisa - money.commissionPaisa - money.riderBonusPaisa + money.smallOrderVendorPaisa),
     },
     { account: riderAccount(input.riderId), amountPaisa: -(money.rideCorePaisa + money.riderBonusPaisa + tip) },
     { account: PLATFORM_ACCOUNTS.REVENUE_COMMISSION, amountPaisa: -money.commissionPaisa },

@@ -79,7 +79,11 @@ function randomSet(rng: Lcg): PostingSet {
         rideCorePaisa: rideCore,
         ...(rng.chance(1, 2) ? { tipPaisa: rng.between(0, 20_000) } : {}),
         ...(rng.chance(1, 3)
-          ? { smallOrderFeePaisa: 2_500, smallOrderRiderSharePaisa: rng.between(0, 2_500) }
+          ? {
+              smallOrderFeePaisa: 2_500,
+              smallOrderRiderSharePaisa: rng.between(0, 1_000),
+              smallOrderVendorSharePaisa: rng.between(0, 1_000),
+            }
           : {}),
       });
     case 3:

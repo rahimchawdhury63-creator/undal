@@ -502,3 +502,32 @@ ledger owns the arithmetic. Keeping them apart means the exception is testable w
 admin panel's "verify now" button and the nightly sweep call the same function, and a caught
 in-memory imbalance produces the *same* exception shape as a drifted trial balance — one alarm with
 two detection paths rather than two alarms that can disagree about severity.
+
+## D56 — The small-order fee splits three ways, and the vendor is one of the three
+
+**Decision.** `ORDER_DELIVERED` credits the vendor's share of the order fee through the vendor's
+line (`subtotal − commission − bonus + vendor_share`) and books only
+`fee − rider_share − vendor_share` as `PLATFORM:REVENUE_SMALL_ORDER`.
+
+**Rejected.** The two-way split the ledger had: platform gets `fee − rider_share`, vendor gets
+nothing.
+
+**Why.** `10 §8` and `§12.1` both print ৳25 as ৳5 rider + ৳5 vendor + ৳15 platform, and the fare
+engine's vendor payout carries the vendor's ৳5. The ledger disagreed with the engine by exactly
+that ৳5 — every posting set still closed, because closure only says the totals agree, not that they
+agree with the *right* people. Found by writing the fare engine's constants next to the ledger's
+small-order lines, which is the check that no property test performs: the two modules were each
+internally consistent and mutually wrong.
+
+## D57 — At SDR 0.50 the bridge lands on 1.475×, not the table's 1.48×
+
+**Decision.** `surge_bps(0.50)` returns 14 750, the value the printed function computes from the
+bridge between the severe and moderate bands.
+
+**Rejected.** Forcing 14 800 to match the row the table prints.
+
+**Why.** `10 §4.3`'s table and `10 §4.2`'s code disagree by 50 bps at exactly one point, because
+the table's author rounded 1.475 to two decimals while writing it. The code is the specification
+here — it is the thing that ships, it is continuous by construction, and a table row is a
+human-written summary of it. The test names the point and states which side it took, so the next
+reader does not have to re-derive the disagreement.

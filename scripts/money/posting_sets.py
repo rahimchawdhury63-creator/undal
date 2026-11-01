@@ -53,13 +53,13 @@ def _postings(pairs: list[tuple[str, int]]) -> list[dict[str, Any]]:
     return out
 
 
-def delivered(subtotal: int, ride_core: int, tip: int = 0, fee: int = 0, share: int = 0) -> dict[str, Any]:
+def delivered(subtotal: int, ride_core: int, tip: int = 0, fee: int = 0, share: int = 0, vendor_share: int = 0) -> dict[str, Any]:
     """`24 §2.1` and `§2.2`, with the tip and the small-order fee inside the collected cash."""
     margin = apply_rate(ride_core, DELIVERY_MARGIN_BPS)
     delivery_fee = ride_core + margin
     commission = apply_rate(subtotal, COMMISSION_BPS)
     bonus = apply_rate(subtotal, RIDER_BONUS_BPS)
-    small_platform = fee - share
+    small_platform = fee - share - vendor_share
     taxable = commission + margin + small_platform
     tax = apply_rate(taxable, TAX_BPS)
     raw_total = subtotal + delivery_fee + tax + tip + fee
@@ -67,7 +67,7 @@ def delivered(subtotal: int, ride_core: int, tip: int = 0, fee: int = 0, share: 
 
     pairs = [
         (f"RIDER_CASH:{RIDER}", cash),
-        (f"VENDOR:{VENDOR}", -(subtotal - commission - bonus)),
+        (f"VENDOR:{VENDOR}", -(subtotal - commission - bonus + vendor_share)),
         (f"RIDER:{RIDER}", -(ride_core + bonus + tip)),
         ("PLATFORM:REVENUE_COMMISSION", -commission),
         ("PLATFORM:REVENUE_DELIVERY_MARGIN", -margin),
@@ -92,6 +92,7 @@ def delivered(subtotal: int, ride_core: int, tip: int = 0, fee: int = 0, share: 
             "rider_bonus_paisa": bonus,
             "taxable_base_paisa": taxable,
             "tax_paisa": tax,
+            "small_order_vendor_paisa": vendor_share,
             "small_order_platform_paisa": small_platform,
             "raw_total_paisa": raw_total,
             "cash_collected_paisa": cash,
@@ -177,8 +178,14 @@ def build_cases() -> list[dict[str, Any]]:
     tipped = {"subtotal_paisa": 38_000, "ride_core_paisa": 7_200, "tip_paisa": 3_000}
     add("delivered-07", "Delivered with a ৳30 tip", tipped, delivered(38_000, 7_200, tip=3_000))
 
-    fee_only = {"subtotal_paisa": 8_200, "ride_core_paisa": 4_000, "small_order_fee_paisa": 2_500, "small_order_rider_share_paisa": 500}
-    add("delivered-08", "Small order: ৳25 fee, ৳5 to the rider", fee_only, delivered(8_200, 4_000, fee=2_500, share=500))
+    fee_only = {
+        "subtotal_paisa": 8_200,
+        "ride_core_paisa": 4_000,
+        "small_order_fee_paisa": 2_500,
+        "small_order_rider_share_paisa": 500,
+        "small_order_vendor_share_paisa": 500,
+    }
+    add("delivered-08", "Small order: ৳25 fee, ৳5 to the rider, ৳5 to the vendor", fee_only, delivered(8_200, 4_000, fee=2_500, share=500, vendor_share=500))
 
     both = {
         "subtotal_paisa": 15_000,
@@ -186,8 +193,9 @@ def build_cases() -> list[dict[str, Any]]:
         "tip_paisa": 1_000,
         "small_order_fee_paisa": 2_500,
         "small_order_rider_share_paisa": 500,
+        "small_order_vendor_share_paisa": 500,
     }
-    add("delivered-09", "Small order with a tip", both, delivered(15_000, 5_500, tip=1_000, fee=2_500, share=500))
+    add("delivered-09", "Small order with a tip", both, delivered(15_000, 5_500, tip=1_000, fee=2_500, share=500, vendor_share=500))
 
     add("pickup-01", "Pickup, no fee", {"subtotal_paisa": 20_000}, pickup(20_000))
     add("pickup-02", "Pickup, ৳20 fee, no rider share collected", {"subtotal_paisa": 8_500, "small_order_fee_paisa": 2_000}, pickup(8_500, fee=2_000))

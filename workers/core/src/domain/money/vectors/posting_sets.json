@@ -51,6 +51,7 @@
         "rider_bonus_paisa": 1350,
         "taxable_base_paisa": 7272,
         "tax_paisa": 364,
+        "small_order_vendor_paisa": 0,
         "small_order_platform_paisa": 0,
         "raw_total_paisa": 52406,
         "cash_collected_paisa": 52400,
@@ -105,6 +106,7 @@
         "rider_bonus_paisa": 750,
         "taxable_base_paisa": 4134,
         "tax_paisa": 207,
+        "small_order_vendor_paisa": 0,
         "small_order_platform_paisa": 0,
         "raw_total_paisa": 30391,
         "cash_collected_paisa": 30300,
@@ -159,6 +161,7 @@
         "rider_bonus_paisa": 7500,
         "taxable_base_paisa": 39260,
         "tax_paisa": 1963,
+        "small_order_vendor_paisa": 0,
         "small_order_platform_paisa": 0,
         "raw_total_paisa": 275723,
         "cash_collected_paisa": 275700,
@@ -213,6 +216,7 @@
         "rider_bonus_paisa": 90,
         "taxable_base_paisa": 650,
         "tax_paisa": 32,
+        "small_order_vendor_paisa": 0,
         "small_order_platform_paisa": 0,
         "raw_total_paisa": 5732,
         "cash_collected_paisa": 5700,
@@ -267,6 +271,7 @@
         "rider_bonus_paisa": 4500,
         "taxable_base_paisa": 23220,
         "tax_paisa": 1161,
+        "small_order_vendor_paisa": 0,
         "small_order_platform_paisa": 0,
         "raw_total_paisa": 160881,
         "cash_collected_paisa": 160800,
@@ -317,6 +322,7 @@
         "rider_bonus_paisa": 1320,
         "taxable_base_paisa": 6952,
         "tax_paisa": 348,
+        "small_order_vendor_paisa": 0,
         "small_order_platform_paisa": 0,
         "raw_total_paisa": 49100,
         "cash_collected_paisa": 49100,
@@ -372,6 +378,7 @@
         "rider_bonus_paisa": 1140,
         "taxable_base_paisa": 6276,
         "tax_paisa": 314,
+        "small_order_vendor_paisa": 0,
         "small_order_platform_paisa": 0,
         "raw_total_paisa": 49090,
         "cash_collected_paisa": 49000,
@@ -381,12 +388,13 @@
     {
       "id": "delivered-08",
       "builder": "delivered",
-      "title": "Small order: ৳25 fee, ৳5 to the rider",
+      "title": "Small order: ৳25 fee, ৳5 to the rider, ৳5 to the vendor",
       "inputs": {
         "subtotal_paisa": 8200,
         "ride_core_paisa": 4000,
         "small_order_fee_paisa": 2500,
-        "small_order_rider_share_paisa": 500
+        "small_order_rider_share_paisa": 500,
+        "small_order_vendor_share_paisa": 500
       },
       "entry_type": "ORDER_DELIVERED",
       "postings": [
@@ -396,7 +404,7 @@
         },
         {
           "code": "VENDOR:0193f2a1-7c3e-7890-abcd-ef0123456789",
-          "amount_paisa": -6724
+          "amount_paisa": -7224
         },
         {
           "code": "RIDER:0193f2a1-7c3e-7890-abcd-ef01234567bb",
@@ -412,11 +420,11 @@
         },
         {
           "code": "PLATFORM:TAX_PAYABLE",
-          "amount_paisa": -178
+          "amount_paisa": -152
         },
         {
           "code": "PLATFORM:EXPENSE_ROUNDING",
-          "amount_paisa": 98
+          "amount_paisa": 72
         },
         {
           "code": "RIDER:0193f2a1-7c3e-7890-abcd-ef01234567bb",
@@ -424,7 +432,7 @@
         },
         {
           "code": "PLATFORM:REVENUE_SMALL_ORDER",
-          "amount_paisa": -2000
+          "amount_paisa": -1500
         }
       ],
       "breakdown": {
@@ -434,12 +442,13 @@
         "delivery_fee_paisa": 4320,
         "commission_paisa": 1230,
         "rider_bonus_paisa": 246,
-        "taxable_base_paisa": 3550,
-        "tax_paisa": 178,
-        "small_order_platform_paisa": 2000,
-        "raw_total_paisa": 15198,
+        "taxable_base_paisa": 3050,
+        "tax_paisa": 152,
+        "small_order_vendor_paisa": 500,
+        "small_order_platform_paisa": 1500,
+        "raw_total_paisa": 15172,
         "cash_collected_paisa": 15100,
-        "rounding_delta_paisa": -98
+        "rounding_delta_paisa": -72
       }
     },
     {
@@ -451,7 +460,8 @@
         "ride_core_paisa": 5500,
         "tip_paisa": 1000,
         "small_order_fee_paisa": 2500,
-        "small_order_rider_share_paisa": 500
+        "small_order_rider_share_paisa": 500,
+        "small_order_vendor_share_paisa": 500
       },
       "entry_type": "ORDER_DELIVERED",
       "postings": [
@@ -461,7 +471,7 @@
         },
         {
           "code": "VENDOR:0193f2a1-7c3e-7890-abcd-ef0123456789",
-          "amount_paisa": -12300
+          "amount_paisa": -12800
         },
         {
           "code": "RIDER:0193f2a1-7c3e-7890-abcd-ef01234567bb",
@@ -477,11 +487,11 @@
         },
         {
           "code": "PLATFORM:TAX_PAYABLE",
-          "amount_paisa": -234
+          "amount_paisa": -210
         },
         {
           "code": "PLATFORM:EXPENSE_ROUNDING",
-          "amount_paisa": 74
+          "amount_paisa": 50
         },
         {
           "code": "RIDER:0193f2a1-7c3e-7890-abcd-ef01234567bb",
@@ -489,7 +499,7 @@
         },
         {
           "code": "PLATFORM:REVENUE_SMALL_ORDER",
-          "amount_paisa": -2000
+          "amount_paisa": -1500
         }
       ],
       "breakdown": {
@@ -499,12 +509,13 @@
         "delivery_fee_paisa": 5940,
         "commission_paisa": 2250,
         "rider_bonus_paisa": 450,
-        "taxable_base_paisa": 4690,
-        "tax_paisa": 234,
-        "small_order_platform_paisa": 2000,
-        "raw_total_paisa": 24674,
+        "taxable_base_paisa": 4190,
+        "tax_paisa": 210,
+        "small_order_vendor_paisa": 500,
+        "small_order_platform_paisa": 1500,
+        "raw_total_paisa": 24650,
         "cash_collected_paisa": 24600,
-        "rounding_delta_paisa": -74
+        "rounding_delta_paisa": -50
       }
     },
     {

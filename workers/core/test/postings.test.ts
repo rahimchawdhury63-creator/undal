@@ -89,9 +89,10 @@ describe("vector 01 — the canonical order posting", () => {
       tipPaisa: 5_000,
       smallOrderFeePaisa: 2_500,
       smallOrderRiderSharePaisa: 500,
+      smallOrderVendorSharePaisa: 500,
     });
-    assert.equal(tipped.taxableBasePaisa, 6_750 + 522 + 2_000);
-    assert.equal(tipped.taxPaisa, 464);
+    assert.equal(tipped.taxableBasePaisa, 6_750 + 522 + 1_500, "the fee minus the rider's and the vendor's shares");
+    assert.equal(tipped.taxPaisa, 439, "438.6 paisa rounds up, exactly as 10 §12.1 prints it");
   });
 
   test("a tip rides through untouched, and the set still closes", () => {

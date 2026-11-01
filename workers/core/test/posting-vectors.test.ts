@@ -57,6 +57,7 @@ interface GoldenBreakdown {
   readonly rider_bonus_paisa: number;
   readonly taxable_base_paisa: number;
   readonly tax_paisa: number;
+  readonly small_order_vendor_paisa: number;
   readonly small_order_platform_paisa: number;
   readonly raw_total_paisa: number;
   readonly cash_collected_paisa: number;
@@ -122,6 +123,9 @@ function build(golden: GoldenCase): PostingSet {
         ...(optional(input, "small_order_rider_share_paisa") === undefined
           ? {}
           : { smallOrderRiderSharePaisa: num(input, "small_order_rider_share_paisa") }),
+        ...(optional(input, "small_order_vendor_share_paisa") === undefined
+          ? {}
+          : { smallOrderVendorSharePaisa: num(input, "small_order_vendor_share_paisa") }),
       });
     case "pickup":
       return orderDeliveredPickup({
@@ -235,6 +239,9 @@ describe("the thirty-four golden posting sets", () => {
           ...(optional(golden.inputs, "small_order_rider_share_paisa") === undefined
             ? {}
             : { smallOrderRiderSharePaisa: num(golden.inputs, "small_order_rider_share_paisa") }),
+          ...(optional(golden.inputs, "small_order_vendor_share_paisa") === undefined
+            ? {}
+            : { smallOrderVendorSharePaisa: num(golden.inputs, "small_order_vendor_share_paisa") }),
         });
         assert.deepEqual(
           {
@@ -246,6 +253,7 @@ describe("the thirty-four golden posting sets", () => {
             rider_bonus_paisa: money.riderBonusPaisa,
             taxable_base_paisa: money.taxableBasePaisa,
             tax_paisa: money.taxPaisa,
+            small_order_vendor_paisa: money.smallOrderVendorPaisa,
             small_order_platform_paisa: money.smallOrderPlatformPaisa,
             raw_total_paisa: money.rawTotalPaisa,
             cash_collected_paisa: money.cashCollectedPaisa,
