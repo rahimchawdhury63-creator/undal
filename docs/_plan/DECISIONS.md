@@ -562,3 +562,31 @@ tips, discounts. Calling a generated pin "hand-computed" would be a lie in a fil
 purpose is to be trusted. The distinction is written into the generator's docstring, the test's
 docstring and this entry: one vector is the document's, thirty-nine are history's, and the closure
 identity is what makes history worth keeping.
+
+## D60 — A pickup reaches DELIVERED, because the document leaves it stranded
+
+**Decision.** `PICKED_UP → DELIVERED` is a `SYSTEM` edge guarded by `pickupOnly`, `cashRecorded` and
+`cashReconciles`; a pickup therefore travels `ACCEPTED → PICKED_UP → DELIVERED`.
+
+**Rejected.** Leaving the row out because `06 §7.3` does not print it.
+
+**Why.** For a pickup the table offers `ACCEPTED → PICKED_UP` (customer, QR scanned by the vendor)
+and then no edge that fits — `PICKED_UP → ARRIVED` needs a rider who does not exist, and
+`ARRIVED → DELIVERED` is unreachable from there. Taken literally, every pickup order stops in
+`PICKED_UP` and its cash never settles: the one path where the money is taken *before* the order is
+complete would be the one path the ledger cannot close. The added edge is a `SYSTEM` transition, not
+a customer one, so it cannot be used to skip a payment, and the coverage sweep now proves that no
+non-terminal state is a trap.
+
+## D61 — Guards read an explicit context, never the database
+
+**Decision.** Every guard is a predicate over `TransitionContext`, a sparse object the caller fills;
+a missing field fails the guard rather than passing it.
+
+**Rejected.** Guards that load the vendor or the order themselves.
+
+**Why.** The same transition has to be evaluable by an HTTP handler, a DO alarm, a test and a
+replay of last month's events. A guard that reads the world can only be run in one of those four
+places, and the event log stops being something a reconciliation job can re-derive. "Absent field
+means refused" is the direction that fails closed: a context built by a caller who forgot the quote
+refuses the placement instead of selling the order at a price nobody computed.

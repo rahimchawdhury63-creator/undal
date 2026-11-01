@@ -306,6 +306,16 @@ every vector.
 
 ### R8 · Core domain: orders — B6 · 80 files · 13 000 lines
 
+> **Progress.** R8a (this response): `domain/order/states.ts`, `guards.ts` (23 predicates over an
+> explicit context), `state-machine.ts` (the `06 §7.3` table as data + the admin-cancel wildcard,
+> with `TransitionRefused` carrying a real contract code), `lifecycle.ts` (effects, event rows and
+> replay), `qr.ts` (rotating HMAC, 4 h window, 150 m geofence, six-digit fallback). 53 new tests:
+> every edge for every actor, every illegal pair (200+ refused), guard failure codes, replay
+> divergence, and the pickup proof including forgery and expiry. Remaining for the R8 gate:
+> `snapshots`, `items`, `quote` (5-minute re-price and `409 QUOTE_MISMATCH`), `placement`, `pickup`,
+> `assignment`, `state-events`, `evidence`, `explain`, `effects`, the Core-side Brain call with its
+> deterministic fallback, and `routes/{orders,quotes,cart}`.
+
 - `domain/order/` — `state-machine.ts` (transition table as data + a small evaluator),
   `lifecycle.ts`, `guards.ts`, `snapshots.ts`, `items.ts`, `quote.ts` (5-minute quote, re-price,
   `409 QUOTE_MISMATCH` + diff), `placement.ts`, `pickup.ts`, `qr.ts` (HMAC payload, 60 s rotation,
