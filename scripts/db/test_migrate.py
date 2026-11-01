@@ -25,6 +25,7 @@ class FakeCursor:
     def __init__(self, connection: "FakeConnection") -> None:
         self.connection = connection
         self.rows: list[tuple] = []
+        self.rowcount = 0
 
     def __enter__(self) -> "FakeCursor":
         return self
@@ -126,3 +127,48 @@ class MigrationRunnerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HousekeepingTest(unittest.TestCase):
+    """The nightly jobs, against a scripted cursor: a chain that breaks is a failure."""
+
+    def test_a_link_that_does_not_recompute_is_reported(self) -> None:
+        import hashlib
+
+        import housekeeping
+
+        payload = hashlib.sha256(b"row-1").digest()
+        good = hashlib.sha256(b"\x00" * 32 + payload).digest()
+
+        class Cursor(FakeCursor):
+            def fetchall(self):  # noqa: ANN201
+                return [(1, b"\x00" * 32, good, payload), (2, b"\x11" * 32, b"\x22" * 32, payload)]
+
+        connection = FakeConnection()
+        connection.cursor = lambda: Cursor(connection)  # type: ignore[method-assign]
+        report = housekeeping.audit_chain(connection)
+        self.assertEqual(report["rows"], 2)
+        self.assertEqual([entry["seq"] for entry in report["broken"]], [2])
+
+    def test_an_orphan_count_is_a_failure(self) -> None:
+        import housekeeping
+
+        class Cursor(FakeCursor):
+            def fetchone(self):  # noqa: ANN201
+                return (3,)
+
+        connection = FakeConnection()
+        connection.cursor = lambda: Cursor(connection)  # type: ignore[method-assign]
+        report = housekeeping.orphans(connection)
+        self.assertEqual(report, {"order_items": 3, "order_state_events": 3, "order_offers": 3})
+
+    def test_retention_commits_only_when_applying(self) -> None:
+        import housekeeping
+
+        dry = FakeConnection()
+        housekeeping.retention(dry, apply=False)
+        self.assertEqual(dry.commits, 0)
+
+        live = FakeConnection()
+        housekeeping.retention(live, apply=True)
+        self.assertGreaterEqual(live.commits, 1)

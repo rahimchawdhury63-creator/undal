@@ -31,17 +31,17 @@ jobs:
       - name: Audit chain walk
         env:
           TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
-        run: python3 scripts/db/verify-audit-chain.py --out .artifacts/housekeeping/audit-chain.json
+        run: python3 scripts/db/housekeeping.py audit-chain --out .artifacts/housekeeping/audit-chain.json
       - name: Orphan sweep
         env:
           TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
           DRY_RUN: ${{ inputs.dry_run }}
-        run: python3 scripts/db/sweep-orphans.py --out .artifacts/housekeeping/orphans.json
+        run: python3 scripts/db/housekeeping.py orphans --out .artifacts/housekeeping/orphans.json
       - name: Retention
         env:
           TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
           DRY_RUN: ${{ inputs.dry_run }}
-        run: python3 scripts/db/apply-retention.py --out .artifacts/housekeeping/retention.json
+        run: python3 scripts/db/housekeeping.py retention --out .artifacts/housekeeping/retention.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
