@@ -12,6 +12,13 @@ import { postEntry } from "../src/domain/ledger/post-entry.ts";
 import { reverseEntry, reversePostings } from "../src/domain/ledger/reverse.ts";
 import { trialBalance } from "../src/domain/ledger/trial-balance.ts";
 import { accountBalance, balancesFromDb, kindOfCode } from "../src/domain/ledger/balance.ts";
+import {
+  checkLedgerBalance,
+  exceptionFromImbalance,
+  imbalanceException,
+  LEDGER_IMBALANCE_SEVERITY,
+  LEDGER_IMBALANCE_TRIGGER,
+} from "../src/domain/ledger/imbalance.ts";
 import { naturalBalance, PLATFORM_ACCOUNTS, riderAccount, riderCashAccount, vendorAccount } from "../src/domain/ledger/accounts.ts";
 import type { AccountKind, Posting, PostingSet } from "../src/domain/ledger/types.ts";
 import {
@@ -81,6 +88,7 @@ function randomSet(rng: Lcg): PostingSet {
       return orderCancelled({
         orderId: ORDER,
         vendorId: VENDOR,
+        customerId: CUSTOMER,
         preparedCostPaisa: amount,
         refundedToCustomerPaisa: rng.between(0, amount),
       });
@@ -306,5 +314,68 @@ describe("balances", () => {
     assert.equal(balances[0]?.signedPaisa, -36_900);
     assert.equal(balances[0]?.naturalPaisa, 36_900);
     assert.equal(db.calls.length, 1, "one query, not one per account");
+  });
+});
+
+describe("the LEDGER_IMBALANCE exception", () => {
+  const balanced = { lines: [{ accountCode: "PLATFORM:BANK", rawPaisa: 500, naturalPaisa: 500 }], debitTotalPaisa: 500, creditTotalPaisa: 500, differencePaisa: 0 };
+  const drifted = {
+    lines: [
+      { accountCode: "PLATFORM:BANK", rawPaisa: 52_400, naturalPaisa: 52_400 },
+      { accountCode: `VENDOR:${VENDOR}`, rawPaisa: -36_900, naturalPaisa: 36_900 },
+      { accountCode: "PLATFORM:TAX_PAYABLE", rawPaisa: -364, naturalPaisa: 364 },
+    ],
+    debitTotalPaisa: 52_400,
+    creditTotalPaisa: 36_900,
+    differencePaisa: 15_500,
+  };
+
+  test("a balanced ledger raises nothing at all", () => {
+    assert.equal(imbalanceException(balanced), null);
+  });
+
+  test("a drift raises CRITICAL, immediately, naming the accounts by size", () => {
+    const exception = imbalanceException(drifted);
+    assert.ok(exception !== null);
+    assert.equal(exception.trigger, LEDGER_IMBALANCE_TRIGGER);
+    assert.equal(exception.severity, LEDGER_IMBALANCE_SEVERITY);
+    assert.equal(exception.slaSeconds, 0, "immediate, not a queue with a timer");
+    assert.equal(exception.differencePaisa, 15_500);
+    assert.deepEqual(
+      exception.accounts.map((account) => account.code),
+      ["PLATFORM:BANK", `VENDOR:${VENDOR}`, "PLATFORM:TAX_PAYABLE"],
+      "largest drift first, so the page names a starting point",
+    );
+    assert.match(exception.messageEn, /drift 15500 paisa/u);
+    assert.match(exception.messageBn, /ব্যবধান/u, "the page carries both languages");
+  });
+
+  test("a posting set that fails in memory becomes the same exception, not a different one", () => {
+    const error = new LedgerImbalanceError("ORDER_DELIVERED", 250, [
+      { account: riderCashAccount(RIDER), amountPaisa: 500 },
+      { account: vendorAccount(VENDOR), amountPaisa: -250 },
+    ]);
+    const exception = exceptionFromImbalance(error);
+    assert.equal(exception.trigger, "LEDGER_IMBALANCE");
+    assert.equal(exception.differencePaisa, 250);
+    assert.equal(exception.debitTotalPaisa, 500);
+    assert.equal(exception.creditTotalPaisa, -250);
+    assert.match(exception.messageEn, /ORDER_DELIVERED posting set did not close/u);
+  });
+
+  test("the sweep reads the database and answers the same way", async () => {
+    const clean = stubDb([{ match: /SUM\(p\.`amount_paisa`\)/u, rows: [
+      { code: "PLATFORM:BANK", kind: "ASSET", total: "100" },
+      { code: `VENDOR:${VENDOR}`, kind: "LIABILITY", total: "-100" },
+    ] }]);
+    assert.equal(await checkLedgerBalance(clean, { fromIso: "2026-11-01 00:00:00.000000", toIso: "2026-11-02 00:00:00.000000" }), null);
+
+    const dirty = stubDb([{ match: /SUM\(p\.`amount_paisa`\)/u, rows: [
+      { code: "PLATFORM:BANK", kind: "ASSET", total: "100" },
+      { code: `VENDOR:${VENDOR}`, kind: "LIABILITY", total: "-90" },
+    ] }]);
+    const exception = await checkLedgerBalance(dirty, { fromIso: "2026-11-01 00:00:00.000000", toIso: "2026-11-02 00:00:00.000000" });
+    assert.ok(exception !== null);
+    assert.equal(exception.differencePaisa, 10);
   });
 });

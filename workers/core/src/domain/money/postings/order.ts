@@ -160,8 +160,10 @@ export interface PickupInput {
  */
 export function orderDeliveredPickup(input: PickupInput): PostingSet {
   const commissionPaisa = applyRate(input.subtotalPaisa, COMMISSION_BPS);
-  const taxPaisa = applyRate(commissionPaisa, TAX_BPS);
   const smallOrderFee = input.smallOrderFeePaisa ?? 0;
+  // A pickup fee is entirely platform revenue — there is no rider to share it with — so it
+  // belongs in the taxable base alongside the commission, per invariant 2 of `24 §2.3`.
+  const taxPaisa = applyRate(commissionPaisa + smallOrderFee, TAX_BPS);
   const rawTotal = input.subtotalPaisa + taxPaisa + smallOrderFee;
   const floored = floorToTaka(rawTotal);
 
@@ -192,6 +194,8 @@ export function orderDeliveredPickup(input: PickupInput): PostingSet {
 export function orderCancelled(input: {
   readonly orderId: string;
   readonly vendorId: string;
+  /** The customer whose balance the refund is credited to, when one was charged. */
+  readonly customerId: string;
   readonly preparedCostPaisa: number;
   readonly refundedToCustomerPaisa?: number;
   readonly customerCashHeldPaisa?: number;
@@ -203,7 +207,7 @@ export function orderCancelled(input: {
   ];
   if (refunded !== 0) {
     postings.push({ account: PLATFORM_ACCOUNTS.BANK, amountPaisa: refunded });
-    postings.push({ account: customerAccount(input.orderId), amountPaisa: -refunded });
+    postings.push({ account: customerAccount(input.customerId), amountPaisa: -refunded });
   }
   return {
     entryType: "ORDER_CANCELLED",

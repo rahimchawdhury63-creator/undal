@@ -117,6 +117,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: TypeScript workers
         run: pnpm --filter undal-core --filter undal-realtime test
+      - name: Money is covered line and branch, or this fails
+        # The R6 gate in `35 §3`: 100% for the arithmetic every other module trusts. Node's
+        # own coverage, with thresholds, because a number nobody checks is a number that falls.
+        run: pnpm --filter @undal/money test:coverage
+      - name: Money contracts
+        run: pnpm --filter @undal/contracts test
+      - name: The thirty-four posting sets match the formulas
+        # The vectors are generated from `docs/24 §2` by a second implementation; if a rate or a
+        # formula changes without regenerating them, this fails instead of the golden file
+        # quietly following the code it is supposed to be testing.
+        run: python3 scripts/money/gen_posting_vectors.py --check
       - name: Python worker
         working-directory: workers/brain
         env:

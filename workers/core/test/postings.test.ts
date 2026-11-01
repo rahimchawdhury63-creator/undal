@@ -118,7 +118,7 @@ describe("every posting set closes", () => {
   const sets = {
     delivered: orderDelivered({ orderId: ORDER, vendorId: VENDOR, riderId: RIDER, subtotalPaisa: 45_000, rideCorePaisa: 6_520 }),
     pickup: orderDeliveredPickup({ orderId: ORDER, vendorId: VENDOR, subtotalPaisa: 30_000, smallOrderFeePaisa: 2_500 }),
-    cancelled: orderCancelled({ orderId: ORDER, vendorId: VENDOR, preparedCostPaisa: 12_000, refundedToCustomerPaisa: 20_000 }),
+    cancelled: orderCancelled({ orderId: ORDER, vendorId: VENDOR, customerId: CUSTOMER, preparedCostPaisa: 12_000, refundedToCustomerPaisa: 20_000 }),
     refund: refundCredit({ orderId: ORDER, customerId: CUSTOMER, amountPaisa: 9_000 }),
     tip: tip({ orderId: ORDER, riderId: RIDER, amountPaisa: 2_000 }),
     promoPlatform: promoPlatform({ orderId: ORDER, amountPaisa: 3_000 }),

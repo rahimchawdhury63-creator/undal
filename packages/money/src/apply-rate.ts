@@ -46,5 +46,8 @@ export function applyRate(amountPaisa: Paisa | number, rateBps: number): Paisa {
     rounded = quotient % 2 === 0 ? quotient : quotient + 1;
   }
 
-  return (negative ? -rounded : rounded) as Paisa;
+  const signed = negative ? -rounded : rounded;
+  // `-0` is not zero: it survives `Object.is`, prints as `-৳0.00`, and compares equal to
+  // everything while being distinguishable in a map key. A rounding of exactly zero is zero.
+  return (signed === 0 ? 0 : signed) as Paisa;
 }
