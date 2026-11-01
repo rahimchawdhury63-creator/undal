@@ -36,6 +36,10 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # No wrapper is committed: the distribution is pinned here so a runner cannot
+          # pick a Gradle version by accident and report a build nobody has run.
+          gradle-version: "8.10.2"
       - name: Refuse to build without the keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -63,7 +67,7 @@ jobs:
           VERSION_NAME: ${{ inputs.version_name || github.ref_name }}
           VERSION_CODE: ${{ inputs.version_code || github.run_number }}
         run: |
-          ./gradlew ":app:${{ matrix.app }}:assembleRelease" ":app:${{ matrix.app }}:bundleRelease" \
+          gradle ":app:${{ matrix.app }}:assembleRelease" ":app:${{ matrix.app }}:bundleRelease" \
             -PversionName="$VERSION_NAME" -PversionCode="$VERSION_CODE" --no-daemon
       - name: Checksums
         run: |

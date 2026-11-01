@@ -43,12 +43,16 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # No wrapper is committed: the distribution is pinned here so a runner cannot
+          # pick a Gradle version by accident and report a build nobody has run.
+          gradle-version: "8.10.2"
       - run: pnpm install --frozen-lockfile
       - name: TypeScript vectors and answers
         run: node --experimental-strip-types packages/money/test/differential.ts
       - name: Kotlin answers over the same vectors
         working-directory: android
-        run: ./gradlew :shared:money:kotlinDifferential --no-daemon
+        run: gradle :shared:money:kotlinDifferential --no-daemon
       - name: Compare all three
         run: python3 scripts/money/differential.py
       - uses: actions/upload-artifact@v4

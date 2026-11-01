@@ -30,9 +30,13 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # No wrapper is committed: the distribution is pinned here so a runner cannot
+          # pick a Gradle version by accident and report a build nobody has run.
+          gradle-version: "8.10.2"
       - name: Build the alarm test APKs
         working-directory: android
-        run: ./gradlew :shared:alarm:assembleDebug :shared:alarm:assembleDebugAndroidTest --no-daemon
+        run: gradle :shared:alarm:assembleDebug :shared:alarm:assembleDebugAndroidTest --no-daemon
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}

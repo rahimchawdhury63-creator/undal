@@ -26,9 +26,13 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # No wrapper is committed: the distribution is pinned here so a runner cannot
+          # pick a Gradle version by accident and report a build nobody has run.
+          gradle-version: "8.10.2"
       - name: JVM tests, including the money module
         working-directory: android
-        run: ./gradlew test --no-daemon
+        run: gradle test --no-daemon
       - name: Publish the Kotlin side of the differential
         run: cp android/shared/money/build/money/kotlin.json .artifacts/money/kotlin.json
         continue-on-error: true
@@ -51,9 +55,13 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # No wrapper is committed: the distribution is pinned here so a runner cannot
+          # pick a Gradle version by accident and report a build nobody has run.
+          gradle-version: "8.10.2"
       - name: Pixel-diff every registered screen
         working-directory: android
-        run: ./gradlew :shared:screenshots:verifyPaparazzi --no-daemon
+        run: gradle :shared:screenshots:verifyPaparazzi --no-daemon
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

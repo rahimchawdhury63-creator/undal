@@ -34,11 +34,15 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # No wrapper is committed: the distribution is pinned here so a runner cannot
+          # pick a Gradle version by accident and report a build nobody has run.
+          gradle-version: "8.10.2"
       - name: Assemble the debug APK
         working-directory: android
         env:
           PUBLIC_API_BASE: ${{ vars.PUBLIC_API_BASE }}
-        run: ./gradlew ":app:${{ matrix.app }}:assembleDebug" --no-daemon --stacktrace
+        run: gradle ":app:${{ matrix.app }}:assembleDebug" --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: undal-${{ matrix.app }}-debug
