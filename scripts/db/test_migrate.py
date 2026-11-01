@@ -21,6 +21,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import migrate  # noqa: E402
 
 
+def Uint8Array16(byte: int) -> bytes:
+    """Sixteen identical bytes, as a `BINARY(16)` column reads back."""
+    return bytes([byte]) * 16
+
+
 class FakeCursor:
     def __init__(self, connection: "FakeConnection") -> None:
         self.connection = connection
@@ -133,22 +138,43 @@ class HousekeepingTest(unittest.TestCase):
     """The nightly jobs, against a scripted cursor: a chain that breaks is a failure."""
 
     def test_a_link_that_does_not_recompute_is_reported(self) -> None:
-        import hashlib
-
         import housekeeping
 
-        payload = hashlib.sha256(b"row-1").digest()
-        good = hashlib.sha256(b"\x00" * 32 + payload).digest()
+        # One row, whose stored hash is not the hash of its own fields: the chain must
+        # notice, because a verifier that trusts the column verifies nothing.
+        row = (
+            1, "2026-11-01 04:00:00.000000", None, "SYSTEM", None, Uint8Array16(0xAA),
+            "system.invoice.generate", "invoice_period", "2026-W44", None, None, '{"invoices":344}',
+            None, "INFO", None, Uint8Array16(0x00),
+        )
 
         class Cursor(FakeCursor):
             def fetchall(self):  # noqa: ANN201
-                return [(1, b"\x00" * 32, good, payload), (2, b"\x11" * 32, b"\x22" * 32, payload)]
+                return [row]
 
         connection = FakeConnection()
         connection.cursor = lambda: Cursor(connection)  # type: ignore[method-assign]
         report = housekeeping.audit_chain(connection)
-        self.assertEqual(report["rows"], 2)
-        self.assertEqual([entry["seq"] for entry in report["broken"]], [2])
+        self.assertEqual(report["rows"], 1)
+        self.assertEqual(len(report["broken"]), 1)
+        self.assertEqual(report["broken"][0]["seq"], 1)
+
+    def test_the_chain_reproduces_the_shared_vectors(self) -> None:
+        """The TypeScript writer and this verifier must agree, or one of them is wrong."""
+        import hashlib
+        import json as jsonlib
+
+        import housekeeping
+
+        root = Path(__file__).resolve().parents[2]
+        vectors = jsonlib.loads((root / "db" / "fixtures" / "audit_chain_vectors.json").read_text(encoding="utf-8"))
+        previous = b"\x00" * 32
+        for vector in vectors["vectors"]:
+            digest = hashlib.sha256(housekeeping.digest_input(vector["entry"]).encode("utf-8")).hexdigest()
+            self.assertEqual(digest, vector["payloadDigestHex"])
+            link = hashlib.sha256(previous + bytes.fromhex(digest)).hexdigest()
+            self.assertEqual(link, vector["hashHex"])
+            previous = bytes.fromhex(link)
 
     def test_an_orphan_count_is_a_failure(self) -> None:
         import housekeeping
