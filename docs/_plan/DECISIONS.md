@@ -629,3 +629,19 @@ Concurrency is the same question asked of the database rather than of memory: th
 writer got there first — surfaced as `applied: false` and answered with the refusal for the state the
 order is actually in, not a 500. Two vendors accepting at once must produce one ACCEPTED row and one
 event, and the loser must be told `ORDER_ALREADY_ACCEPTED`.
+## D65 — An order line is a photograph, and the history has no gaps
+
+`order_items` copies the name, the unit price and the quantity the customer agreed to. Nothing on a
+receipt is joined live to the menu: a rename or a price rise must not edit an invoice that has
+already been paid, and the only way to guarantee that is to stop reading the catalogue at render
+time. Modifiers are folded into the unit price rather than stored per row, because the receipt shows
+one number per line and a second number that disagrees is worse than no breakdown.
+
+Placement refuses a cart that the rows cannot explain: an empty cart, the same menu item twice, a
+quantity outside `1..20`, more than `MAX_ORDER_LINES` lines, and — the check that matters most — a
+line subtotal that does not equal the quoted `subtotal_paisa`. A total is a claim; the lines are the
+proof of it.
+
+`order_state_events.seq` is dense by construction, so `firstGap` treats a hole as an incident rather
+than as history. `orders.state` says where an order is; the event table is the only thing that can
+say how it got there, and a deleted row is a settlement dispute waiting for a quiet week.
