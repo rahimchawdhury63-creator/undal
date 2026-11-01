@@ -196,8 +196,8 @@ Injects failures and asserts graceful degradation:
 
 | Injected failure | Required behaviour |
 | --- | --- |
-| CockroachDB latency 2 s | Requests queue; no data loss; a user-visible slow-but-working state |
-| CockroachDB unavailable | Reads serve from cache where possible; writes fail with a clear message; nothing is silently lost |
+| TiDB latency 2 s | Requests queue; no data loss; a user-visible slow-but-working state |
+| TiDB unavailable | Reads serve from cache where possible; writes fail with a clear message; nothing is silently lost |
 | D1 unavailable | Tracking degrades to last-known with a staleness notice; orders continue |
 | OSRM unavailable | Haversine × detour factor; `distance_source: ESTIMATED` on the trace |
 | FCM 503 | Retries; then the socket path; then an admin exception |
@@ -318,7 +318,8 @@ A flaky test is worse than no test, because it trains people to ignore red.
 | No sleeps | `Thread.sleep`, `setTimeout` and `page.waitForTimeout` are banned in tests by lint. Waits must be condition-based |
 | Deterministic time | A `Clock` abstraction is injected everywhere; no test reads the wall clock |
 | Deterministic randomness | Seeded generators; the seed is printed on failure so any failure is reproducible |
-| Isolated state | Every test gets its own schema in CockroachDB or its own in-memory database |
+| Isolated state | Every test gets its own database on a dedicated TiDB Starter instance, or its own in-memory database |
+| Constraint validators | Every one of the 53 generated validators has a pair of cases: a value the `CHECK` admits and a value it forbids. Generated from `constraints.json` alongside the validators, so a new constraint cannot ship untested. TiDB Cloud Starter cannot enforce `CHECK` ([`06 §1.2`](06-data-model-tidb.md)), which makes these the actual enforcement rather than a redundant layer |
 
 ---
 

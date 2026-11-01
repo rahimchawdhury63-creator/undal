@@ -16,7 +16,7 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 | Layer | Holds | Where | Changed by |
 | --- | --- | --- | --- |
 | **Secrets** | Credentials, keys, tokens, the bKash number, the domain | GitHub Actions repository secrets → pushed to Worker secrets by the deploy workflow | Repository Settings in a browser |
-| **Config** | Business rules: rates, weights, thresholds, feature flags | `platform_config` table in CockroachDB | The admin panel, versioned and audited |
+| **Config** | Business rules: rates, weights, thresholds, feature flags | `platform_config` table in TiDBhDB | The admin panel, versioned and audited |
 | **Constants** | Things that are not configurable: state-machine transitions, the paisa base, the posting rules | Code | A pull request |
 
 The boundary matters. A value in the wrong layer is a problem: a commission rate in code requires
@@ -30,9 +30,14 @@ a deploy to change, and a JWT signing key in the database is a breach waiting to
 
 | Secret | Example shape | Used by | Blast radius if leaked |
 | --- | --- | --- | --- |
-| `COCKROACH_DATABASE_URL` | `postgresql://user:pw@host:26257/defaultdb?sslmode=verify-full` | `undal-core`, `migrate.yml` | **Total.** Full read/write on every table |
-| `COCKROACH_CA_CERT` | PEM | Same | Low alone; enables MITM resistance |
-| `COCKROACH_MIGRATION_URL` | A separate, higher-privilege user | `migrate.yml` only | Total, plus DDL |
+| `TIDB_DATABASE_URL` | `mysql://user:pw@gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000/undal?ssl={"rejectUnauthorized":true}` | `undal-core` | **Total.** Full read/write on every business table |
+| `TIDB_MIGRATION_URL` | A separate, higher-privilege user | `migrate.yml` only | Total, plus DDL |
+
+**One secret disappeared rather than being renamed.** `COCKROACH_CA_CERT` has no successor:
+`@tidbcloud/serverless` speaks HTTPS to a gateway with a publicly trusted certificate, so there is
+no cluster CA to embed at build time. That is one fewer secret to rotate, one fewer build step, and
+one fewer way for a deploy to fail at 2 a.m. The count goes **44 → 43** and the mandatory count
+goes **12 → 11**; `env-example-complete` is the arbiter and fails the build on any drift.
 
 The application user and the migration user are **different database roles**. The application
 role has `SELECT`, `INSERT`, `UPDATE`, `DELETE` on business tables, `INSERT`/`SELECT` only on
@@ -149,10 +154,10 @@ and TOTP enrolment before it can do anything else, and the secret is then meanin
 
 ## 3. Total count
 
-**44 secrets**, of which **12 are mandatory** for a working deployment:
+**43 secrets**, of which **11 are mandatory** for a working deployment:
 
 ```
-COCKROACH_DATABASE_URL      COCKROACH_CA_CERT          CLOUDFLARE_API_TOKEN
+TIDB_DATABASE_URL           TIDB_MIGRATION_URL         CLOUDFLARE_API_TOKEN
 CLOUDFLARE_ACCOUNT_ID       D1_DATABASE_ID             KV_NAMESPACE_ID
 IMGBB_API_KEY               FIREBASE_SERVICE_ACCOUNT_JSON
 JWT_SIGNING_KEY             ORDER_QR_SECRET            PUBLIC_WEB_HOST
@@ -230,7 +235,7 @@ Every key appears in `.env.example` with its default, its range, and a one-line 
 | --- | --- | --- |
 | `JWT_SIGNING_KEY` | Set `JWT_PREVIOUS_KEY` to the current value, generate a new one, deploy. Both are accepted for verification for 24 h; only the new one signs. Remove the previous after 24 h | **None** |
 | `ORDER_QR_SECRET` | Identical dual-key pattern | None |
-| `COCKROACH_DATABASE_URL` | Create a new database user, update the secret, deploy, verify, drop the old user | None |
+| `TIDB_DATABASE_URL` | Create a new database user, update the secret, deploy, verify, drop the old user | None |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Create a new service-account key in the Firebase console, update, deploy, delete the old key | None |
 | `IMGBB_API_KEY` | Generate a new key, update, deploy. Existing URLs are unaffected | None |
 | `CLOUDINARY_API_SECRET` | Rotate in the Cloudinary console, update, deploy. In-flight signed URLs expire within 5 minutes anyway | None |
@@ -306,7 +311,7 @@ starts at the moment every such value has been replaced.
 | Propagation within 60 s | 3 |
 | Dual-key rotation for JWT and QR | 8 |
 | Missing optional secret degrades gracefully | 19 — one per optional capability |
-| Missing mandatory secret fails the deploy with a clear message | 12 |
+| Missing mandatory secret fails the deploy with a clear message | 11 |
 | No secret appears in any built artifact | 1 CI job over the APKs and web bundles |
 | Bootstrap admin is created once and forced through a password change | 5 |
 

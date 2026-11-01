@@ -217,7 +217,7 @@ shapes, a single accent colour, a light line weight, no faces, no stock-illustra
 
 The most important test in the suite. On every PR:
 
-1. A fresh CockroachDB schema is created and migrated.
+1. A fresh TiDB schema is created and migrated.
 2. **Zero business rows are inserted.**
 3. All three Android apps and both web apps are launched against it.
 4. **All 283 screens are navigated and rendered.**

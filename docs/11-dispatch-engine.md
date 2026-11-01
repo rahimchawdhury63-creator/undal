@@ -409,7 +409,7 @@ async claimOffer(orderId: string, riderId: string): Promise<ClaimResult> {
 }
 ```
 
-On the free-tier `CockroachCoordinator` the same semantics come from a `dispatch_locks` row with
+On the free-tier `TiDBCoordinator` the same semantics come from a `dispatch_locks` row with
 `SELECT … FOR UPDATE` inside the serializable transaction that writes the assignment. Both
 implementations pass the identical 34-case concurrency test suite, including a 50-way simultaneous
 claim that must produce exactly one winner.

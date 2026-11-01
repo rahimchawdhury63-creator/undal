@@ -176,7 +176,7 @@ cache sizing · whether MapLibre or Leaflet-in-WebView for the rider's offline m
 fork point versus `com.vk.knet:okcronet` · baseline-profile generation strategy · Hilt versus
 manual DI for `core:testing`.
 
-**Workers (7):** Hono middleware ordering details · the exact CockroachDB connection pooling
+**Workers (7):** Hono middleware ordering details · the exact TiDB connection pooling
 approach under Workers' request model · whether Pyodide or a pure-WASM Python for `brain` ·
 KV versus Cache API for the feature store hot tier · the SSE heartbeat frame format · the service
 binding error-propagation convention · the retry-budget algebra across nested service calls.
@@ -185,11 +185,11 @@ binding error-propagation convention · the retry-budget algebra across nested s
 adopt) · CSS Modules versus vanilla-extract · the virtualisation library for admin grids · the
 chart library · the service-worker framework or hand-rolled.
 
-**Data (5):** the UUID v7 generation source, since CockroachDB's `gen_random_uuid()` is v4 and
+**Data (3):** ~~the UUID v7 generation source~~ — **closed by the TiDB migration**: TiDB has no `gen_random_uuid()` at all, so the application generates v7 in one place per language against a shared test vector ([`06 §1`](06-data-model-tidb.md) rule 2). Remaining:
 [`00 §4.3`](00-INDEX.md) requires v7 — decide between a client-side generator and a SQL function,
 and prove monotonicity under concurrency · whether `order_items` snapshots store the full item or
 a delta · the `brain_traces` partitioning strategy · the materialised-view refresh approach for
-`vendor_stats` · the exact PostGIS index parameters.
+`vendor_stats`. ~~The exact PostGIS index parameters~~ — **closed**: there is no spatial index, and the cell-grid constants are frozen in [`06 §4.1.1`](06-data-model-tidb.md).
 
 **Process (4):** the Turborepo task graph · whether to adopt a changeset tool · the
 screenshot-diff tolerance · the flaky-test quarantine mechanism.
@@ -206,7 +206,7 @@ It will be wrong somewhere. Forty documents written ahead of implementation alwa
 | Situation | Action |
 | --- | --- |
 | A stated number is arithmetically wrong | **The tests are the arbiter.** Recompute from the formulas, fix the document, note it in the response summary. [`24 §2.3`](24-finance-payouts-invoices.md) is the worked example of this |
-| Two documents disagree | The more specific one wins: [`24`](24-finance-payouts-invoices.md) over [`10`](10-fare-engine-math.md) for postings; [`10`](10-fare-engine-math.md) over everything for fare formulas; [`06`](06-data-model-cockroachdb.md) over everything for schema |
+| Two documents disagree | The more specific one wins: [`24`](24-finance-payouts-invoices.md) over [`10`](10-fare-engine-math.md) for postings; [`10`](10-fare-engine-math.md) over everything for fare formulas; [`06`](06-data-model-tidb.md) over everything for schema |
 | A design cannot be implemented as specified | Implement the **intent**, document the deviation, and explain the constraint that forced it |
 | A free-tier limit makes something impossible | Say so plainly, implement the best available alternative, and record it in [`39`](39-risk-register-and-truths.md) |
 | A requirement conflicts with user safety or honesty | Safety and honesty win. Explain why in the response |
@@ -236,7 +236,7 @@ The platform is done when every item below is true and demonstrable:
 | 12 | 56 600 responsive renders with zero overflow |
 | 13 | Lighthouse ≥ 95 on every public route |
 | 14 | Zero serious or critical accessibility violations |
-| 15 | All 28 guardrails pass, each with a fixture proving it can fail |
+| 15 | All 31 guardrails pass, each with a fixture proving it can fail |
 | 16 | `.env.example` covers every secret and config key |
 | 17 | Every file ≤ 700 lines, every file carries the licence header |
 | 18 | A real order can be placed, dispatched, picked up, delivered, settled and invoiced end to end |

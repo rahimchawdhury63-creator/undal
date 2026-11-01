@@ -169,41 +169,101 @@ build.
 
 ```sql
 CREATE TABLE audit_log (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  seq           INT8 NOT NULL,                    -- monotonic, gapless
-  occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  actor_id      UUID,
-  actor_type    STRING NOT NULL,                  -- ADMIN|VENDOR|RIDER|CUSTOMER|SYSTEM
-  actor_role    STRING,
-  ip            INET,
-  user_agent    STRING,
-  request_id    UUID NOT NULL,
-  action        STRING NOT NULL,
-  resource_type STRING NOT NULL,
-  resource_id   STRING,
-  subject_id    UUID,                             -- whose data was affected
-  before        JSONB,
-  after         JSONB,
-  reason        STRING,
-  severity      STRING NOT NULL,                  -- INFO|NOTICE|WARNING|CRITICAL
-  prev_hash     BYTES,
-  hash          BYTES NOT NULL
+  id            BINARY(16) PRIMARY KEY,           -- application-generated UUIDv7
+  seq           BIGINT NOT NULL,                  -- monotonic, gapless
+  occurred_at   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  actor_id      BINARY(16),
+  actor_type    VARCHAR(16) NOT NULL,             -- ADMIN|VENDOR|RIDER|CUSTOMER|SYSTEM
+  actor_role    VARCHAR(48),
+  ip            VARBINARY(16),                    -- INET6_ATON; holds IPv4 and IPv6 alike
+  user_agent    VARCHAR(512),
+  request_id    BINARY(16) NOT NULL,
+  action        VARCHAR(64) NOT NULL,
+  resource_type VARCHAR(48) NOT NULL,
+  resource_id   VARCHAR(64),
+  subject_id    BINARY(16),                       -- whose data was affected
+  `before`      JSON,
+  `after`       JSON,
+  reason        VARCHAR(512),
+  severity      VARCHAR(8) NOT NULL,              -- INFO|NOTICE|WARNING|CRITICAL
+  prev_hash     BINARY(32),
+  hash          BINARY(32) NOT NULL,
+
+  UNIQUE INDEX uq_audit_seq (seq),
+  INDEX idx_audit_actor (actor_id, occurred_at),
+  INDEX idx_audit_resource (resource_type, resource_id, occurred_at)
 );
 ```
 
 ### 4.2 WORM
 
-Three independent layers:
+**This is the one place where the move to TiDB made Undal weaker, and it is stated here rather than
+softened.** The first of the three layers below was a database trigger. **TiDB has no triggers, and
+layer 1 is lost.** It cannot be replaced by anything that refuses the write at the storage layer.
 
-1. **Trigger**: `BEFORE UPDATE OR DELETE ON audit_log` raises an exception, unconditionally.
-2. **Grants**: the application database role has `INSERT` and `SELECT` only. No `UPDATE`, no
-   `DELETE`, no `TRUNCATE`.
-3. **Hash chain**: `hash = SHA256(prev_hash || canonical_json(row_without_hash))`. Any alteration
-   breaks the chain from that point forward.
+Concretely, what changed: an `UPDATE audit_log` issued by a connection that somehow held write
+privilege used to be **refused by the database**. It now succeeds at the storage layer and is
+**detected** by the hash chain. Prevention became detection. That is worse, and no redesign makes
+it not worse. What a redesign can do is make detection fast, routine, and itself auditable.
 
-`verify_audit_chain(from_seq, to_seq)` walks the chain and returns the first break. It runs on
-every deploy, on demand from the admin panel, and as part of the nightly verification workflow.
-A break raises `AUDIT_CHAIN_BROKEN`, severity CRITICAL.
+Four layers, where there were three:
+
+1. ~~**Trigger**: `BEFORE UPDATE OR DELETE ON audit_log` raises an exception, unconditionally.~~
+   **Removed. Impossible on TiDB.** Recorded in [`39`](39-risk-register-and-truths.md) as R29.
+2. **Grants — now the primary defence.** The application role holds `INSERT` and `SELECT` on
+   `audit_log` and nothing else. TiDB does not support column-level privileges, but it supports
+   table-level `GRANT`, which is all this layer ever needed:
+
+   ```sql
+   -- undal_app: the Workers' identity. Cannot alter history, cannot alter schema.
+   GRANT INSERT, SELECT ON undal.audit_log TO 'undal_app'@'%';
+   -- and explicitly NOT: UPDATE, DELETE, DROP, ALTER, CREATE, INDEX, REFERENCES
+
+   -- undal_migrator: used only by migrate.yml, never by a Worker.
+   GRANT ALL PRIVILEGES ON undal.* TO 'undal_migrator'@'%';
+   ```
+
+   Two identities, two secrets, two blast radii. **A CI job asserts the grant by attempting the
+   forbidden write** — it connects as `undal_app`, issues `UPDATE audit_log SET severity = 'INFO'
+   WHERE id = <nonexistent>`, and requires MySQL error 1142. A permission test that never attempts
+   the operation it forbids is not a test.
+3. **Hash chain — unchanged.** `hash = SHA256(prev_hash || canonical_json(row_without_hash))`. Any
+   alteration breaks the chain from that point forward.
+4. **Verification record — new.** Every run of the verifier is itself written down.
+
+`verify_audit_chain(from_seq, to_seq)` walks the chain and returns the first break. It was specified
+as a SQL function; TiDB has no stored functions, so it moves into `undal-core` as TypeScript and
+walks the chain in batches. It runs on every deploy, on demand from the admin panel, and as part of
+the nightly verification workflow. A break raises `AUDIT_CHAIN_BROKEN`, severity CRITICAL.
+
+```sql
+CREATE TABLE audit_verifications (
+  id          BINARY(16) PRIMARY KEY,
+  ran_at      DATETIME(6) NOT NULL,
+  from_seq    BIGINT NOT NULL,
+  to_seq      BIGINT NOT NULL,
+  result      VARCHAR(16) NOT NULL,      -- OK | BREAK | ERROR
+  break_seq   BIGINT NULL,
+  duration_ms INT NOT NULL,
+  trigger_by  VARCHAR(16) NOT NULL,      -- DEPLOY | ADMIN | NIGHTLY
+  INDEX idx_audit_ver_ran (ran_at)
+);
+```
+
+Layer 4 exists because of how the threat actually behaves once layer 1 is gone. With a trigger, an
+attacker had to defeat the database. Without one, their best move is not to break the chain at all —
+it is to make sure nobody checks it. Recording **which sequence ranges were verified and when**
+turns a verification gap into a visible fact rather than an absence of evidence.
+
+The nightly run is a GitHub Actions `schedule`, not a cron job on infrastructure. The platform's
+no-cron rule is about the running system; CI is where this corpus already puts scheduled
+verification.
+
+**The honest measure of the loss.** An actor holding the migration credential can alter history and
+recompute the chain. That was equally true under CockroachDB, where the trigger ran as the table
+owner and could be dropped by the same credential. What is genuinely lost is defence against an
+*application-level* compromise that does not hold DDL rights — narrower than "WORM is gone", and
+not nothing.
 
 ### 4.3 Reason codes
 
@@ -226,7 +286,7 @@ platform did to people, and deleting them is not a cost saving worth making.
 | --- | --- | --- | --- | --- |
 | **Public** | Vendor names, menus, prices, ratings | Plain | TLS | Allowed |
 | **Internal** | Order contents, ETAs, dispatch traces | Plain | TLS | Allowed |
-| **Personal** | Names, phones, addresses, positions | Plain in CRDB (encrypted at rest by the provider) | TLS | **Redacted** |
+| **Personal** | Names, phones, addresses, positions | Plain in TiDB (encrypted at rest by the provider) | TLS | **Redacted** |
 | **Sensitive** | NID, licence, bank details, documents | Cloudinary authenticated; NID numbers encrypted column-level | TLS | **Never** |
 | **Secret** | Tokens, keys, password hashes | Hashed or encrypted | TLS | **Never** |
 
@@ -276,7 +336,7 @@ it survives.
 | CSP | [`20 §10`](20-web-storefront.md). No `unsafe-inline`, no `unsafe-eval` |
 | CSRF | Double-submit tokens on cookie-authenticated mutations |
 | Clickjacking | `frame-ancestors 'none'` |
-| Rate limiting | Per-route, per-actor and per-IP, in a Durable Object or CRDB depending on the coordination mode. 38 distinct limits |
+| Rate limiting | Per-route, per-actor and per-IP, in a Durable Object or TiDB depending on the coordination mode. 38 distinct limits |
 | Idempotency | [`08`](08-api-contract.md); prevents duplicate orders and duplicate payouts |
 | Mass assignment | Explicit field allowlists on every update; a DTO never maps directly to a model |
 | IDOR | Every resource fetch carries an ownership predicate in the query, not an `if` after the fetch |

@@ -66,7 +66,7 @@ Not purchasable, not extendable, and not regained by re-registering.
 must reproduce it exactly. [`24 §4.3`](24-finance-payouts-invoices.md)
 
 **Coordinator** — The abstraction over atomic dispatch claims, with two implemented backends:
-`durable-object` (paid, 4 ms) and `cockroach` (free, 31 ms).
+`durable-object` (paid, 4 ms) and `sql` (free, 10–80 ms estimated — see [`39 §2.2`](39-risk-register-and-truths.md)).
 [`05 §4.2`](05-system-architecture.md)
 
 ---

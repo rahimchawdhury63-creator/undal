@@ -38,7 +38,7 @@ none of it has. The simulator numbers are simulator numbers.
 | Cloudflare Pages | 500 builds/month, unlimited requests | ~120 builds | 4× |
 | Cloudflare D1 | 5 M reads, 100 k writes/day | ~27 000 writes | 3.7× |
 | Cloudflare KV | 100 k reads, 1 k writes/day | ~38 000 reads, ~400 writes | 2.5× |
-| CockroachDB Cloud | 10 GiB storage, 50 M RU/month | ~1.4 GiB, ~31 M RU | 1.6× |
+| TiDB Cloud Starter | 5 GiB row + 5 GiB columnar, 50 M RU/month | ~1.4 GiB; **RU unmeasured** | Storage ~3.6×; **RU unknown — see §3.4** |
 | imgbb | No published limit | ~800 uploads/day | Unknown |
 | Cloudinary | 25 credits/month | ~6 credits | 4× |
 | GitHub Actions | 2 000 minutes/month (private) | ~1 400 | 1.4× |
@@ -59,9 +59,9 @@ Durable Objects design. So the platform ships **two implementations behind one i
 | Mode | `env.COORDINATION_MODE` | Claim latency p50 | Presence detection p95 | Cost |
 | --- | --- | --- | --- | --- |
 | Durable Objects | `durable-object` | 4 ms | 1.7 s | **$5/month** |
-| CockroachDB locks | `cockroach` | 31 ms | 1.9 s | **Free** |
+| TiDB lock row | `sql` | **10–80 ms (est.)** | **1.9 s (est.)** | **Free** |
 
-**The platform launches in `cockroach` mode and is fully functional.** Every acceptance criterion
+**The platform launches in `sql` mode and is fully functional.** Every acceptance criterion
 in [`36`](36-acceptance-criteria.md), including the 2-second presence requirement, is met on the
 free path. The entire test suite runs against both backends.
 
@@ -136,17 +136,128 @@ selfies 90 days.
 credits cannot absorb their volume. A leaked URL exposes one selfie — a real but bounded harm,
 documented so the operator knows about it rather than discovering it. [`26 §2`](26-media-pipeline.md)
 
-### 3.4 R4 — CockroachDB free-tier limits · **High · Likely at scale**
+### 3.4 R4 — TiDB Starter free-tier limits · **High · Likely at scale**
 
-10 GiB and 50 M request units per month. At 500 orders/day the platform uses about 1.4 GiB and
-31 M RU. At 2 000 orders/day it exceeds the RU limit.
+**5 GiB of row storage** and 50 M request units per month, per instance, with five instances free
+per organisation. Both halves of that sentence changed in the move and both are worse than what
+they replaced.
 
-**Mitigation:** every hot query is indexed and reviewed; `brain_traces` has a 7–90 day retention;
-`order_state_events` is partitioned with cold partitions archived to R2; read-heavy admin
-analytics run against materialised views refreshed on write, not on read.
+**Storage halved, and the runway with it.** CockroachDB gave 10 GiB. [`06 §12.1`](06-data-model-tidb.md)
+works the arithmetic: ~2.6 GB of capped tables plus ~0.7 GB/year of growth leaves roughly
+**3.6 years** at 500 orders/day, against the "~20 years" this corpus used to claim for 10 GiB. The
+old figure was also generous — it divided the whole tier by orders-and-items alone. The columnar
+5 GiB does not help; it is a TiFlash quota for analytics, not primary capacity.
 
-**Residual: real.** Above roughly 1 500 orders/day the free tier ends. That is a success problem
-and CockroachDB's paid tier starts around $25/month.
+**The RU projection could not be carried across.** ~31 M RU/month was measured against
+**CockroachDB's** definition of a request unit. TiDB's RU counts different work under a different
+formula, and the two are not convertible. The figure is **withdrawn, not translated**: renaming the
+vendor on an unconverted number is exactly the silent divergence this migration refuses. Undal's
+real consumption is unmeasured and will be published with its measurement date after the first week
+of production.
+
+**Mitigation:** every hot query is indexed and reviewed; `brain_traces` has a 7–90 day retention,
+now enforceable by TiDB TTL at the storage layer rather than only by the request-triggered sweep;
+`order_state_events` archives cold rows to R2; read-heavy admin analytics run against materialised
+views refreshed on write, not on read. Two further levers exist before any money is spent and both
+are already specified: tightening `brain_traces` retention toward 7 days reclaims most of the fixed
+2 GB, and archiving `order_state_events` at one year rather than two halves the largest growth
+term. Applying both pushes the runway past ten years.
+
+**Residual: real, and larger than it was.** Storage is now the tightest constraint in the platform's
+free-tier budget, where it used to be comfortable. The orders/day figure at which the free tier ends
+is **unknown** rather than estimated, because it depends on the RU measurement that has not happened
+yet. TiDB's paid tier is usage-based and starts in the same tens-of-dollars range as CockroachDB's.
+
+### 3.4a R29 — Audit WORM is detective, not preventive · **High · Unlikely**
+
+TiDB has no triggers, so `audit_log` immutability can no longer be refused at the storage layer.
+
+**Mitigation:** table-level grants deny `UPDATE` and `DELETE` to the application role, verified on
+every deploy by a CI job that *attempts* the write and requires error 1142; the SHA-256 chain
+detects any alteration; `audit_verifications` records every verification run and the sequence range
+it covered, so a gap in checking is itself visible.
+
+**Residual: real.** An actor holding the migration credential can alter history and recompute the
+chain — which was equally true under CockroachDB, where the trigger ran as the table owner and
+could be dropped by that same credential. What is genuinely lost is defence against an
+application-level compromise that does not hold DDL rights. See [`27 §4.2`](27-security-rbac-audit.md).
+
+### 3.4b R30 — The rider age floor is no longer a database constraint · **Medium · Unlikely**
+
+`CHECK (date_of_birth <= CURRENT_DATE - INTERVAL 18 YEAR)` cannot exist: MySQL and TiDB forbid
+non-deterministic functions inside `CHECK`.
+
+**Mitigation:** enforced in `undal-core` on every write to `date_of_birth`, and reported by the
+nightly integrity job for any existing row that violates it.
+
+**Residual: small but real.** A write path that bypasses `undal-core` could insert an under-age
+rider. `undal-core` is the sole relational writer by architecture ([`05 §3`](05-system-architecture.md)),
+so the bypass would itself be a larger violation — but the database no longer catches it.
+
+### 3.4c R31 — No CHECK constraint is enforced by the database · **Medium · Certain**
+
+**Confirmed, not estimated.** TiDB has supported `CHECK` since v7.2, but the feature is gated
+behind `tidb_enable_check_constraint`, and **TiDB Cloud Starter does not permit modifying that
+variable**. It is `OFF` permanently on the free tier. All **53** `CHECK` constraints declared in
+[`06`](06-data-model-tidb.md) are parsed and ignored.
+
+This risk was opened as "unknown until day one" and is now closed as a known, permanent condition
+of the tier Undal runs on. It is no longer a thing to measure; it is a thing to design around, and
+[`06 §1.2`](06-data-model-tidb.md) is that design.
+
+**Mitigation, in the order it takes effect:**
+
+1. **Generated, not hand-written.** The declarations in `06` are the single source from which
+   `constraints.json` and the write-path validators are produced. The `check-constraint-parity`
+   guardrail fails the build if the registry and the DDL disagree by one entry. Drift is the only
+   real failure mode of an application-layer constraint, and it is the thing being detected.
+2. **The thirteen money constraints never wait for a sweep.** Every value they guard is computed
+   by `apply_rate()` rather than accepted from a client, so a negative is a fare-engine defect
+   caught by the 40 fare vectors before deploy; `ledger-closure` fails on any posting set that does
+   not sum to zero; and the write-path validator refuses the write.
+3. **The other forty** are validated on write and swept nightly, with `SCHEMA_INVARIANT_VIOLATED`
+   raised at CRITICAL for money and WARNING otherwise.
+4. **They stay declared**, so they begin enforcing with no schema change on the day Undal moves off
+   Starter.
+
+**Residual: real, and unevenly distributed.** A write path that bypasses `undal-core` can store a
+value the schema forbids. `undal-core` is the sole relational writer by architecture
+([`05 §3`](05-system-architecture.md)), so such a path would itself be a larger violation — but the
+database will no longer catch it, and that is a genuine reduction in defence.
+
+The residual is smallest for money, where three independent mechanisms stand in front of the
+constraint, and largest for the eight range-and-shape constraints, where a bad value can persist
+until the next sweep. It is accepted deliberately: the alternative is a paid tier, and the
+constraint that forced this migration was cost permanence.
+
+### 3.4d R32 — Three tables have no foreign key · **Medium · Likely to be invisible**
+
+TiDB's foreign keys are GA but take an **exclusive lock on the parent row** when a child row is
+inserted. Every `order_items` insert would lock its `orders` row and every order would lock its
+`vendors` row, so one busy vendor at lunch would serialise its own order flow. `order_items`,
+`order_state_events` and `order_offers` therefore declare no FK to their parent.
+
+**Mitigation:** enforced in `undal-core`, which is the sole relational writer; a nightly orphan
+detection job reports any row whose parent is missing. Every other table keeps its foreign keys,
+and the three exceptions are named in [`06 §1`](06-data-model-tidb.md) rule 6 and in the DDL rather
+than inferred from their absence.
+
+**Residual: real.** An orphan is now found within a day instead of being impossible.
+
+### 3.4e R33 — The ledger depends on an experimental driver feature · **High · Unlikely**
+
+Interactive transactions on `@tidbcloud/serverless` are documented by PingCAP as not
+concurrency-safe, auto-rolled-back after 10 minutes idle, and rolled back outright if the gateway's
+TCP connection drops. Ledger posting genuinely requires one.
+
+**Mitigation:** interactive transactions are used as rarely as the semantics allow — the dispatch
+claim became a single conditional `UPDATE` ([`05 §4.2`](05-system-architecture.md)) and other
+multi-statement work is batched into one round trip. Where one is unavoidable it is short, contains
+no external HTTP call, and is safe to replay.
+
+**Residual: real.** A gateway drop mid-posting rolls the transaction back, which is the correct
+failure, but the path is less proven than a wire-protocol transaction was. The ledger-closure check
+is the detector: any posting set summing to non-zero fails CI and alerts in production.
 
 ### 3.5 R5 — GitHub Actions minutes · **Medium · Likely**
 
@@ -226,7 +337,7 @@ Every service here can alter its terms. Cloudflare has changed Workers' limits b
 could introduce quotas tomorrow.
 
 **Mitigation:** no provider-specific logic outside a thin adapter; media routing is one enum;
-the database is standard PostgreSQL; routing is one HTTP interface; the only genuinely
+the database is standard MySQL; routing is one HTTP interface; the only genuinely
 hard-to-replace dependency is Cloudflare Workers itself.
 
 **Residual: accepted.** Building on free tiers is the brief's constraint and this is its cost.
@@ -264,7 +375,7 @@ The following were typed into a chat interface and must be treated as **compromi
 
 | Credential | Action required **before launch** |
 | --- | --- |
-| CockroachDB connection string, including the password for user `undal` | **Rotate the password.** Cloud console → SQL Users → change password |
+| CockroachDB connection string, including the password for user `undal` — **the cluster is retired by this migration, but rotate anyway** | **Rotate the password.** Cloud console → SQL Users → change password |
 | The imgbb API key | **Revoke and reissue** |
 | The bKash payout number | Not secret in the same way, but review who knows it; the payout number is the platform's highest fraud-risk identifier |
 | Any Firebase service-account JSON, OAuth client secret, QR signing secret or admin password discussed | **Rotate every one** |
@@ -313,8 +424,8 @@ Where the architecture stops being appropriate, stated so nobody is surprised:
 | Orders/day | What breaks first | Response |
 | --- | --- | --- |
 | 500 | Nothing | Launch configuration |
-| 1 500 | CockroachDB RU | Paid tier, ~$25/month |
-| 3 000 | `dispatch_locks` contention | Workers Paid, $5/month, switch to `durable-object` |
+| ~1 500? | TiDB Starter RU — **threshold unmeasured**, see §3.4 | Paid tier, usage-based |
+| 3 000? | `dispatch_locks` contention — **likely moved**: the claim is now one round trip instead of four, which pushes this up, while Singapore's extra distance pushes it down. Load-test before republishing | Workers Paid, $5/month, switch to `durable-object` |
 | 5 000 | Workers free requests | Workers Paid covers it |
 | 10 000 | D1 writes; single-zone dispatch latency | D1 paid; shard dispatch by zone |
 | 25 000 | Pre-rendering 20 000+ pages per build | Hybrid: pre-render the top pages, SSR the long tail |

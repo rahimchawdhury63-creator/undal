@@ -104,7 +104,7 @@ jobs:
 
 ### 3.1 The guardrail jobs
 
-Twenty-eight named checks, each implementing a rule stated somewhere in this corpus. They run
+Thirty-one named checks, each implementing a rule stated somewhere in this corpus. They run
 first because they are fast and because a repository-level violation makes everything downstream
 irrelevant.
 
@@ -138,6 +138,72 @@ irrelevant.
 | `contrast` | A used token pair fails 4.5:1 (or 3:1 for large/UI) |
 | `no-fixed-width` | A fixed pixel width above 64 outside the allowlist |
 | `no-layout-animation` | An animation drives a layout property (3 documented exemptions) |
+| `no-postgres-dialect` | A CockroachDB or PostgreSQL construct appears in `db/` or in a SQL block in the corpus |
+| `geo-parity` | The integer geospatial layer disagrees with the reference geometry |
+| `check-constraint-parity` | `constraints.json` and the `CHECK` declarations in [`06`](06-data-model-tidb.md) disagree by one entry |
+
+The last three are new, added by the move to TiDB.
+
+**`no-postgres-dialect`** fails on any of: `INT8`, `STRING(`, `TIMESTAMPTZ`, `JSONB`, `BYTES`,
+`UUID` as a column type, `gen_random_uuid`, `ON CONFLICT`, `RETURNING`, `ST_`, `GEOGRAPHY`,
+`GEOMETRY`, `INVERTED`, `pg_`, `::` casts, `INDEX ... WHERE`, `ILIKE`, `string_agg`,
+`INSERT IGNORE`, `SERIALIZABLE`. It also parses every `CREATE TABLE` in
+[`06`](06-data-model-tidb.md) as MySQL and fails if any statement does not parse.
+
+`INT8` is the reason this job exists rather than being a style rule. MySQL reads `INT8` as `INT(8)`,
+a 4-byte integer capping at ৳21,474,836, so a schema that merely *looks* converted would overflow
+money silently. `INSERT IGNORE` is forbidden for the same shape of reason: it swallows truncation
+and foreign-key errors alongside duplicate-key ones, which is how a ledger row disappears without a
+log line.
+
+Two patterns are deliberately **not** matched. `ST_IGNORE_BATTERY_OPTIMIZATIONS`, `ST_NOTIFICATIONS`
+and `ST_FIX` are Android constants in [`07`](07-d1-live-tracking.md),
+[`15`](15-wakeup-alarm-fcm.md) and [`16`](16-android-foundation.md); the `ST_` rule is scoped to SQL
+contexts, and the fixture includes one of them as a must-not-fire case.
+
+**`geo-parity`** is specified in [`06 §4.1.4`](06-data-model-tidb.md): 10,000 radius cases and
+10,000 point-in-polygon cases over the Sylhet bounding box, at least 2,000 of the latter within 5 m
+of an edge, requiring identical candidate sets, distances within ±1 m, and exact boundary
+agreement against a reference geometry library used only in the test.
+
+**`check-constraint-parity`** exists because TiDB Cloud Starter cannot enforce `CHECK` at all —
+the `tidb_enable_check_constraint` variable is not modifiable on the free tier, so all 53
+constraints declared in [`06`](06-data-model-tidb.md) are parsed and ignored. They are enforced in
+`undal-core` instead, and this job is what stops that from decaying into a comment.
+
+It re-extracts every `CHECK` from `06`, compares the result to `packages/contracts/constraints.json`,
+and fails on any entry that is missing, extra or altered. A new `CHECK` without a regenerated
+registry fails the build; a validator with no matching declaration fails the build. **Drift is the
+only real failure mode of an application-layer constraint**, so drift is what the job detects.
+
+Its fixtures are the usual pair plus one more: a registry with an entry deleted, a registry with an
+expression subtly altered (`>= 0` changed to `> 0`), and the clean case. The altered-expression
+fixture is the one that matters — a missing entry is obvious, a wrong one is not.
+
+### 3.2 The nightly integrity workflow
+
+Not a guardrail, because it runs against production data rather than the repository, but it is the
+other half of the `CHECK` fallback and it is specified in [`06 §1.2`](06-data-model-tidb.md).
+
+```yaml
+# .github/workflows/integrity.yml
+on:
+  schedule:    [{ cron: "0 20 * * *" }]   # 02:00 Asia/Dhaka
+  workflow_dispatch:
+  workflow_run:
+    workflows: [deploy]
+    types: [completed]
+```
+
+It reads `constraints.json`, runs `SELECT count(*) FROM <table> WHERE NOT (<expression>)` for each
+of the 53 entries plus the rider age floor, and writes every result — including the zeroes — to
+`audit_verifications`. A non-zero count raises `SCHEMA_INVARIANT_VIOLATED`, CRITICAL for the
+thirteen money constraints and WARNING for the rest.
+
+**This is CI, not a cron job on the platform.** The no-cron rule in
+[`01`](01-mission-and-non-negotiables.md) governs the running system; scheduled verification has
+always lived in Actions, alongside the audit-chain walk. The `no-cron` guardrail checks
+`wrangler.toml` and Worker `scheduled` handlers, and is unaffected by a workflow schedule.
 
 ---
 
@@ -321,7 +387,7 @@ jobs:
       - run: npm ci
       - name: Push secrets
         run: |
-          for s in COCKROACH_DATABASE_URL COCKROACH_CA_CERT IMGBB_API_KEY \
+          for s in TIDB_DATABASE_URL IMGBB_API_KEY \
                    CLOUDINARY_CLOUD_NAME CLOUDINARY_UPLOAD_PRESET \
                    FIREBASE_SERVICE_ACCOUNT_JSON ORDER_QR_SECRET \
                    UNDAL_BKASH_PAYOUT_NUMBER OSRM_BASE_URL WEATHER_BASE_URL \
@@ -374,7 +440,12 @@ on:
 | Verification | `verify-schema.yml` runs afterwards and compares the live schema against `docs/schema/expected.json`, failing on any drift |
 | Summary | Statements executed, rows affected, duration, and the new schema hash, all in the job summary |
 
-The twelve migrations are listed in [`06`](06-data-model-cockroachdb.md).
+The twelve migrations are listed in [`06`](06-data-model-tidb.md), preceded by `000_smoke.sql`, which probes `CHECK` behaviour and stops the run before the real schema if the probe fails.
+
+**The runner applies statements, not files.** TiDB auto-commits DDL, so a migration file is not
+atomic and cannot be wrapped in a transaction. `migrate.yml` records each statement in
+`schema_migrations` as it succeeds and resumes from the first unrecorded statement after a failure.
+See [`06 §10`](06-data-model-tidb.md) for why this replaced the per-file transaction.
 
 ---
 

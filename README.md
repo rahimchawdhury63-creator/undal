@@ -7,7 +7,7 @@
 **On-demand, real-time, cash-on-delivery, multi-vendor food delivery and pick-up platform.**
 Built for Bangladesh. Built on a 100% free tier. Built to be measured against Foodpanda and Uber Eats.
 
-`Android (Customer · Partner · Rider)` · `React + Vite Web` · `Cloudflare Workers` · `CockroachDB` · `Cloudflare D1` · `OSM + OSRM` · `FCM v1`
+`Android (Customer · Partner · Rider)` · `React + Vite Web` · `Cloudflare Workers` · `TiDB Cloud` · `Cloudflare D1` · `OSM + OSRM` · `FCM v1`
 
 [![License: PASVL-1.0](https://img.shields.io/badge/License-PASVL--1.0-0F4435.svg)](LICENSE)
 [![Deployment: LOSDA required](https://img.shields.io/badge/Deployment-LOSDA%20required-D70F64.svg)](LICENSE)
@@ -56,7 +56,7 @@ entirely by the document corpus in [`docs/`](docs/), and the corpus is the contr
               ┌─────────────────────┴───────┐              ┌──────────┴───────────┐
               ▼                             ▼              ▼                      ▼
    ┌───────────────────┐        ┌────────────────────┐  ┌──────────────┐  ┌──────────────┐
-   │ Cloudflare D1     │        │ Durable Objects    │  │ CockroachDB  │  │ OSRM (OSM)   │
+   │ Cloudflare D1     │        │ Durable Objects    │  │ TiDB Cloud   │  │ OSRM (OSM)   │
    │ rider live track  │        │ zone hubs, locks   │  │ system of    │  │ routing      │
    │ (ephemeral)       │        │ SSE hubs           │  │ record       │  │ matrix       │
    └───────────────────┘        └────────────────────┘  └──────────────┘  └──────────────┘
@@ -112,7 +112,7 @@ entirely by the document corpus in [`docs/`](docs/), and the corpus is the contr
 
 | Component | State |
 | --- | --- |
-| Specification corpus | ✅ Complete — 40 documents, 133,000 words |
+| Specification corpus | ✅ Complete — 40 documents, 142,000 words · system of record is TiDB Cloud Starter |
 | Secret and config register | ✅ [`.env.example`](.env.example) — 44 secrets, 147 config keys |
 | Brand assets | ✅ In repository |
 | Alert audio | ✅ `undal_order_alert_loop.wav`, 8.000 s, 44.1 kHz mono |

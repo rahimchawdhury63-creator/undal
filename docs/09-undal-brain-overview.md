@@ -155,15 +155,15 @@ receive the identical ranking treatment, so there is no way to buy more of it.
 ## 4. The feature store
 
 The Brain needs statistics about vendors, riders, zones and customers. It must read them in under a
-millisecond and it must not query CockroachDB on a hot path.
+millisecond and it must not query TiDB on a hot path.
 
 ### 4.1 Where features live
 
 | Tier | Store | Latency | Freshness | Contents |
 | --- | --- | --- | --- | --- |
 | **Hot** | Workers KV, one key per entity | ~1 ms (cached at the edge after first read) | 60 s – 15 min | Rolling stats used on every decision |
-| **Warm** | CockroachDB `vendor_stats`, `rider_stats`, `item_stats` | ~18 ms | Real-time | The authoritative values; KV is a projection of these |
-| **Cold** | CockroachDB base tables | ~40 ms | Real-time | Recomputation source |
+| **Warm** | TiDB `vendor_stats`, `rider_stats`, `item_stats` | ~45 ms (est.) | Real-time | The authoritative values; KV is a projection of these |
+| **Cold** | TiDB base tables | ~70 ms (est.) | Real-time | Recomputation source |
 
 The write path: when an order reaches `DELIVERED`, the post-commit effect updates the warm tier in
 the same transaction group and then writes the KV projection. A KV write that fails is retried; a
@@ -299,7 +299,7 @@ samples.
 
 ## 6. Traces: how every decision explains itself
 
-Every Brain call writes a `brain_traces` row ([`06 §9`](06-data-model-cockroachdb.md)).
+Every Brain call writes a `brain_traces` row ([`06 §9`](06-data-model-tidb.md)).
 
 ```jsonc
 {

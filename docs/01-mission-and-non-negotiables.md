@@ -236,7 +236,7 @@ structural property of the design. The "Enforced by" column names the mechanism.
 | 1 | **No CLI, no local machine.** Every build, test, migration and deploy runs in GitHub Actions and is startable from a browser. | No `Makefile`, no `scripts/deploy.sh`; every workflow has `workflow_dispatch` — job `no-local-tooling` |
 | 2 | **No placeholders.** No `TODO`, `FIXME`, `XXX`, `NotImplementedError`, `throw new Error("unimplemented")`, or empty function body in shipped code. | Job `no-placeholders` greps the full tree excluding `**/test/**` |
 | 3 | **No demo or seed data.** No fixture reaches a production code path. | Job `no-seed-data`; `scripts/check_no_seed.py` |
-| 4 | **No secrets in the repository.** | Job `secret-scan` (gitleaks ruleset, plus a bespoke pattern list for CockroachDB URLs, imgbb keys, Cloudinary URLs and Firebase private keys) |
+| 4 | **No secrets in the repository.** | Job `secret-scan` (gitleaks ruleset, plus a bespoke pattern list for TiDB URLs, imgbb keys, Cloudinary URLs and Firebase private keys) |
 | 5 | **No file over 700 lines.** | Job `line-budget` |
 | 6 | **Every exported symbol documented.** | Job `doc-coverage`, ≥ 98% required |
 | 7 | **Money is integer paisa.** No float arithmetic in any money path. | Job `money-integrity`; AST-level check, not a regex |
@@ -300,8 +300,8 @@ structural property of the design. The "Enforced by" column names the mechanism.
 | Worker 2 — `undal-realtime` | **TypeScript** + Durable Objects | Presence, live location, SSE fan-out, FCM dispatch. Durable Objects give single-threaded consistency per zone, which is exactly what dispatch locking needs. |
 | Worker 3 — `undal-brain` | **Python** (Workers Python runtime) | Fare, dispatch, batching, ranking, forecasting. Python's numeric ergonomics make the statistics readable, and readable statistics are auditable statistics. |
 | Web hosting | **Cloudflare Pages** | Unlimited bandwidth on free, atomic deploys, preview per PR, and native Workers binding |
-| System of record | **CockroachDB Serverless (free)** | PostgreSQL wire protocol, distributed SQL, serializable isolation by default, 10 GiB storage and 50 M RU/month free. Serializable is the right default for a ledger. |
-| Geospatial | **PostGIS-compatible spatial types in CockroachDB** | Native `GEOGRAPHY`, `ST_DWithin`, `ST_Contains` for zone membership and radius queries, with GIN indexes |
+| System of record | **TiDB Cloud Starter (free, permanently)** | MySQL-compatible distributed SQL, pessimistic `REPEATABLE READ`, 5 GiB row storage and 50 M RU/month free, five instances per organisation. Chosen over CockroachDB Serverless because that tier expires and this one does not. |
+| Geospatial | **Integer coordinates on the platform's 500 m cell grid** | TiDB has no spatial types, so points are `lat_e7`/`lon_e7` with an indexed `cell_id`, polygons are GeoJSON with integer bounding boxes, and exact geometry runs in the Worker. Proven equivalent by the `geo-parity` gate ([`06 §4.1`](06-data-model-tidb.md)) |
 | Live tracking | **Cloudflare D1** | 5 M reads and 100 k writes per day free. Perfect for a high-churn, low-durability channel that is deliberately erased. |
 | Images, public | **imgbb** | Unlimited, free, direct base64 upload, returns a permanent URL |
 | Images, sensitive | **Cloudinary** | Free tier with private delivery, signed URLs, and PDF generation for invoices |
@@ -323,7 +323,7 @@ structural property of the design. The "Enforced by" column names the mechanism.
 | Pages | Unlimited bandwidth, 500 builds/month | ~90 builds/month | 82% |
 | D1 reads | 5 M/day | ~1.1 M/day | 78% |
 | D1 writes | 100 000/day | ~34 000/day | 66% |
-| CockroachDB | 10 GiB, 50 M RU/month | ~0.9 GiB, ~21 M RU | 58% |
+| TiDB Starter | 5 GiB row, 50 M RU/month | ~1.4 GiB; **RU unmeasured** | Storage ~3.6×; RU **unknown**, see [`39 §3.4`](39-risk-register-and-truths.md) |
 | FCM | Unlimited | ~4 500 messages/day | ∞ |
 | imgbb | Unlimited | ~300 uploads/day | ∞ |
 | Cloudinary | 25 credits/month | ~6 credits | 76% |
@@ -344,7 +344,7 @@ Every document in this corpus refers back to these states. This is the canonical
                     └─────┬────┘
                           │ customer confirms
                     ┌─────▼──────┐
-                    │  PLACED    │  written to CockroachDB, FCM fired at the vendor
+                    │  PLACED    │  written to TiDB, FCM fired at the vendor
                     └─────┬──────┘
           ┌───────────────┼───────────────────┐
           │ vendor accepts│                   │ 2 min, no response, device unreachable
@@ -389,7 +389,7 @@ Every document in this corpus refers back to these states. This is the canonical
 
 The full state machine, with the transition table, the guard conditions, the events emitted, and the
 compensating ledger postings for every reversal, is in
-[`06-data-model-cockroachdb.md §7`](06-data-model-cockroachdb.md) and
+[`06-data-model-tidb.md §7`](06-data-model-tidb.md) and
 [`08-api-contract.md §6`](08-api-contract.md).
 
 ---
@@ -421,7 +421,7 @@ lies to its users, and this platform handles other people's cash.
 **In scope for v1.0:**
 
 Customer Android app · Partner Android app · Rider Android app · Web storefront with full ordering ·
-Admin panel · Three Workers · CockroachDB schema · D1 tracking · Fare engine · Dispatch engine ·
+Admin panel · Three Workers · TiDB schema · D1 tracking · Fare engine · Dispatch engine ·
 Batching engine · Ranking engine · Wake-up alarm · Presence · KYC onboarding · Weekly invoicing ·
 Cash settlement · Zone drawing · Command map · Promo and campaign engine · Ratings and reviews ·
 Dispute desk · Audit log · RBAC · Bangla/English · SEO · Deep links · Signed APK and AAB from Actions

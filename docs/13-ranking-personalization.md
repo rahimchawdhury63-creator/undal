@@ -126,23 +126,53 @@ Total CPU at 200 candidate vendors: **p50 3.9 ms, p99 5.8 ms** ([`09 §10`](09-u
 ## 3. Stage 1 — Geo-filter
 
 ```sql
--- Vendors whose service polygon contains the customer AND which are inside
--- the customer's active delivery zone. PostGIS does the work; the GIST index
--- on vendors.service_area makes it a sub-10ms query at city scale.
+-- Vendors whose service polygon contains the customer AND which are inside the
+-- customer's active delivery zone. TiDB has no spatial types, so this is a loose
+-- integer prefilter; the exact geometry runs in the Worker. See `06 §4.1`.
+-- Cell list and bounding boxes are computed before the query opens.
 SELECT v.id, v.name, v.cuisine_tags, v.price_band,
-       ST_Distance(v.location::geography, $1::geography)::int AS straight_m
+       v.lat_e7, v.lon_e7, v.service_area, v.max_delivery_m
   FROM vendors v
  WHERE v.status = 'APPROVED'
-   AND v.zone_id = $2
-   AND ST_Contains(v.service_area, $1::geometry)
-   AND ST_DWithin(v.location::geography, $1::geography, v.max_delivery_m)
- ORDER BY straight_m
+   AND v.deleted_at IS NULL
+   AND v.zone_id = ?
+   AND v.cell_id IN (?, ?, ?, ?, ?, ?, ?, ?, ?)
+   AND v.lat_e7 BETWEEN ? AND ?
+   AND v.lon_e7 BETWEEN ? AND ?
+   -- the customer must fall inside the vendor's own service-area bounding box
+   AND ? BETWEEN v.sa_bbox_min_lat_e7 AND v.sa_bbox_max_lat_e7
+   AND ? BETWEEN v.sa_bbox_min_lon_e7 AND v.sa_bbox_max_lon_e7
  LIMIT 300;
+```
+
+Then, in the Worker, over at most 300 rows:
+
+```ts
+const candidates = rows
+  .map(v => ({ ...v, straight_m: haversineMetres(customer, v) }))   // integer metres
+  .filter(v => v.straight_m <= v.max_delivery_m)                    // was ST_DWithin
+  .filter(v => ringContains(v.service_area, customer))              // was ST_Contains
+  .sort((a, b) => a.straight_m - b.straight_m || cmp(a.id, b.id));
 ```
 
 Two conditions, not one: the vendor's own `service_area` polygon **and** the platform's zone. A
 vendor may draw a service area smaller than the zone (a home kitchen that only serves its own
 neighbourhood) but never larger.
+
+**What changed, and what did not.** `LIMIT 300` is unchanged, both conditions are unchanged, and the
+result set is identical — `geo-parity` ([`06 §4.1.4`](06-data-model-tidb.md)) is the check that
+proves it, over 10,000 generated cases with 2,000 of them within 5 m of a polygon edge. Ties in
+`straight_m` now break by vendor id, so the ordering is total rather than
+implementation-defined — which the PostGIS version never guaranteed.
+
+The bounding-box test is a superset of `ST_Contains`: a point inside a ring is always inside that
+ring's bounding box, so no vendor is lost in SQL, and `ringContains()` discards the ones the box let
+through. The candidate set is already capped at 300 by the time any geometry is evaluated, which is
+why this needs no materialised cell map, unlike the zone lookup in `06 §4.1.3`.
+
+The "sub-10 ms at city scale" figure below is now an **estimate**: the index is different, the query
+shape is different, and the database is roughly 1,200 km further from Dhaka. It will be measured
+against a real Starter instance and republished with its measurement date.
 
 Straight-line distance is multiplied by the learned zone detour factor to give a routing estimate;
 true OSRM distances are fetched only for the top 40 after stage 9, because 300 route calls per

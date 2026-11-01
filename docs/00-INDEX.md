@@ -62,7 +62,7 @@ are engineering guarantees versus best-effort. Then read `27`, `10`, `24`, and `
 | # | Document | Answers |
 | --- | --- | --- |
 | 05 | [System Architecture](05-system-architecture.md) | Three Workers, their boundaries, Durable Objects, the request lifecycle, the failure model, the free-tier budget. |
-| 06 | [Data Model — CockroachDB](06-data-model-cockroachdb.md) | Every table, column, type, constraint, index, and the complete DDL with PostGIS geometry. |
+| 06 | [Data Model — TiDB](06-data-model-tidb.md) | Every table, column, type, constraint, index, and the complete DDL with the integer-coordinate geospatial layer. |
 | 07 | [D1 Live Tracking](07-d1-live-tracking.md) | The ephemeral rider location channel: 100 m gating, adaptive cadence, ring buffer, erasure, and the write-budget arithmetic. |
 | 08 | [API Contract](08-api-contract.md) | Every endpoint across all three Workers: method, path, auth, request schema, response schema, error codes, idempotency, rate limits. |
 
@@ -142,7 +142,7 @@ Read top to bottom; an arrow means "the lower document assumes the upper one".
         │                   │                   │
         ▼                   ├──────┬──────┬─────┴─────┐
    03 Design System         ▼      ▼      ▼           ▼
-        │              06 Cockroach 07 D1 08 API  28 CI/CD
+        │              06 TiDB     07 D1 08 API  28 CI/CD
         ▼                   │      │      │           │
    04 Motion                └──┬───┴──┬───┘           │
         │                      ▼      ▼               │
@@ -191,7 +191,7 @@ Read top to bottom; an arrow means "the lower document assumes the upper one".
 | `doc 07 §4` | Section 4 of document `07-d1-live-tracking.md`. |
 | ৳ | Bangladeshi Taka. Always rendered with the ৳ sign, never "BDT" in user-facing copy. |
 | **paisa** | 1/100 of a taka. **All money in code and database is an integer count of paisa.** |
-| `TABLE.column` | A CockroachDB column, e.g. `orders.subtotal_paisa`. |
+| `TABLE.column` | A TiDB column, e.g. `orders.subtotal_paisa`. |
 | **Actor** | One of: Customer, Partner, Rider, Admin, System. |
 | **Surface** | One of: Customer App, Partner App, Rider App, Web Storefront, Admin Panel. |
 
@@ -222,9 +222,9 @@ explicitly.
 | Invoice number | `UND/{V\|R}/{YYYY}/{WW}/{seq}` | `UND/V/2026/44/00017` |
 | Vendor slug | kebab-case, unique per zone | `the-burger-junction-sylhet` |
 
-UUID v7 is chosen over v4 because CockroachDB range-splits on primary key, and time-ordered keys keep
+UUID v7 is chosen over v4 because TiDB region-splits on primary key, and time-ordered keys keep
 recent-order scans in a small number of ranges. The hotspot risk this normally creates is mitigated by
-the zone-sharded secondary indexes described in [`06-data-model-cockroachdb.md §12`](06-data-model-cockroachdb.md).
+the zone-sharded secondary indexes described in [`06-data-model-tidb.md §12`](06-data-model-tidb.md).
 
 ---
 
