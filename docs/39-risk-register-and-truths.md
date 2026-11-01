@@ -194,18 +194,41 @@ nightly integrity job for any existing row that violates it.
 rider. `undal-core` is the sole relational writer by architecture ([`05 §3`](05-system-architecture.md)),
 so the bypass would itself be a larger violation — but the database no longer catches it.
 
-### 3.4c R31 — CHECK constraints may not be enforced at all · **Medium · Unknown until day one**
+### 3.4c R31 — No CHECK constraint is enforced by the database · **Medium · Certain**
 
-TiDB has supported `CHECK` since v7.2 but **disables it by default** behind
-`tidb_enable_check_constraint`, and whether Starter permits setting it is **unverified**.
+**Confirmed, not estimated.** TiDB has supported `CHECK` since v7.2, but the feature is gated
+behind `tidb_enable_check_constraint`, and **TiDB Cloud Starter does not permit modifying that
+variable**. It is `OFF` permanently on the free tier. All **53** `CHECK` constraints declared in
+[`06`](06-data-model-tidb.md) are parsed and ignored.
 
-**Mitigation:** every `CHECK` stays declared in the DDL so it takes effect wherever the variable is
-on. Where it is off, the constraint is enforced in `undal-core` on the write path and the nightly
-integrity job reports every row violating a declared `CHECK`.
+This risk was opened as "unknown until day one" and is now closed as a known, permanent condition
+of the tier Undal runs on. It is no longer a thing to measure; it is a thing to design around, and
+[`06 §1.2`](06-data-model-tidb.md) is that design.
 
-**Residual: real until measured.** This is the first thing to test against a live Starter instance,
-before any migration runs. A constraint that is declared and checked nightly is a specification; one
-that is deleted is a gap — which is why none were deleted.
+**Mitigation, in the order it takes effect:**
+
+1. **Generated, not hand-written.** The declarations in `06` are the single source from which
+   `constraints.json` and the write-path validators are produced. The `check-constraint-parity`
+   guardrail fails the build if the registry and the DDL disagree by one entry. Drift is the only
+   real failure mode of an application-layer constraint, and it is the thing being detected.
+2. **The thirteen money constraints never wait for a sweep.** Every value they guard is computed
+   by `apply_rate()` rather than accepted from a client, so a negative is a fare-engine defect
+   caught by the 40 fare vectors before deploy; `ledger-closure` fails on any posting set that does
+   not sum to zero; and the write-path validator refuses the write.
+3. **The other forty** are validated on write and swept nightly, with `SCHEMA_INVARIANT_VIOLATED`
+   raised at CRITICAL for money and WARNING otherwise.
+4. **They stay declared**, so they begin enforcing with no schema change on the day Undal moves off
+   Starter.
+
+**Residual: real, and unevenly distributed.** A write path that bypasses `undal-core` can store a
+value the schema forbids. `undal-core` is the sole relational writer by architecture
+([`05 §3`](05-system-architecture.md)), so such a path would itself be a larger violation — but the
+database will no longer catch it, and that is a genuine reduction in defence.
+
+The residual is smallest for money, where three independent mechanisms stand in front of the
+constraint, and largest for the eight range-and-shape constraints, where a bad value can persist
+until the next sweep. It is accepted deliberately: the alternative is a paid tier, and the
+constraint that forced this migration was cost permanence.
 
 ### 3.4d R32 — Three tables have no foreign key · **Medium · Likely to be invisible**
 

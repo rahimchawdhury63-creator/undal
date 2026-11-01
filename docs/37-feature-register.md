@@ -296,7 +296,7 @@ the point: the number is a measurement, not a marketing claim, and it is allowed
 | Reason codes | `docs/features/reasons.json` | 94 |
 | Acceptance criteria | [`36`](36-acceptance-criteria.md) | 179 |
 | Properties | [`30 §2`](30-testing-and-verification.md) | 64 |
-| Guardrails | [`28 §3.1`](28-cicd-github-actions.md) | 30 |
+| Guardrails | [`28 §3.1`](28-cicd-github-actions.md) | 31 |
 | Workflows | `.github/workflows/` | 23 |
 | Cuisine categories | `docs/features/cuisines.json` | 118 |
 | Search synonyms | `docs/features/synonyms.json` | 340 |

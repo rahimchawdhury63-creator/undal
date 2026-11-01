@@ -53,18 +53,27 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 5. **Enums are `VARCHAR` with a `CHECK`,** not MySQL `ENUM` types. A MySQL `ENUM` stores an ordinal
    and reorders badly under `ALTER`; a `VARCHAR` stores what it says.
 
-   > **The `CHECK` may or may not be enforced, and the schema says so rather than assuming.** TiDB
-   > has supported `CHECK` since v7.2, but it is **disabled by default** behind
-   > `tidb_enable_check_constraint`. Every `CHECK` in this document is declared, so that it takes
-   > effect wherever the variable is on. Where it is off, the constraint is enforced in
-   > `undal-core` on the write path and verified by the nightly integrity job, which reports every
-   > row violating a declared `CHECK`. This is weaker than a database guarantee and it is logged in
-   > `39` as R31. It is not a reason to drop the declarations: a constraint that is declared and
-   > checked nightly is a specification; a constraint that is deleted is a gap.
+   > **None of the 53 `CHECK` constraints in this document are enforced by the database, and this
+   > is now a confirmed fact rather than an open question.** TiDB has supported `CHECK` since
+   > v7.2, but the feature is gated behind `tidb_enable_check_constraint`, which **TiDB Cloud
+   > Starter does not permit modifying**. It is `OFF` and it stays `OFF`. TiDB parses the clauses
+   > and ignores them without raising an error, which is MySQL 5.7 behaviour.
    >
-   > One `CHECK` cannot be expressed at all — the 18-year age floor on `riders.date_of_birth`, which
-   > needs `CURRENT_DATE`, and MySQL forbids non-deterministic functions inside `CHECK`. It moves to
-   > the application and the nightly job. See §6 and `39` R30.
+   > **They stay declared anyway, for two reasons that are not sentimentality.** They are the
+   > generated source of the application validators (§1.2), so deleting them would delete the
+   > specification the validators are built from. And they begin enforcing automatically on the
+   > day Undal outgrows Starter, with no schema change. A constraint that is declared, validated
+   > at the write path and swept nightly is a specification. A constraint that is deleted is a gap
+   > nobody can see.
+   >
+   > Note what is deliberately **not** claimed: whether an ignored `CHECK` survives into
+   > `SHOW CREATE TABLE` or `information_schema` is unverified, and it probably does not, because
+   > a clause parsed and discarded is not table metadata. The schema verifier therefore does not
+   > depend on reading them back (§10), and the smoke test in §1.2 records the answer rather than
+   > assuming one.
+   >
+   > What this costs is stated honestly in §1.2 and logged in `39` as R31, and it is **not uniform
+   > across the 53** — thirteen of them guard money, and money cannot wait for a nightly sweep.
 
 6. **Foreign keys are declared, except on three hot child tables.** The correctness argument for
    FKs always applies; at Undal's scale the performance argument almost never does.
@@ -106,6 +115,105 @@ would change the surface that [`27 §5`](27-security-rbac-audit.md) and the RBAC
 Every one of the 292 column names in this document was checked against the MySQL 8.0 reserved-word
 list, and every DDL statement here is parsed as MySQL by CI as part of the `no-postgres-dialect`
 guardrail. A schema that only fails at `migrate.yml` time has already wasted a deploy.
+
+### 1.2 The constraint registry
+
+Because TiDB Cloud Starter cannot enforce `CHECK`, the 53 constraints declared in this document are
+enforced one layer up. The mechanism matters more than the intention: an application that is
+*supposed* to validate is not a constraint, it is a hope. So the declarations are not duplicated by
+hand into validator code — they are **the single source from which that code is generated**.
+
+```
+docs/06-data-model-tidb.md        the declarations (authoritative)
+        │
+        ├─► scripts/db/extract_constraints.py
+        │       parses every CHECK out of the DDL
+        │
+        ▼
+packages/contracts/constraints.json     53 entries: table, column, kind, expression
+        │
+        ├─► undal-core   generated validators, run on the write path
+        ├─► integrity job   generated SQL, finds rows that already violate
+        └─► check-constraint-parity   CI: registry must match the DDL exactly
+```
+
+`check-constraint-parity` is the guardrail that keeps this honest. It re-extracts the constraints
+from this document, compares them to `constraints.json`, and fails if a single one is missing,
+extra or altered. Adding a `CHECK` here without regenerating the registry fails the build; writing
+a validator with no matching declaration fails the build. **Drift is the only real failure mode of
+an application-layer constraint, and this is the thing that detects it.**
+
+#### The 53, and what each tier actually costs
+
+| Tier | Count | What they guard | Enforcement | Honest residual |
+| --- | --- | --- | --- | --- |
+| **Money** | **13** | `*_paisa >= 0`, `commission_bps` 0–5000, `rider_bonus_bps` 0–2000, `compare_at_paisa > price_paisa` | Write-path validator **plus** the existing `ledger-closure` and `money-integrity` CI jobs **plus** the 40 fare vectors | Lowest of the three, and deliberately so |
+| **Enums** | **32** | `state`, `status`, `actor_type`, `open_state`, `availability`, `kind`, `vehicle`, and the rest | Write-path validator; consumers switch on known values and fail closed on an unknown one | A bad value is a bug that surfaces at the next read, not silent corruption |
+| **Ranges and shape** | **8** | `busy_level` 0–3, `spice_level` 0–3, `iso_week` 1–53, `max_select >= min_select`, `payment_method = 'COD'` | Write-path validator, nightly sweep | A bad value persists until the sweep |
+
+**The thirteen money constraints do not rely on the nightly sweep, and must not.** A negative
+`total_paisa` discovered twenty-three hours later has already been invoiced and may already have
+been paid out. Three things stand in front of them, all of which exist in this corpus already:
+
+1. Every one of those values is **computed**, never accepted from a client. `subtotal_paisa`,
+   `delivery_fee_paisa`, `tax_paisa` and `total_paisa` come out of `apply_rate()`
+   ([`24 §2`](24-finance-payouts-invoices.md)), which operates on `BIGINT` paisa and cannot produce
+   a negative from non-negative inputs. A negative here means a fare-engine defect, and the 40 fare
+   vectors are the test that catches it before deploy, not after.
+2. **`ledger-closure`** fails CI and alerts in production on any posting set that does not sum to
+   zero. A negative money column that reached the ledger breaks closure.
+3. The write-path validator refuses the write and raises the error code the API already defines.
+
+The sweep is the fourth line, not the first. For the other forty constraints it is the second.
+
+#### The integrity job
+
+Generated from the same registry, so it cannot test something different from what is declared. It
+runs on every deploy and nightly as a GitHub Actions `schedule` — CI, not a cron job on the
+platform, which is where this corpus already puts scheduled verification.
+
+For each registry entry it runs `SELECT count(*) FROM <table> WHERE NOT (<expression>)` and records
+the result. A non-zero count raises `SCHEMA_INVARIANT_VIOLATED` at severity **CRITICAL** when the
+constraint is in the money tier and **WARNING** otherwise, writes an `audit_log` row, and surfaces
+in the admin panel's exceptions list. Results are retained so that a violation appearing between
+two runs can be bracketed in time.
+
+A constraint whose sweep has never run is reported as unverified rather than passing, for the same
+reason `audit_verifications` exists ([`27 §4.2`](27-security-rbac-audit.md)): the dangerous state is
+not a failed check, it is a check that quietly stopped happening.
+
+#### One constraint that cannot be declared at all
+
+The 18-year age floor on `riders.date_of_birth` is not among the 53. It needs `CURRENT_DATE`, and
+MySQL forbids non-deterministic functions inside `CHECK` regardless of whether the feature is
+enabled. It is a validator and a sweep entry with no declaration behind it, which is why it is
+logged separately as `39` R30. See §6.
+
+#### What must be confirmed on the first migration run
+
+TiDB's documented behaviour is to parse and ignore `CHECK` when the feature is off, and PingCAP's
+own compatibility notes describe exactly that — "TiDB ignores the `CHECK` constraint without
+reporting any error". **This has not been observed on a live Starter instance**, and if it were
+wrong, every `CREATE TABLE` in this document would fail outright rather than degrade.
+
+So migration `000_smoke.sql` runs first and answers it in four statements, against a throwaway
+table that is dropped immediately:
+
+1. `CREATE TABLE _smoke (n INT, CONSTRAINT c CHECK (n > 0));` — **must succeed.** If it does not,
+   the runner stops before touching the real schema, and the fallback is mechanical: the extractor
+   already holds every expression, so the `CHECK` clauses move into SQL comments and
+   `constraints.json` is unchanged. Nothing half-applies.
+2. `INSERT INTO _smoke VALUES (-1);` — **must succeed**, which is what proves parse-and-ignore
+   rather than enforcement. If it *fails*, then this instance does enforce `CHECK`, and the
+   workflow records that happy surprise rather than ignoring it.
+3. `SHOW CREATE TABLE _smoke` and a read of `information_schema.CHECK_CONSTRAINTS` — **recorded,
+   not asserted.** This is how the corpus learns whether an ignored constraint is still visible in
+   the live schema. The answer is written into the workflow summary and this section is updated
+   with it.
+4. `DROP TABLE _smoke;`
+
+The outcome is written to `audit_verifications` like any other verification run, so "we never
+actually checked" is not a state the platform can be in.
 
 ---
 
@@ -1153,6 +1261,7 @@ pruned by the same request-triggered sweep that handles other housekeeping.
 
 ```
 workers/core/src/db/migrations/
+├── 000_smoke.sql           CHECK parse-and-ignore probe, §1.2; drops its own table
 ├── 001_identity.sql
 ├── 002_rbac.sql
 ├── 003_geography.sql
@@ -1209,11 +1318,21 @@ unrecorded statement rather than restarting. A re-run after a partial failure is
 which is the property the per-file transaction used to provide and the only honest way to provide it
 here.
 
-`verify_schema.py` is rewritten against MySQL's `information_schema`, with one trap worth naming:
-**`CHECK` constraints do not appear in `information_schema.table_constraints` on TiDB.** They are in
-`CHECK_CONSTRAINTS` and `TIDB_CHECK_CONSTRAINTS`. A verifier written against the obvious table finds
-zero checks, reports no drift, and passes forever. The rewritten verifier reads the right tables and
-ships a fixture that drops a `CHECK` and asserts the verifier catches it.
+`verify_schema.py` is rewritten against MySQL's `information_schema`, and the way it handles
+`CHECK` is the part worth naming. On TiDB, `CHECK` constraints never appear in
+`information_schema.table_constraints`; where they appear at all it is in `CHECK_CONSTRAINTS` and
+`TIDB_CHECK_CONSTRAINTS`. **On Starter, where the feature cannot be enabled (§1.2), they may not
+appear anywhere at all.**
+
+So the verifier does not try to read them back and compare. A verifier that queried the obvious
+table would find zero checks, report no drift, and pass forever — a green light that means nothing.
+Instead, `CHECK` is verified by a different mechanism entirely: `check-constraint-parity` compares
+the declarations in this document against `constraints.json`, and the integrity job tests the
+constraints against live data. The schema verifier covers what `information_schema` genuinely
+reports — tables, columns, types, nullability, defaults, indexes, generated-column expressions and
+foreign keys — and ships a fixture for each that proves it catches a drop.
+
+Splitting it this way means no part of the system reports success on evidence it does not have.
 
 ---
 

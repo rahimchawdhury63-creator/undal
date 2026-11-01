@@ -319,6 +319,7 @@ A flaky test is worse than no test, because it trains people to ignore red.
 | Deterministic time | A `Clock` abstraction is injected everywhere; no test reads the wall clock |
 | Deterministic randomness | Seeded generators; the seed is printed on failure so any failure is reproducible |
 | Isolated state | Every test gets its own database on a dedicated TiDB Starter instance, or its own in-memory database |
+| Constraint validators | Every one of the 53 generated validators has a pair of cases: a value the `CHECK` admits and a value it forbids. Generated from `constraints.json` alongside the validators, so a new constraint cannot ship untested. TiDB Cloud Starter cannot enforce `CHECK` ([`06 §1.2`](06-data-model-tidb.md)), which makes these the actual enforcement rather than a redundant layer |
 
 ---
 
