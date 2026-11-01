@@ -112,7 +112,8 @@ entirely by the document corpus in [`docs/`](docs/), and the corpus is the contr
 
 | Component | State |
 | --- | --- |
-| Specification corpus | ✅ Complete — 40 documents |
+| Specification corpus | ✅ Complete — 40 documents, 133,000 words |
+| Secret and config register | ✅ [`.env.example`](.env.example) — 44 secrets, 147 config keys |
 | Brand assets | ✅ In repository |
 | Alert audio | ✅ `undal_order_alert_loop.wav`, 8.000 s, 44.1 kHz mono |
 | Workers, apps, web, admin | ⏳ Not yet built — this is what `PROMPT.md` commissions |

@@ -18,7 +18,7 @@ Read assets/audio/undal_order_alert_loop.wav (8.000 s seamless alarm loop — sh
 STEP 1 — RESPONSE 1 AND RESPONSE 2 ARE PLANNING ONLY. WRITE NO APPLICATION CODE.
   Response 1: Write docs/_plan/UNDERSTANDING.md — prove you understand the platform. Cover the five
   actors, the complete order lifecycle state machine, the money model to the paisa, the Undal Brain's
-  four engines, the wake-up alarm stack including the one case Android forbids, the D1 tracking
+  five engines, the wake-up alarm stack including the one case Android forbids, the D1 tracking
   economics, and the free-tier budget per service. Quote specific section numbers from docs/.
   Response 2: Write docs/_plan/BUILD-PLAN.md — the file-by-file manifest for all 20 build responses,
   with module boundaries, the dependency order, and the CI gates each response must leave green.
@@ -65,9 +65,9 @@ THE THINGS THAT MUST BE PERFECT
   • The money. Every invoice balances to zero paisa. docs/10 and docs/24 contain the exact formulas
     and the test vectors. Every vector must pass.
   • The dispatch. docs/11 and docs/12. Deterministic, explainable, replayable, and provably better
-    than nearest-rider on the benchmark harness in docs/30 §7.
+    than nearest-rider on the benchmark harness in docs/30 §4.1.
   • The map. docs/22. One full-screen OSM canvas, every rider, vendor and live order, bespoke SVG
-    markers, a sliding inspector, 60 fps with 500 markers.
+    markers, a sliding inspector, 60 fps with 1000 markers.
   • The beauty. docs/03 and docs/04. Study the two reference videos. Spring physics, shared-element
     transitions, morphing steppers, the floating cart pill, the condensing header. Nothing basic.
     Nothing simple. Uber Eats green and Foodpanda magenta over Undal forest.

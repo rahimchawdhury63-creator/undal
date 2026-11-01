@@ -185,15 +185,16 @@ binding error-propagation convention · the retry-budget algebra across nested s
 adopt) · CSS Modules versus vanilla-extract · the virtualisation library for admin grids · the
 chart library · the service-worker framework or hand-rolled.
 
-**Data (5):** UUID v4 versus v7 for primary keys (v7 is better for index locality; v4 is better
-for enumeration resistance — decide and justify) · whether `order_items` snapshots store the full
-item or a delta · the `brain_traces` partitioning strategy · the materialised-view approach for
+**Data (5):** the UUID v7 generation source, since CockroachDB's `gen_random_uuid()` is v4 and
+[`00 §4.3`](00-INDEX.md) requires v7 — decide between a client-side generator and a SQL function,
+and prove monotonicity under concurrency · whether `order_items` snapshots store the full item or
+a delta · the `brain_traces` partitioning strategy · the materialised-view refresh approach for
 `vendor_stats` · the exact PostGIS index parameters.
 
 **Process (4):** the Turborepo task graph · whether to adopt a changeset tool · the
 screenshot-diff tolerance · the flaky-test quarantine mechanism.
 
-Each decision must be recorded in `docs/DECISIONS.md` with the options considered and the reason,
+Each decision must be recorded in `docs/_plan/DECISIONS.md` with the options considered and the reason,
 so a later reader understands why.
 
 ---
