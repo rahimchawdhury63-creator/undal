@@ -13,24 +13,82 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 
 ## 1. Principles
 
-1. **Money is `INT8` paisa.** There is no `DECIMAL`, no `NUMERIC`, no `FLOAT` on any money column.
+1. **Money is `BIGINT` paisa.** There is no `DECIMAL`, no `NUMERIC`, no `FLOAT` on any money column.
    A CI check parses the schema and fails on any column whose name ends in `_paisa` that is not
-   `INT8`, and on any money-shaped column that is not named `*_paisa`.
-2. **Every table has `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`** except join tables with a
-   natural composite key, and append-only log tables that use `(partition, seq)`.
-3. **Every table has `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`.** Mutable tables also have
-   `updated_at`, maintained by a trigger-free convention: every `UPDATE` statement in the codebase
-   sets it, and a CI check greps for `UPDATE` statements that do not.
-4. **Soft delete only where it is needed.** `deleted_at TIMESTAMPTZ` exists on vendors, menu items,
+   `BIGINT`, and on any money-shaped column that is not named `*_paisa`.
+
+   > **`INT8` is a trap in MySQL and the guardrail exists because of it.** CockroachDB's `INT8` is a
+   > 64-bit integer. MySQL and TiDB parse `INT8` as `INT(8)` — a **4-byte** integer with a display
+   > width, maximum 2,147,483,647. That is ৳21,474,836. A platform taking ৳1 crore in a good month
+   > would overflow silently. The `no-postgres-dialect` guardrail fails the build on the literal
+   > token `INT8` anywhere in `db/` or in this document.
+
+2. **Every table has `id BINARY(16) PRIMARY KEY`, supplied by the application as a UUIDv7**, except
+   join tables with a natural composite key, and append-only log tables that use `(partition, seq)`.
+
+   > TiDB has no `gen_random_uuid()`, so the default is gone and the application must supply the
+   > key. This is an improvement rather than a loss: CockroachDB's `gen_random_uuid()` returned
+   > **v4**, so the time-ordered keys this schema depends on were already generated in application
+   > code. `35 §5` listed "the UUID v7 generation source" as an open question; it is now closed —
+   > one generator per language, one shared test vector. `BINARY(16)` is chosen over `CHAR(36)`
+   > because it is 16 bytes rather than 36, it preserves v7's byte ordering so insert locality
+   > survives, and every foreign key in the schema pays the difference. Conversion happens at the
+   > driver boundary via `uuidToBin()` / `binToUuid()`; no handler ever sees bytes.
+
+3. **Every table has `created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)`.** Mutable
+   tables also have `updated_at`, maintained by a trigger-free convention: every `UPDATE` statement
+   in the codebase sets it, and a CI check greps for `UPDATE` statements that do not.
+
+   > The convention was a style choice under CockroachDB. Under TiDB it is the only option, because
+   > TiDB has no triggers at all — and because this document already banned them, the schema loses
+   > nothing. **`DATETIME(6)`, never `TIMESTAMP`.** MySQL's `TIMESTAMP` is a 32-bit epoch that ends
+   > in 2038 and silently rewrites values according to the session time zone. `DATETIME(6)` stores
+   > exactly what is written, which makes correctness depend on every connection pinning
+   > `time_zone = '+00:00'`. That pin is a connection-level invariant with its own test (§10).
+
+4. **Soft delete only where it is needed.** `deleted_at DATETIME(6)` exists on vendors, menu items,
    and addresses, because those are referenced by historical orders. Everything else is hard
    deleted. Soft-deleting everything is how a schema becomes unreadable.
-5. **Enums are `STRING` with a `CHECK`,** not PostgreSQL `ENUM` types. Adding a value to a check
-   constraint is an online operation in CockroachDB; altering an enum type is not.
-6. **Foreign keys are declared.** Every one of them. The performance argument against FKs does not
-   apply at Undal's scale, and the correctness argument for them always applies.
+
+5. **Enums are `VARCHAR` with a `CHECK`,** not MySQL `ENUM` types. A MySQL `ENUM` stores an ordinal
+   and reorders badly under `ALTER`; a `VARCHAR` stores what it says.
+
+   > **The `CHECK` may or may not be enforced, and the schema says so rather than assuming.** TiDB
+   > has supported `CHECK` since v7.2, but it is **disabled by default** behind
+   > `tidb_enable_check_constraint`. Every `CHECK` in this document is declared, so that it takes
+   > effect wherever the variable is on. Where it is off, the constraint is enforced in
+   > `undal-core` on the write path and verified by the nightly integrity job, which reports every
+   > row violating a declared `CHECK`. This is weaker than a database guarantee and it is logged in
+   > `39` as R31. It is not a reason to drop the declarations: a constraint that is declared and
+   > checked nightly is a specification; a constraint that is deleted is a gap.
+   >
+   > One `CHECK` cannot be expressed at all — the 18-year age floor on `riders.date_of_birth`, which
+   > needs `CURRENT_DATE`, and MySQL forbids non-deterministic functions inside `CHECK`. It moves to
+   > the application and the nightly job. See §6 and `39` R30.
+
+6. **Foreign keys are declared, except on three hot child tables.** The correctness argument for
+   FKs always applies; at Undal's scale the performance argument almost never does.
+
+   > The exception is forced by mechanics, not preference. TiDB's foreign keys reached GA in v8.5
+   > and are real — but a child insert takes an **exclusive lock on the parent row**. Every
+   > `order_items` insert would lock its `orders` row and every order would lock its `vendors` row,
+   > so a single busy vendor at lunch would serialise its own order flow. `order_items`,
+   > `order_state_events` and `order_offers` therefore declare no FK to their parent. They are
+   > enforced in `undal-core`, which is the sole relational writer (`05 §3`), and a nightly orphan
+   > detection job reports any row whose parent is missing. Every other table in the schema keeps
+   > its foreign keys. The three exceptions are named here, in the DDL, and in `39` R32 — never
+   > inferred from their absence.
+
 7. **No nullable booleans.** A tri-state boolean is a design error. Use an explicit status column.
-8. **Spatial data uses `GEOGRAPHY(POINT, 4326)` and `GEOGRAPHY(POLYGON, 4326)`,** which gives
-   metre-accurate `ST_Distance` and `ST_DWithin` without a projection step.
+
+8. **Spatial data is two integers and a cell.** `lat_e7` and `lon_e7` hold degrees × 10⁷; a stored
+   generated `cell_id` buckets them into the platform's existing 500 m grid; polygons are GeoJSON
+   rings in `JSON` with indexed integer bounding boxes.
+
+   > TiDB has no spatial types, no spatial functions and no spatial indexes, and PingCAP has
+   > confirmed GIS is not on its roadmap (issue #6347). This is the largest redesign in the
+   > migration and it is specified in full in §4.1, including the `geo-parity` CI gate that proves
+   > the replacement returns identical results to the geometry it replaces.
 
 ---
 
@@ -39,15 +97,27 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 | Group | Tables | Count |
 | --- | --- | --- |
 | Identity and access | `users`, `user_profiles`, `sessions`, `devices`, `device_tokens`, `password_history`, `login_attempts`, `oauth_identities`, `totp_secrets`, `recovery_codes`, `admin_roles`, `admin_role_permissions`, `admin_user_roles`, `permissions` | 14 |
-| Geography | `zones`, `zone_polygons`, `zone_pricing`, `zone_hours`, `addresses`, `address_labels`, `geocode_cache` | 7 |
+| Geography | `zones`, `zone_polygons`, `zone_pricing`, `zone_hours`, `addresses`, `address_labels`, `geocode_cache`, `cell_zone` | 8 |
 | Vendors | `vendors`, `vendor_profiles`, `vendor_documents`, `vendor_hours`, `vendor_holidays`, `vendor_contacts`, `vendor_bank_accounts`, `vendor_categories`, `categories`, `vendor_stats`, `vendor_pause_log`, `vendor_commission_overrides` | 12 |
 | Catalogue | `menus`, `menu_sections`, `menu_items`, `item_variants`, `modifier_groups`, `modifiers`, `item_modifier_groups`, `item_availability`, `item_tags`, `tags`, `item_stats`, `item_media` | 12 |
 | Riders | `riders`, `rider_profiles`, `rider_documents`, `rider_vehicles`, `rider_shifts`, `rider_shift_selfies`, `rider_stats`, `rider_penalties`, `rider_suspensions`, `rider_cash_balances`, `rider_cash_settlements`, `rider_zone_assignments` | 12 |
 | Orders | `orders`, `order_items`, `order_item_modifiers`, `order_state_events`, `order_fees`, `order_discounts`, `order_assignments`, `order_offers`, `order_batches`, `order_batch_members`, `order_proofs`, `order_cancellations`, `order_ratings`, `order_disputes`, `order_dispute_messages` | 15 |
 | Money | `ledger_accounts`, `ledger_entries`, `ledger_postings`, `payout_periods`, `invoices`, `invoice_lines`, `invoice_documents`, `payout_transactions`, `platform_config`, `config_audit`, `tax_records`, `rounding_adjustments` | 12 |
 | Marketing | `promo_codes`, `promo_redemptions`, `campaigns`, `campaign_budgets`, `campaign_redemptions`, `referrals`, `loyalty_tiers`, `customer_loyalty`, `reminders`, `reminder_sends` | 10 |
-| Operations | `audit_log`, `ops_errors`, `ops_metrics`, `ops_logs`, `effect_dead_letters`, `brain_traces`, `dispatch_locks`, `exceptions`, `support_tickets`, `support_messages`, `weather_observations`, `notification_log` | 12 |
-| **Total** | | **96** |
+| Operations | `audit_log`, `audit_verifications`, `ops_errors`, `ops_metrics`, `ops_logs`, `effect_dead_letters`, `brain_traces`, `dispatch_locks`, `generation_locks`, `exceptions`, `support_tickets`, `support_messages`, `weather_observations`, `notification_log` | 14 |
+| **Total** | | **99** |
+
+Three tables are new, and all three exist because a database mechanism went away rather than
+because a feature arrived:
+
+| Table | Replaces | Specified in |
+| --- | --- | --- |
+| `cell_zone` | The `INVERTED INDEX` on `zones.boundary` — a materialised cell → zone map that makes point-in-polygon a single indexed read | §4.1 |
+| `audit_verifications` | Nothing — it is new. It records every run of the audit-chain verifier so that a **gap in verification** is itself detectable, which matters more now that the WORM trigger is gone | [`27 §4.2`](27-security-rbac-audit.md) |
+| `generation_locks` | `pg_advisory_lock`, used by invoice generation. MySQL's `GET_LOCK()` is session-scoped and the HTTP driver has no durable session, so the lock becomes a row with a lease | [`24 §4.1`](24-finance-payouts-invoices.md) |
+
+No business table was added, renamed or removed. The 96 tables that modelled the platform still
+model the platform.
 
 ---
 
@@ -56,24 +126,24 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 ```sql
 -- 001_identity.sql
 CREATE TABLE users (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    phone           STRING(20)  NOT NULL,
-    phone_norm      STRING(20)  NOT NULL,   -- E.164, +8801XXXXXXXXX
-    email           STRING(254),
-    email_norm      STRING(254),            -- lowercased, dots preserved
-    password_hash   STRING(255),            -- Argon2id; NULL only for OAuth-only accounts
-    actor_type      STRING(16)  NOT NULL
+    id              BINARY(16) PRIMARY KEY,
+    phone           VARCHAR(20)  NOT NULL,
+    phone_norm      VARCHAR(20)  NOT NULL,   -- E.164, +8801XXXXXXXXX
+    email           VARCHAR(254),
+    email_norm      VARCHAR(254),            -- lowercased, dots preserved
+    password_hash   VARCHAR(255),            -- Argon2id; NULL only for OAuth-only accounts
+    actor_type      VARCHAR(16)  NOT NULL
         CHECK (actor_type IN ('CUSTOMER','VENDOR_OWNER','RIDER','ADMIN')),
-    status          STRING(24)  NOT NULL DEFAULT 'ACTIVE'
+    status          VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE'
         CHECK (status IN ('ACTIVE','SUSPENDED','PENDING_REVIEW','DEACTIVATED','BANNED')),
-    locale          STRING(5)   NOT NULL DEFAULT 'bn',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_seen_at    TIMESTAMPTZ,
-    deleted_at      TIMESTAMPTZ,
+    locale          VARCHAR(5)   NOT NULL DEFAULT 'bn',
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    last_seen_at    DATETIME(6),
+    deleted_at      DATETIME(6),
 
     CONSTRAINT uq_users_phone UNIQUE (phone_norm),
-    INDEX idx_users_email (email_norm) WHERE email_norm IS NOT NULL,
+    INDEX idx_users_email (email_norm),
     INDEX idx_users_type_status (actor_type, status)
 );
 ```
@@ -90,55 +160,59 @@ a verified OAuth identity.
 
 ```sql
 CREATE TABLE sessions (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id         UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash      BYTES       NOT NULL,   -- SHA-256 of the opaque bearer token
-    device_id       UUID        NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    ip_created      STRING(45)  NOT NULL,
-    ua_created      STRING(512) NOT NULL,
-    issued_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at      TIMESTAMPTZ NOT NULL,
-    last_used_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    revoked_at      TIMESTAMPTZ,
-    revoked_reason  STRING(64),
+    id              BINARY(16) PRIMARY KEY,
+    user_id         BINARY(16)        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash      BINARY(32)  NOT NULL,   -- SHA-256 of the opaque bearer token
+    device_id       BINARY(16)        NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    ip_created      VARCHAR(45)  NOT NULL,
+    ua_created      VARCHAR(512) NOT NULL,
+    issued_at       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    expires_at      DATETIME(6) NOT NULL,
+    last_used_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    revoked_at      DATETIME(6),
+    revoked_reason  VARCHAR(64),
 
     INDEX idx_sessions_user (user_id, revoked_at),
     UNIQUE INDEX uq_sessions_token (token_hash)
 );
 
 CREATE TABLE devices (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id         UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    platform        STRING(16)  NOT NULL CHECK (platform IN ('ANDROID','WEB')),
-    fingerprint     STRING(128) NOT NULL,   -- stable per install, not an advertising id
-    model           STRING(128),
-    os_version      STRING(32),
-    app_version     STRING(32),
-    app_flavour     STRING(16)  CHECK (app_flavour IN ('CUSTOMER','PARTNER','RIDER')),
+    id              BINARY(16) PRIMARY KEY,
+    user_id         BINARY(16)        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    platform        VARCHAR(16)  NOT NULL CHECK (platform IN ('ANDROID','WEB')),
+    fingerprint     VARCHAR(128) NOT NULL,   -- stable per install, not an advertising id
+    model           VARCHAR(128),
+    os_version      VARCHAR(32),
+    app_version     VARCHAR(32),
+    app_flavour     VARCHAR(16)  CHECK (app_flavour IN ('CUSTOMER','PARTNER','RIDER')),
     -- Battery-optimisation posture, needed by the alarm coaching flow (doc 15 §9)
-    battery_opt_exempt      BOOL,
-    notifications_allowed   BOOL,
-    exact_alarm_allowed     BOOL,
-    full_screen_intent_allowed BOOL,
-    oem_autostart_prompted  BOOL        NOT NULL DEFAULT false,
-    first_seen_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    battery_opt_exempt      TINYINT(1),
+    notifications_allowed   TINYINT(1),
+    exact_alarm_allowed     TINYINT(1),
+    full_screen_intent_allowed TINYINT(1),
+    oem_autostart_prompted  TINYINT(1)        NOT NULL DEFAULT false,
+    first_seen_at   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    last_seen_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
     UNIQUE INDEX uq_devices_user_fp (user_id, fingerprint)
 );
 
 CREATE TABLE device_tokens (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_id       UUID        NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    fcm_token       STRING(512) NOT NULL,
-    valid           BOOL        NOT NULL DEFAULT true,
-    invalidated_at  TIMESTAMPTZ,
-    invalid_reason  STRING(64),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    refreshed_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    id              BINARY(16) PRIMARY KEY,
+    device_id       BINARY(16)        NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    fcm_token       VARCHAR(512) NOT NULL,
+    valid           TINYINT(1)        NOT NULL DEFAULT true,
+    invalidated_at  DATETIME(6),
+    invalid_reason  VARCHAR(64),
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    refreshed_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+
+    -- Partial-index replacement. TiDB has no `INDEX ... WHERE`, so the predicate
+    -- moves into a stored generated column and the index stays exactly as small.
+    device_id_if_valid BINARY(16) AS (IF(valid, device_id, NULL)) STORED,
 
     UNIQUE INDEX uq_device_tokens_token (fcm_token),
-    INDEX idx_device_tokens_device (device_id) WHERE valid
+    INDEX idx_device_tokens_device (device_id_if_valid)
 );
 ```
 
@@ -150,34 +224,34 @@ orders" report, which is a genuinely useful operational tool that no competitor 
 
 ```sql
 CREATE TABLE permissions (
-    key         STRING(64) PRIMARY KEY,     -- 'order.reassign', 'finance.invoice.mark_paid'
-    domain      STRING(32) NOT NULL,
-    description STRING(256) NOT NULL,
-    risk        STRING(8)  NOT NULL CHECK (risk IN ('LOW','MEDIUM','HIGH','CRITICAL'))
+    `key`       VARCHAR(64) PRIMARY KEY,     -- 'order.reassign', 'finance.invoice.mark_paid'
+    domain      VARCHAR(32) NOT NULL,
+    description VARCHAR(256) NOT NULL,
+    risk        VARCHAR(8)  NOT NULL CHECK (risk IN ('LOW','MEDIUM','HIGH','CRITICAL'))
 );
 
 CREATE TABLE admin_roles (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    key         STRING(48) NOT NULL UNIQUE,
-    name        STRING(96) NOT NULL,
-    name_bn     STRING(96) NOT NULL,
-    is_system   BOOL NOT NULL DEFAULT false,   -- system roles cannot be deleted
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    id          BINARY(16) PRIMARY KEY,
+    `key`       VARCHAR(48) NOT NULL UNIQUE,
+    name        VARCHAR(96) NOT NULL,
+    name_bn     VARCHAR(96) NOT NULL,
+    is_system   TINYINT(1) NOT NULL DEFAULT false,   -- system roles cannot be deleted
+    created_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
 );
 
 CREATE TABLE admin_role_permissions (
-    role_id         UUID   NOT NULL REFERENCES admin_roles(id) ON DELETE CASCADE,
-    permission_key  STRING(64) NOT NULL REFERENCES permissions(key),
+    role_id         BINARY(16)   NOT NULL REFERENCES admin_roles(id) ON DELETE CASCADE,
+    permission_key  VARCHAR(64) NOT NULL REFERENCES permissions(`key`),
     PRIMARY KEY (role_id, permission_key)
 );
 
 CREATE TABLE admin_user_roles (
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role_id     UUID NOT NULL REFERENCES admin_roles(id) ON DELETE CASCADE,
-    zone_scope  UUID[] ,                     -- NULL = global; otherwise limited to these zones
-    granted_by  UUID NOT NULL REFERENCES users(id),
-    granted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at  TIMESTAMPTZ,
+    user_id     BINARY(16) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id     BINARY(16) NOT NULL REFERENCES admin_roles(id) ON DELETE CASCADE,
+    zone_scope  JSON ,                     -- NULL = global; otherwise limited to these zones
+    granted_by  BINARY(16) NOT NULL REFERENCES users(id),
+    granted_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    expires_at  DATETIME(6),
     PRIMARY KEY (user_id, role_id)
 );
 ```
@@ -198,46 +272,189 @@ touch a Dhaka order, and the constraint is enforced in the RBAC middleware, not 
 
 ```sql
 CREATE TABLE zones (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code            STRING(24)  NOT NULL UNIQUE,   -- 'SYL-CENTRAL'
-    name            STRING(96)  NOT NULL,
-    name_bn         STRING(96)  NOT NULL,
-    country         STRING(2)   NOT NULL DEFAULT 'BD',
-    city            STRING(64)  NOT NULL,
-    currency        STRING(3)   NOT NULL DEFAULT 'BDT',
-    timezone        STRING(48)  NOT NULL DEFAULT 'Asia/Dhaka',
-    status          STRING(16)  NOT NULL DEFAULT 'DRAFT'
+    id              BINARY(16) PRIMARY KEY,
+    code            VARCHAR(24)  NOT NULL UNIQUE,   -- 'SYL-CENTRAL'
+    name            VARCHAR(96)  NOT NULL,
+    name_bn         VARCHAR(96)  NOT NULL,
+    country         VARCHAR(2)   NOT NULL DEFAULT 'BD',
+    city            VARCHAR(64)  NOT NULL,
+    currency        VARCHAR(3)   NOT NULL DEFAULT 'BDT',
+    timezone        VARCHAR(48)  NOT NULL DEFAULT 'Asia/Dhaka',
+    status          VARCHAR(16)  NOT NULL DEFAULT 'DRAFT'
         CHECK (status IN ('DRAFT','ACTIVE','PAUSED','RETIRED')),
-    boundary        GEOGRAPHY(POLYGON, 4326) NOT NULL,
-    centroid        GEOGRAPHY(POINT, 4326)   NOT NULL,
-    area_sq_km      FLOAT8      NOT NULL,
-    created_by      UUID        NOT NULL REFERENCES users(id),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Geometry. TiDB has no spatial types, so a zone's shape is a GeoJSON ring and
+    -- every hot predicate is an integer comparison. Design and parity test: §4.1.
+    polygon         JSON        NOT NULL,   -- closed ring, [[lon_e7, lat_e7], ...]
+    polygon_version BIGINT      NOT NULL DEFAULT 1,
+    bbox_min_lat_e7 INT         NOT NULL,
+    bbox_max_lat_e7 INT         NOT NULL,
+    bbox_min_lon_e7 INT         NOT NULL,
+    bbox_max_lon_e7 INT         NOT NULL,
+    centroid_lat_e7 INT         NOT NULL,
+    centroid_lon_e7 INT         NOT NULL,
+    area_sq_km      DOUBLE      NOT NULL,
+    created_by      BINARY(16)        NOT NULL REFERENCES users(id),
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
-    INVERTED INDEX idx_zones_boundary (boundary),
+    INDEX idx_zones_bbox (bbox_min_lat_e7, bbox_max_lat_e7, bbox_min_lon_e7, bbox_max_lon_e7),
     INDEX idx_zones_status (status)
 );
 ```
 
 `area_sq_km` is denormalised because it is read on every ranking pass and computing it from the
-polygon each time is wasteful. It is recomputed in the same statement that updates `boundary`, and a
-CI invariant test asserts they agree to 0.1%.
+polygon each time is wasteful. It is recomputed in the same statement that updates `polygon`, and a
+CI invariant test asserts they agree **to 0.1%**.
+
+The tolerance is unchanged. What changed is the computation behind it: PostGIS is no longer there to
+produce the reference figure, so the test computes area by **spherical excess on the WGS-84 authalic
+sphere, R = 6,371,007.2 m**. A planar approximation would be accurate enough for Sylhet — its error
+at this latitude and these distances is far inside 0.1% — but its error is a function of latitude,
+which would make the tolerance mean something different the first time a zone is drawn somewhere
+else. Spherical excess is a dozen lines and has no such dependence, so 0.1% keeps meaning 0.1%.
+
+### 4.1 Geospatial without spatial types
+
+TiDB has no `GEOGRAPHY`, no `ST_Distance`, no `ST_Contains`, no spatial index, and PingCAP has
+stated on its own forum that GIS is not on the roadmap. Every spatial predicate in this document is
+therefore re-expressed in integer arithmetic. **No behaviour changes**: the same vendors come back,
+in the same order, at the same distances, under the same `LIMIT`. That claim is not an assertion —
+it is a required CI check, specified in §4.1.4.
+
+#### 4.1.1 Storage
+
+```sql
+lat_e7   INT    NOT NULL,   -- latitude  x 10^7:  24.8949 -> 248949000
+lon_e7   INT    NOT NULL,   -- longitude x 10^7:  91.8687 -> 918687000
+cell_id  BIGINT AS (FLOOR(lat_e7 / 44920) * 1000000 + FLOOR(lon_e7 / 49520)) STORED,
+INDEX idx_<table>_cell (cell_id)
+```
+
+Degrees × 10⁷ gives roughly 1.1 cm of resolution — one degree of latitude is about 111,320 m, so
+10⁻⁷ of a degree is about 0.011 m — and the extreme value ±1,800,000,000 sits comfortably inside
+`INT`'s ±2,147,483,647. Integers mean no floating-point drift in storage and exact equality on
+coordinates, which `DOUBLE` cannot offer.
+
+`cell_id` buckets a point into the platform's **existing 500 m cell grid**, already defined in
+[`38`](38-glossary.md) and already used by [`09`](09-undal-brain-overview.md) for demand
+forecasting. Reusing it is deliberate: no new concept enters the system, no dependency is added, and
+the forecasting grid and the search grid are the same grid, so their outputs are comparable.
+
+The divisors are inlined constants rather than a function call because **TiDB has no user-defined
+functions**, and a generated column may only use built-in arithmetic. 44,920 is 500 m of latitude in
+e7 units; 49,520 is 500 m of longitude at Sylhet's latitude, 500 ÷ (111,320 × cos 24.9°). A fixed
+longitude divisor makes cells slightly non-square away from that latitude, which is harmless — the
+grid only has to be *consistent*, because it is a prefilter and the true distance is computed
+afterwards. The two constants are frozen, are part of the parity test, and cannot be changed without
+rebuilding every `cell_zone` row.
+
+#### 4.1.2 Radius search — what `ST_DWithin` did
+
+Two stages, and the split is the design.
+
+**Stage 1, in SQL, deliberately loose:**
+
+```sql
+WHERE v.zone_id      = ?            -- unchanged, and still the most selective predicate
+  AND v.status       = 'APPROVED'
+  AND v.deleted_at IS NULL
+  AND v.cell_id   IN (?, ?, ?, ...)  -- cellsWithin(centre, radius): typically 9-25 cells
+  AND v.lat_e7 BETWEEN ? AND ?       -- integer bounding box, belt and braces
+  AND v.lon_e7 BETWEEN ? AND ?
+LIMIT 200
+```
+
+**Stage 2, in the Worker:** exact haversine over the rows stage 1 returned, filtered to the true
+radius, sorted by distance, ties broken by `vendor_id` ascending so the ordering is total.
+
+The prefilter cannot miss a row. A point within *r* metres of the centre necessarily lies in a cell
+that intersects the *r*-radius disc, and `cellsWithin()` returns every such cell. Rows outside the
+true radius survive stage 1 and are discarded in stage 2; that is the cost, and it is bounded by the
+cell size.
+
+Three properties are preserved exactly, and each for a stated reason:
+
+- **`LIMIT 200` is unchanged.** §11.1 caps the candidate set on product grounds, not performance
+  grounds — "ranking more than 200 vendors in one zone is not a situation that improves the result".
+  That is behaviour, so it stays.
+- **Distances round to integer metres before any fare arithmetic**, in one function, at one
+  boundary. [`10`](10-fare-engine-math.md) consumes integer metres and the 40 fare vectors are the
+  test that this is still true.
+- **Zone equality is still evaluated before the spatial predicate.** §12 depends on that ordering
+  for selectivity, and it still holds — the cell filter operates on the few hundred rows the zone
+  equality already selected.
+
+#### 4.1.3 Point-in-polygon — what `ST_Contains` did
+
+There are **two** cases, and they get different designs because their shapes differ.
+
+**Case A — which zone contains this point?** Called on every address save and every order placement.
+Must be exact, must be fast, and the answer changes the fare.
+
+```sql
+CREATE TABLE cell_zone (
+    cell_id         BIGINT     NOT NULL,
+    zone_id         BINARY(16) NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
+    coverage        TINYINT(1) NOT NULL,   -- 1 = cell lies wholly inside, 0 = cell straddles an edge
+    polygon_version BIGINT     NOT NULL,
+    PRIMARY KEY (cell_id, zone_id),
+    INDEX idx_cell_zone_zone (zone_id)
+);
+```
+
+Lookup is one indexed read. If `coverage = 1` the answer is immediate and no geometry is evaluated
+at all. If `coverage = 0` the point is in an edge cell, and the Worker ray-casts it against the
+GeoJSON ring in `zones.polygon`. Sylhet's zone polygons are few and simple, so the fraction of
+points landing in edge cells is small and the ray-cast is microseconds.
+
+`cell_zone` is rebuilt **in the same transaction that writes the polygon**, keyed by
+`polygon_version`. Event-driven, no cron — which the operator constraint requires and which is also
+simply correct: a zone map that is stale even briefly puts orders in the wrong zone, and the wrong
+zone changes the fare.
+
+**Case B — does this vendor's service area contain the customer?** This is the ranking geo-filter in
+[`13 §3`](13-ranking-personalization.md). Materialising cell → vendor would be large and would churn
+on every vendor edit, so it gets a cheaper design — and it can, because the candidate set is
+**already bounded**: stage 1 of §4.1.2 has cut to at most 300 vendors in one zone.
+
+SQL filters on `sa_bbox_*`, four indexed integer comparisons that eliminate most non-matching
+vendors. The Worker ray-casts the survivors against `vendors.service_area`. `LIMIT 300` is
+unchanged. The sub-10 ms figure quoted in `13 §3` becomes an **estimate** until it is measured on a
+real Starter instance.
+
+#### 4.1.4 The parity gate
+
+Everything above is an assertion until something proves it. `geo-parity` is a required CI check on
+every pull request, and it is one of the two guardrails this migration adds (28 → 30).
+
+| Property | Cases | Pass condition |
+| --- | --- | --- |
+| Radius search | 10,000 random (centre, radius) pairs over the Sylhet bounding box, radii 200 m – 15 km | Candidate set **identical** to the reference; every distance within **±1 m**; identical ordering after integer-metre rounding |
+| Point-in-polygon | 10,000 random points against the real zone polygons, **at least 2,000 of them within 5 m of an edge** | Exact agreement, including on-boundary cases |
+| Cell function | The shared test vector | TypeScript, Python, Kotlin **and the SQL generated column** all agree |
+| Area | Every zone polygon | Spherical-excess area within 0.1% of the stored `area_sq_km` |
+
+The reference implementation is a vetted geometry library used **only in the test**. Depending on it
+at runtime would reintroduce exactly the dependency this design removes.
+
+Boundary behaviour is defined rather than discovered: **a point lying exactly on a polygon edge is
+inside.** Both the ray-caster and the reference are configured that way, and the 2,000 near-edge
+cases are what proves they agree rather than merely both being plausible.
 
 ```sql
 CREATE TABLE zone_pricing (
-    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    zone_id                 UUID NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
-    vehicle                 STRING(16) NOT NULL CHECK (vehicle IN ('MOTORBIKE','BICYCLE')),
-    base_fare_paisa         INT8 NOT NULL CHECK (base_fare_paisa >= 0),
-    base_distance_m         INT8 NOT NULL DEFAULT 2000,
-    per_km_paisa            INT8 NOT NULL CHECK (per_km_paisa >= 0),
-    max_radius_m            INT8 NOT NULL,
-    min_payout_paisa        INT8 NOT NULL,
-    surge_cap_bps           INT8 NOT NULL DEFAULT 22000,   -- 2.2x
-    effective_from          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    effective_to            TIMESTAMPTZ,
-    created_by              UUID NOT NULL REFERENCES users(id),
+    id                      BINARY(16) PRIMARY KEY,
+    zone_id                 BINARY(16) NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
+    vehicle                 VARCHAR(16) NOT NULL CHECK (vehicle IN ('MOTORBIKE','BICYCLE')),
+    base_fare_paisa         BIGINT NOT NULL CHECK (base_fare_paisa >= 0),
+    base_distance_m         BIGINT NOT NULL DEFAULT 2000,
+    per_km_paisa            BIGINT NOT NULL CHECK (per_km_paisa >= 0),
+    max_radius_m            BIGINT NOT NULL,
+    min_payout_paisa        BIGINT NOT NULL,
+    surge_cap_bps           BIGINT NOT NULL DEFAULT 22000,   -- 2.2x
+    effective_from          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    effective_to            DATETIME(6),
+    created_by              BINARY(16) NOT NULL REFERENCES users(id),
 
     INDEX idx_zone_pricing_lookup (zone_id, vehicle, effective_from DESC)
 );
@@ -257,30 +474,32 @@ Defaults, inserted by migration as structure (matching [`01 §3.7`](01-mission-a
 
 ```sql
 CREATE TABLE addresses (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id         UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    label           STRING(32)  NOT NULL DEFAULT 'OTHER'
+    id              BINARY(16) PRIMARY KEY,
+    user_id         BINARY(16)        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    label           VARCHAR(32)  NOT NULL DEFAULT 'OTHER'
         CHECK (label IN ('HOME','WORK','OTHER')),
-    custom_label    STRING(48),
-    recipient_name  STRING(96),
-    recipient_phone STRING(20),
-    line1           STRING(256) NOT NULL,
-    line2           STRING(256),
-    landmark        STRING(128),
-    floor_flat      STRING(64),
-    area            STRING(96),
-    city            STRING(64)  NOT NULL,
-    postcode        STRING(12),
-    point           GEOGRAPHY(POINT, 4326) NOT NULL,
-    zone_id         UUID        REFERENCES zones(id),
-    delivery_note   STRING(280),
-    is_default      BOOL        NOT NULL DEFAULT false,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at      TIMESTAMPTZ,
+    custom_label    VARCHAR(48),
+    recipient_name  VARCHAR(96),
+    recipient_phone VARCHAR(20),
+    line1           VARCHAR(256) NOT NULL,
+    line2           VARCHAR(256),
+    landmark        VARCHAR(128),
+    floor_flat      VARCHAR(64),
+    area            VARCHAR(96),
+    city            VARCHAR(64)  NOT NULL,
+    postcode        VARCHAR(12),
+    lat_e7          INT          NOT NULL,
+    lon_e7          INT          NOT NULL,
+    cell_id         BIGINT AS (FLOOR(lat_e7 / 44920) * 1000000 + FLOOR(lon_e7 / 49520)) STORED,
+    zone_id         BINARY(16)        REFERENCES zones(id),
+    delivery_note   VARCHAR(280),
+    is_default      TINYINT(1)        NOT NULL DEFAULT false,
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    deleted_at      DATETIME(6),
 
-    INDEX idx_addresses_user (user_id) WHERE deleted_at IS NULL,
-    INVERTED INDEX idx_addresses_point (point)
+    INDEX idx_addresses_user (user_id, deleted_at),
+    INDEX idx_addresses_cell (cell_id)
 );
 ```
 
@@ -294,56 +513,74 @@ line1, which is the opposite of Western convention and correct here.
 
 ```sql
 CREATE TABLE vendors (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_user_id       UUID        NOT NULL REFERENCES users(id),
-    kind                STRING(16)  NOT NULL
+    id                  BINARY(16) PRIMARY KEY,
+    owner_user_id       BINARY(16)        NOT NULL REFERENCES users(id),
+    kind                VARCHAR(16)  NOT NULL
         CHECK (kind IN ('RESTAURANT','HOME_KITCHEN','CLOUD_KITCHEN','GROCERY')),
-    slug                STRING(96)  NOT NULL,
-    name                STRING(128) NOT NULL,
-    name_bn             STRING(128),
-    tagline             STRING(160),
-    description         STRING(1200),
-    phone               STRING(20)  NOT NULL,
-    email               STRING(254),
+    slug                VARCHAR(96)  NOT NULL,
+    name                VARCHAR(128) NOT NULL,
+    name_bn             VARCHAR(128),
+    tagline             VARCHAR(160),
+    description         VARCHAR(1200),
+    phone               VARCHAR(20)  NOT NULL,
+    email               VARCHAR(254),
 
-    zone_id             UUID        NOT NULL REFERENCES zones(id),
-    point               GEOGRAPHY(POINT, 4326) NOT NULL,
-    address_line        STRING(256) NOT NULL,
-    landmark            STRING(128),
+    zone_id             BINARY(16)        NOT NULL REFERENCES zones(id),
+    lat_e7              INT          NOT NULL,
+    lon_e7              INT          NOT NULL,
+    cell_id             BIGINT AS (FLOOR(lat_e7 / 44920) * 1000000 + FLOOR(lon_e7 / 49520)) STORED,
+    -- The vendor's own delivery polygon, and the radius beyond which it will not
+    -- deliver. Both are read by the ranking geo-filter in `13 §3`, which referenced
+    -- them before this document declared them. See §4.4.
+    service_area        JSON         NOT NULL,   -- closed ring, [[lon_e7, lat_e7], ...]
+    sa_bbox_min_lat_e7  INT          NOT NULL,
+    sa_bbox_max_lat_e7  INT          NOT NULL,
+    sa_bbox_min_lon_e7  INT          NOT NULL,
+    sa_bbox_max_lon_e7  INT          NOT NULL,
+    max_delivery_m      BIGINT       NOT NULL DEFAULT 8000,
+    address_line        VARCHAR(256) NOT NULL,
+    landmark            VARCHAR(128),
 
-    status              STRING(24)  NOT NULL DEFAULT 'DRAFT'
+    status              VARCHAR(24)  NOT NULL DEFAULT 'DRAFT'
         CHECK (status IN ('DRAFT','SUBMITTED','UNDER_REVIEW','NEEDS_INFO',
                           'APPROVED','SUSPENDED','REJECTED','RETIRED')),
-    open_state          STRING(16)  NOT NULL DEFAULT 'CLOSED'
+    open_state          VARCHAR(16)  NOT NULL DEFAULT 'CLOSED'
         CHECK (open_state IN ('OPEN','BUSY','PAUSED','CLOSED','UNREACHABLE')),
-    busy_level          INT2        NOT NULL DEFAULT 0 CHECK (busy_level BETWEEN 0 AND 3),
-    busy_until          TIMESTAMPTZ,
-    paused_until        TIMESTAMPTZ,
-    pause_reason        STRING(128),
+    busy_level          SMALLINT        NOT NULL DEFAULT 0 CHECK (busy_level BETWEEN 0 AND 3),
+    busy_until          DATETIME(6),
+    paused_until        DATETIME(6),
+    pause_reason        VARCHAR(128),
 
-    commission_bps      INT8        NOT NULL DEFAULT 1500
+    commission_bps      BIGINT        NOT NULL DEFAULT 1500
         CHECK (commission_bps BETWEEN 0 AND 5000),
-    rider_bonus_bps     INT8        NOT NULL DEFAULT 300
+    rider_bonus_bps     BIGINT        NOT NULL DEFAULT 300
         CHECK (rider_bonus_bps BETWEEN 0 AND 2000),
-    supports_pickup     BOOL        NOT NULL DEFAULT true,
-    supports_delivery   BOOL        NOT NULL DEFAULT true,
-    min_order_paisa     INT8        NOT NULL DEFAULT 0,
-    prep_time_default_s INT8        NOT NULL DEFAULT 1200,
+    supports_pickup     TINYINT(1)        NOT NULL DEFAULT true,
+    supports_delivery   TINYINT(1)        NOT NULL DEFAULT true,
+    min_order_paisa     BIGINT        NOT NULL DEFAULT 0,
+    prep_time_default_s BIGINT        NOT NULL DEFAULT 1200,
 
-    cover_url           STRING(512),
-    cover_blurhash      STRING(48),
-    logo_url            STRING(512),
-    logo_blurhash       STRING(48),
+    cover_url           VARCHAR(512),
+    cover_blurhash      VARCHAR(48),
+    logo_url            VARCHAR(512),
+    logo_blurhash       VARCHAR(48),
 
-    approved_at         TIMESTAMPTZ,
-    approved_by         UUID REFERENCES users(id),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at          TIMESTAMPTZ,
+    approved_at         DATETIME(6),
+    approved_by         BINARY(16) REFERENCES users(id),
+    created_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    deleted_at          DATETIME(6),
 
-    UNIQUE INDEX uq_vendors_slug (slug) WHERE deleted_at IS NULL,
-    INDEX idx_vendors_zone_status (zone_id, status, open_state) WHERE deleted_at IS NULL,
-    INVERTED INDEX idx_vendors_point (point)
+    -- Partial-UNIQUE replacement, and the one case where a composite index would be
+    -- wrong: `(slug, deleted_at)` would let two live vendors share a slug if their
+    -- `deleted_at` differed. MySQL does not compare NULLs for uniqueness, so a NULL
+    -- for deleted rows reproduces `WHERE deleted_at IS NULL` exactly.
+    slug_active         VARCHAR(96) AS (IF(deleted_at IS NULL, slug, NULL)) STORED,
+
+    UNIQUE INDEX uq_vendors_slug (slug_active),
+    INDEX idx_vendors_zone_status (zone_id, status, open_state, deleted_at),
+    INDEX idx_vendors_cell (cell_id),
+    INDEX idx_vendors_sa_bbox (sa_bbox_min_lat_e7, sa_bbox_max_lat_e7)
 );
 ```
 
@@ -353,34 +590,34 @@ latter is the vendor's own choice; conflating them loses the information the ope
 
 ```sql
 CREATE TABLE menu_items (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    vendor_id           UUID        NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
-    section_id          UUID        NOT NULL REFERENCES menu_sections(id) ON DELETE CASCADE,
-    name                STRING(128) NOT NULL,
-    name_bn             STRING(128),
-    description         STRING(600),
-    description_bn      STRING(600),
-    price_paisa         INT8        NOT NULL CHECK (price_paisa >= 0),
-    compare_at_paisa    INT8        CHECK (compare_at_paisa IS NULL OR compare_at_paisa > price_paisa),
-    image_url           STRING(512),
-    image_blurhash      STRING(48),
-    image_is_cutout     BOOL        NOT NULL DEFAULT false,  -- drives the overflow treatment (doc 03 §10)
-    prep_time_s         INT8        NOT NULL DEFAULT 600,
-    calories            INT8,
-    spice_level         INT2        CHECK (spice_level BETWEEN 0 AND 3),
-    is_vegetarian       BOOL        NOT NULL DEFAULT false,
-    is_halal            BOOL        NOT NULL DEFAULT true,
-    contains_allergens  STRING[]    NOT NULL DEFAULT ARRAY[]::STRING[],
-    availability        STRING(16)  NOT NULL DEFAULT 'AVAILABLE'
+    id                  BINARY(16) PRIMARY KEY,
+    vendor_id           BINARY(16)        NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    section_id          BINARY(16)        NOT NULL REFERENCES menu_sections(id) ON DELETE CASCADE,
+    name                VARCHAR(128) NOT NULL,
+    name_bn             VARCHAR(128),
+    description         VARCHAR(600),
+    description_bn      VARCHAR(600),
+    price_paisa         BIGINT        NOT NULL CHECK (price_paisa >= 0),
+    compare_at_paisa    BIGINT        CHECK (compare_at_paisa IS NULL OR compare_at_paisa > price_paisa),
+    image_url           VARCHAR(512),
+    image_blurhash      VARCHAR(48),
+    image_is_cutout     TINYINT(1)        NOT NULL DEFAULT false,  -- drives the overflow treatment (doc 03 §10)
+    prep_time_s         BIGINT        NOT NULL DEFAULT 600,
+    calories            BIGINT,
+    spice_level         SMALLINT        CHECK (spice_level BETWEEN 0 AND 3),
+    is_vegetarian       TINYINT(1)        NOT NULL DEFAULT false,
+    is_halal            TINYINT(1)        NOT NULL DEFAULT true,
+    contains_allergens  JSON        NOT NULL,   -- array of allergen codes; '[]' when none
+    availability        VARCHAR(16)  NOT NULL DEFAULT 'AVAILABLE'
         CHECK (availability IN ('AVAILABLE','SOLD_OUT','HIDDEN','SCHEDULED')),
-    sold_out_until      TIMESTAMPTZ,
-    sort_order          INT8        NOT NULL DEFAULT 0,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at          TIMESTAMPTZ,
+    sold_out_until      DATETIME(6),
+    sort_order          BIGINT        NOT NULL DEFAULT 0,
+    created_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    deleted_at          DATETIME(6),
 
-    INDEX idx_items_vendor_section (vendor_id, section_id, sort_order) WHERE deleted_at IS NULL,
-    INDEX idx_items_availability (vendor_id, availability) WHERE deleted_at IS NULL
+    INDEX idx_items_vendor_section (vendor_id, section_id, sort_order, deleted_at),
+    INDEX idx_items_availability (vendor_id, availability, deleted_at)
 );
 ```
 
@@ -388,15 +625,15 @@ Modifier groups follow the standard required/optional, min/max model:
 
 ```sql
 CREATE TABLE modifier_groups (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    vendor_id       UUID        NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
-    name            STRING(96)  NOT NULL,
-    name_bn         STRING(96),
-    selection       STRING(16)  NOT NULL CHECK (selection IN ('SINGLE','MULTIPLE')),
-    min_select      INT2        NOT NULL DEFAULT 0 CHECK (min_select >= 0),
-    max_select      INT2        NOT NULL DEFAULT 1 CHECK (max_select >= 1),
-    is_required     BOOL        NOT NULL DEFAULT false,
-    sort_order      INT8        NOT NULL DEFAULT 0,
+    id              BINARY(16) PRIMARY KEY,
+    vendor_id       BINARY(16)        NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    name            VARCHAR(96)  NOT NULL,
+    name_bn         VARCHAR(96),
+    selection       VARCHAR(16)  NOT NULL CHECK (selection IN ('SINGLE','MULTIPLE')),
+    min_select      SMALLINT        NOT NULL DEFAULT 0 CHECK (min_select >= 0),
+    max_select      SMALLINT        NOT NULL DEFAULT 1 CHECK (max_select >= 1),
+    is_required     TINYINT(1)        NOT NULL DEFAULT false,
+    sort_order      BIGINT        NOT NULL DEFAULT 0,
     CHECK (max_select >= min_select),
     CHECK (NOT is_required OR min_select >= 1)
 );
@@ -411,32 +648,38 @@ satisfied" bugs, removed at the schema level.
 
 ```sql
 CREATE TABLE riders (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id             UUID        NOT NULL UNIQUE REFERENCES users(id),
-    code                STRING(12)  NOT NULL UNIQUE,     -- 'RDR-4K2M'
-    full_name           STRING(128) NOT NULL,
+    id                  BINARY(16) PRIMARY KEY,
+    user_id             BINARY(16)        NOT NULL UNIQUE REFERENCES users(id),
+    code                VARCHAR(12)  NOT NULL UNIQUE,     -- 'RDR-4K2M'
+    full_name           VARCHAR(128) NOT NULL,
     date_of_birth       DATE        NOT NULL,
-    vehicle             STRING(16)  NOT NULL CHECK (vehicle IN ('MOTORBIKE','BICYCLE')),
-    home_zone_id        UUID        NOT NULL REFERENCES zones(id),
-    status              STRING(24)  NOT NULL DEFAULT 'DRAFT'
+    vehicle             VARCHAR(16)  NOT NULL CHECK (vehicle IN ('MOTORBIKE','BICYCLE')),
+    home_zone_id        BINARY(16)        NOT NULL REFERENCES zones(id),
+    status              VARCHAR(24)  NOT NULL DEFAULT 'DRAFT'
         CHECK (status IN ('DRAFT','SUBMITTED','UNDER_REVIEW','NEEDS_INFO',
                           'APPROVED','SUSPENDED','REJECTED','RETIRED')),
-    shift_state         STRING(16)  NOT NULL DEFAULT 'OFFLINE'
+    shift_state         VARCHAR(16)  NOT NULL DEFAULT 'OFFLINE'
         CHECK (shift_state IN ('OFFLINE','VERIFYING','ONLINE','ON_ORDER','BREAK','CASH_LOCKED')),
-    photo_url           STRING(512),
-    payout_method       STRING(16)  NOT NULL DEFAULT 'BKASH'
+    photo_url           VARCHAR(512),
+    payout_method       VARCHAR(16)  NOT NULL DEFAULT 'BKASH'
         CHECK (payout_method IN ('BKASH','NAGAD','BANK')),
-    payout_number       STRING(20),
-    payout_name         STRING(128),
-    bank_name           STRING(128),
-    bank_account        STRING(48),
-    bank_routing        STRING(24),
-    approved_at         TIMESTAMPTZ,
-    approved_by         UUID REFERENCES users(id),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    payout_number       VARCHAR(20),
+    payout_name         VARCHAR(128),
+    bank_name           VARCHAR(128),
+    bank_account        VARCHAR(48),
+    bank_routing        VARCHAR(24),
+    approved_at         DATETIME(6),
+    approved_by         BINARY(16) REFERENCES users(id),
+    created_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
-    CHECK (date_of_birth <= (now()::DATE - INTERVAL '18 years')::DATE),
+    -- The 18-year age floor was a CHECK under CockroachDB. MySQL and TiDB forbid
+    -- non-deterministic functions inside CHECK, so `CURRENT_DATE` cannot appear here
+    -- and this constraint cannot be expressed in the schema. It is enforced in
+    -- `undal-core` on every write to `date_of_birth`, and by the nightly integrity
+    -- job, which reports any rider row that violates it. This is a real downgrade
+    -- from a database guarantee to an application guarantee, and it is listed in
+    -- `39` as R30.
     INDEX idx_riders_zone_state (home_zone_id, shift_state, status)
 );
 ```
@@ -450,27 +693,33 @@ screen is up and they cannot work. See [`25`](25-rider-cash-settlement.md).
 
 ```sql
 CREATE TABLE rider_shifts (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    rider_id            UUID        NOT NULL REFERENCES riders(id),
-    zone_id             UUID        NOT NULL REFERENCES zones(id),
-    started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    ended_at            TIMESTAMPTZ,
-    end_reason          STRING(32)
+    id                  BINARY(16) PRIMARY KEY,
+    rider_id            BINARY(16)        NOT NULL REFERENCES riders(id),
+    zone_id             BINARY(16)        NOT NULL REFERENCES zones(id),
+    started_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    ended_at            DATETIME(6),
+    end_reason          VARCHAR(32)
         CHECK (end_reason IS NULL OR end_reason IN
                ('RIDER_ENDED','AUTO_OFFLINE','ADMIN_ENDED','CASH_OVERDUE','APP_CRASH')),
-    selfie_url          STRING(512) NOT NULL,
-    selfie_verified     BOOL        NOT NULL DEFAULT false,
-    start_point         GEOGRAPHY(POINT, 4326) NOT NULL,
-    end_point           GEOGRAPHY(POINT, 4326),
-    orders_completed    INT8        NOT NULL DEFAULT 0,
-    orders_rejected     INT8        NOT NULL DEFAULT 0,
-    distance_m          INT8        NOT NULL DEFAULT 0,
-    online_seconds      INT8        NOT NULL DEFAULT 0,
-    cash_collected_paisa INT8       NOT NULL DEFAULT 0,
-    earnings_paisa      INT8        NOT NULL DEFAULT 0,
+    selfie_url          VARCHAR(512) NOT NULL,
+    selfie_verified     TINYINT(1)        NOT NULL DEFAULT false,
+    start_lat_e7        INT          NOT NULL,
+    start_lon_e7        INT          NOT NULL,
+    end_lat_e7          INT,
+    end_lon_e7          INT,
+    orders_completed    BIGINT        NOT NULL DEFAULT 0,
+    orders_rejected     BIGINT        NOT NULL DEFAULT 0,
+    distance_m          BIGINT        NOT NULL DEFAULT 0,
+    online_seconds      BIGINT        NOT NULL DEFAULT 0,
+    cash_collected_paisa BIGINT       NOT NULL DEFAULT 0,
+    earnings_paisa      BIGINT        NOT NULL DEFAULT 0,
+
+    -- Partial-index replacement. Read on every dispatch, so keeping it tight
+    -- matters more here than anywhere else in the schema.
+    zone_id_if_open     BINARY(16) AS (IF(ended_at IS NULL, zone_id, NULL)) STORED,
 
     INDEX idx_shifts_rider (rider_id, started_at DESC),
-    INDEX idx_shifts_open (zone_id) WHERE ended_at IS NULL
+    INDEX idx_shifts_open (zone_id_if_open)
 );
 ```
 
@@ -480,84 +729,92 @@ CREATE TABLE rider_shifts (
 
 ```sql
 CREATE TABLE orders (
-    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code                    STRING(16)  NOT NULL UNIQUE,  -- 'UND-7K2M9QX4'
-    customer_user_id        UUID        NOT NULL REFERENCES users(id),
-    vendor_id               UUID        NOT NULL REFERENCES vendors(id),
-    zone_id                 UUID        NOT NULL REFERENCES zones(id),
+    id                      BINARY(16) PRIMARY KEY,
+    code                    VARCHAR(16)  NOT NULL UNIQUE,  -- 'UND-7K2M9QX4'
+    customer_user_id        BINARY(16)        NOT NULL REFERENCES users(id),
+    vendor_id               BINARY(16)        NOT NULL REFERENCES vendors(id),
+    zone_id                 BINARY(16)        NOT NULL REFERENCES zones(id),
 
-    fulfilment              STRING(16)  NOT NULL CHECK (fulfilment IN ('DELIVERY','PICKUP')),
-    state                   STRING(24)  NOT NULL
+    fulfilment              VARCHAR(16)  NOT NULL CHECK (fulfilment IN ('DELIVERY','PICKUP')),
+    state                   VARCHAR(24)  NOT NULL
         CHECK (state IN ('DRAFT','PLACED','ACCEPTED','REJECTED','RIDER_SEARCH',
                          'RIDER_ASSIGNED','PICKED_UP','ARRIVED','DELIVERED','SETTLED',
                          'AUTO_CANCELLED','CANCELLED_BY_CUSTOMER','CANCELLED_BY_VENDOR',
                          'CANCELLED_BY_ADMIN','REASSIGNING','DISPUTED')),
 
     -- Addresses are snapshotted, never referenced, so a later edit cannot rewrite history.
-    delivery_address_id     UUID        REFERENCES addresses(id),
-    delivery_snapshot       JSONB,
-    delivery_point          GEOGRAPHY(POINT, 4326),
-    pickup_point            GEOGRAPHY(POINT, 4326) NOT NULL,
+    delivery_address_id     BINARY(16)        REFERENCES addresses(id),
+    delivery_snapshot       JSON,
+    delivery_lat_e7         INT,
+    delivery_lon_e7         INT,
+    pickup_lat_e7           INT          NOT NULL,
+    pickup_lon_e7           INT          NOT NULL,
 
     -- Money. Every one of these is paisa. Every one.
-    subtotal_paisa          INT8 NOT NULL DEFAULT 0 CHECK (subtotal_paisa >= 0),
-    discount_paisa          INT8 NOT NULL DEFAULT 0 CHECK (discount_paisa >= 0),
-    delivery_fee_paisa      INT8 NOT NULL DEFAULT 0 CHECK (delivery_fee_paisa >= 0),
-    small_order_fee_paisa   INT8 NOT NULL DEFAULT 0 CHECK (small_order_fee_paisa >= 0),
-    tax_paisa               INT8 NOT NULL DEFAULT 0 CHECK (tax_paisa >= 0),
-    tip_paisa               INT8 NOT NULL DEFAULT 0 CHECK (tip_paisa >= 0),
-    rounding_paisa          INT8 NOT NULL DEFAULT 0,          -- may be negative
-    total_paisa             INT8 NOT NULL DEFAULT 0 CHECK (total_paisa >= 0),
+    subtotal_paisa          BIGINT NOT NULL DEFAULT 0 CHECK (subtotal_paisa >= 0),
+    discount_paisa          BIGINT NOT NULL DEFAULT 0 CHECK (discount_paisa >= 0),
+    delivery_fee_paisa      BIGINT NOT NULL DEFAULT 0 CHECK (delivery_fee_paisa >= 0),
+    small_order_fee_paisa   BIGINT NOT NULL DEFAULT 0 CHECK (small_order_fee_paisa >= 0),
+    tax_paisa               BIGINT NOT NULL DEFAULT 0 CHECK (tax_paisa >= 0),
+    tip_paisa               BIGINT NOT NULL DEFAULT 0 CHECK (tip_paisa >= 0),
+    rounding_paisa          BIGINT NOT NULL DEFAULT 0,          -- may be negative
+    total_paisa             BIGINT NOT NULL DEFAULT 0 CHECK (total_paisa >= 0),
 
-    commission_paisa        INT8 NOT NULL DEFAULT 0,
-    rider_bonus_paisa       INT8 NOT NULL DEFAULT 0,
-    rider_payout_paisa      INT8 NOT NULL DEFAULT 0,
-    vendor_payout_paisa     INT8 NOT NULL DEFAULT 0,
-    platform_revenue_paisa  INT8 NOT NULL DEFAULT 0,
+    commission_paisa        BIGINT NOT NULL DEFAULT 0,
+    rider_bonus_paisa       BIGINT NOT NULL DEFAULT 0,
+    rider_payout_paisa      BIGINT NOT NULL DEFAULT 0,
+    vendor_payout_paisa     BIGINT NOT NULL DEFAULT 0,
+    platform_revenue_paisa  BIGINT NOT NULL DEFAULT 0,
 
     -- Fare provenance, so an invoice can always explain itself.
-    fare_source             STRING(16) NOT NULL DEFAULT 'BRAIN'
+    fare_source             VARCHAR(16) NOT NULL DEFAULT 'BRAIN'
         CHECK (fare_source IN ('BRAIN','FALLBACK','ADMIN_OVERRIDE')),
-    fare_trace_id           UUID,
-    surge_bps               INT8 NOT NULL DEFAULT 10000,
-    weather_condition       STRING(16) NOT NULL DEFAULT 'CLEAR',
-    route_distance_m        INT8,
-    route_duration_s        INT8,
-    traffic_delay_s         INT8 NOT NULL DEFAULT 0,
-    distance_source         STRING(16) NOT NULL DEFAULT 'OSRM'
+    fare_trace_id           BINARY(16),
+    surge_bps               BIGINT NOT NULL DEFAULT 10000,
+    weather_condition       VARCHAR(16) NOT NULL DEFAULT 'CLEAR',
+    route_distance_m        BIGINT,
+    route_duration_s        BIGINT,
+    traffic_delay_s         BIGINT NOT NULL DEFAULT 0,
+    distance_source         VARCHAR(16) NOT NULL DEFAULT 'OSRM'
         CHECK (distance_source IN ('OSRM','ESTIMATED')),
 
     -- Timing
-    placed_at               TIMESTAMPTZ,
-    accepted_at             TIMESTAMPTZ,
-    prep_time_s             INT8,
-    prep_time_source        STRING(16) CHECK (prep_time_source IS NULL OR
+    placed_at               DATETIME(6),
+    accepted_at             DATETIME(6),
+    prep_time_s             BIGINT,
+    prep_time_source        VARCHAR(16) CHECK (prep_time_source IS NULL OR
                                 prep_time_source IN ('SUGGESTED','VENDOR_SET','DEFAULT')),
-    ready_at_estimate       TIMESTAMPTZ,
-    assigned_at             TIMESTAMPTZ,
-    picked_up_at            TIMESTAMPTZ,
-    arrived_at              TIMESTAMPTZ,
-    delivered_at            TIMESTAMPTZ,
-    settled_at              TIMESTAMPTZ,
-    eta_min_at_placement    TIMESTAMPTZ,
-    eta_max_at_placement    TIMESTAMPTZ,
+    ready_at_estimate       DATETIME(6),
+    assigned_at             DATETIME(6),
+    picked_up_at            DATETIME(6),
+    arrived_at              DATETIME(6),
+    delivered_at            DATETIME(6),
+    settled_at              DATETIME(6),
+    eta_min_at_placement    DATETIME(6),
+    eta_max_at_placement    DATETIME(6),
 
-    rider_id                UUID REFERENCES riders(id),
-    batch_id                UUID REFERENCES order_batches(id),
+    rider_id                BINARY(16) REFERENCES riders(id),
+    batch_id                BINARY(16) REFERENCES order_batches(id),
 
-    customer_note           STRING(280),
-    payment_method          STRING(16) NOT NULL DEFAULT 'COD' CHECK (payment_method = 'COD'),
-    cash_collected_paisa    INT8,
+    customer_note           VARCHAR(280),
+    payment_method          VARCHAR(16) NOT NULL DEFAULT 'COD' CHECK (payment_method = 'COD'),
+    cash_collected_paisa    BIGINT,
 
-    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at              DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at              DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
     INDEX idx_orders_customer (customer_user_id, created_at DESC),
     INDEX idx_orders_vendor_state (vendor_id, state, created_at DESC),
-    INDEX idx_orders_rider (rider_id, created_at DESC) WHERE rider_id IS NOT NULL,
-    INDEX idx_orders_zone_live (zone_id, state) WHERE state NOT IN ('SETTLED','DRAFT'),
+    -- Three partial-index replacements, two of which are load-bearing.
+    -- `live_zone_id` is what keeps the command map's index small as history
+    -- accumulates; `settled_zone_id` is what keeps weekly invoicing off a scan.
+    live_zone_id    BINARY(16) AS (IF(state NOT IN ('SETTLED','DRAFT'), zone_id, NULL)) STORED,
+    settled_zone_id BINARY(16) AS (IF(state = 'SETTLED', zone_id, NULL)) STORED,
+
+    INDEX idx_orders_rider (rider_id, created_at DESC),
+    INDEX idx_orders_zone_live (live_zone_id, state),
     INDEX idx_orders_code (code),
-    INDEX idx_orders_settlement (zone_id, delivered_at) WHERE state = 'SETTLED'
+    INDEX idx_orders_settlement (settled_zone_id, delivered_at)
 );
 ```
 
@@ -574,18 +831,18 @@ is kept for navigation; the snapshot is kept for truth.
 
 ```sql
 CREATE TABLE order_state_events (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_id        UUID        NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    seq             INT8        NOT NULL,
-    from_state      STRING(24),
-    to_state        STRING(24)  NOT NULL,
-    actor_type      STRING(16)  NOT NULL
+    id              BINARY(16) PRIMARY KEY,
+    order_id        BINARY(16)        NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    seq             BIGINT        NOT NULL,
+    from_state      VARCHAR(24),
+    to_state        VARCHAR(24)  NOT NULL,
+    actor_type      VARCHAR(16)  NOT NULL
         CHECK (actor_type IN ('CUSTOMER','VENDOR','RIDER','ADMIN','SYSTEM')),
-    actor_user_id   UUID REFERENCES users(id),
-    reason_code     STRING(48),
-    reason_text     STRING(512),
-    metadata        JSONB       NOT NULL DEFAULT '{}'::JSONB,
-    occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    actor_user_id   BINARY(16) REFERENCES users(id),
+    reason_code     VARCHAR(48),
+    reason_text     VARCHAR(512),
+    metadata        JSON        NOT NULL,   -- undal-core always writes at least '{}'
+    occurred_at     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
     UNIQUE INDEX uq_order_events_seq (order_id, seq),
     INDEX idx_order_events_order (order_id, occurred_at)
@@ -632,21 +889,21 @@ effects table is in [`08 §6`](08-api-contract.md).
 
 ```sql
 CREATE TABLE order_offers (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_id        UUID        NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    rider_id        UUID        NOT NULL REFERENCES riders(id),
-    wave            INT2        NOT NULL,        -- cascade wave number, 1-based
-    rank_in_wave    INT2        NOT NULL,
-    score           FLOAT8      NOT NULL,        -- the dispatch score, for audit
-    trace_id        UUID        NOT NULL,        -- links to brain_traces
-    payout_paisa    INT8        NOT NULL,
-    offered_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at      TIMESTAMPTZ NOT NULL,
-    responded_at    TIMESTAMPTZ,
-    response        STRING(16)
+    id              BINARY(16) PRIMARY KEY,
+    order_id        BINARY(16)        NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    rider_id        BINARY(16)        NOT NULL REFERENCES riders(id),
+    wave            SMALLINT        NOT NULL,        -- cascade wave number, 1-based
+    rank_in_wave    SMALLINT        NOT NULL,
+    score           DOUBLE      NOT NULL,        -- the dispatch score, for audit
+    trace_id        BINARY(16)        NOT NULL,        -- links to brain_traces
+    payout_paisa    BIGINT        NOT NULL,
+    offered_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    expires_at      DATETIME(6) NOT NULL,
+    responded_at    DATETIME(6),
+    response        VARCHAR(16)
         CHECK (response IS NULL OR response IN ('ACCEPTED','REJECTED','EXPIRED','WITHDRAWN')),
-    reject_reason   STRING(48),
-    reject_note     STRING(280),
+    reject_reason   VARCHAR(48),
+    reject_note     VARCHAR(280),
 
     INDEX idx_offers_order (order_id, wave, rank_in_wave),
     INDEX idx_offers_rider (rider_id, offered_at DESC),
@@ -667,41 +924,41 @@ the single design decision that makes "no invoice is ever wrong" achievable rath
 
 ```sql
 CREATE TABLE ledger_accounts (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code        STRING(48) NOT NULL UNIQUE,
-    kind        STRING(16) NOT NULL
+    id          BINARY(16) PRIMARY KEY,
+    code        VARCHAR(48) NOT NULL UNIQUE,
+    kind        VARCHAR(16) NOT NULL
         CHECK (kind IN ('ASSET','LIABILITY','REVENUE','EXPENSE','EQUITY')),
-    owner_type  STRING(16) NOT NULL
+    owner_type  VARCHAR(16) NOT NULL
         CHECK (owner_type IN ('PLATFORM','VENDOR','RIDER','CUSTOMER')),
-    owner_id    UUID,
-    currency    STRING(3)  NOT NULL DEFAULT 'BDT',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    owner_id    BINARY(16),
+    currency    VARCHAR(3)  NOT NULL DEFAULT 'BDT',
+    created_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
     UNIQUE INDEX uq_ledger_owner (owner_type, owner_id, code)
 );
 
 CREATE TABLE ledger_entries (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entry_type      STRING(48)  NOT NULL,   -- 'ORDER_DELIVERED', 'PAYOUT_PAID', ...
-    order_id        UUID REFERENCES orders(id),
-    invoice_id      UUID,
-    settlement_id   UUID,
-    description     STRING(256) NOT NULL,
-    occurred_at     TIMESTAMPTZ NOT NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    created_by      UUID REFERENCES users(id),
-    reverses_id     UUID REFERENCES ledger_entries(id),
+    id              BINARY(16) PRIMARY KEY,
+    entry_type      VARCHAR(48)  NOT NULL,   -- 'ORDER_DELIVERED', 'PAYOUT_PAID', ...
+    order_id        BINARY(16) REFERENCES orders(id),
+    invoice_id      BINARY(16),
+    settlement_id   BINARY(16),
+    description     VARCHAR(256) NOT NULL,
+    occurred_at     DATETIME(6) NOT NULL,
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    created_by      BINARY(16) REFERENCES users(id),
+    reverses_id     BINARY(16) REFERENCES ledger_entries(id),
 
     INDEX idx_entries_order (order_id),
     INDEX idx_entries_occurred (occurred_at)
 );
 
 CREATE TABLE ledger_postings (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entry_id    UUID NOT NULL REFERENCES ledger_entries(id) ON DELETE CASCADE,
-    account_id  UUID NOT NULL REFERENCES ledger_accounts(id),
-    amount_paisa INT8 NOT NULL,             -- signed: debit positive, credit negative
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    id          BINARY(16) PRIMARY KEY,
+    entry_id    BINARY(16) NOT NULL REFERENCES ledger_entries(id) ON DELETE CASCADE,
+    account_id  BINARY(16) NOT NULL REFERENCES ledger_accounts(id),
+    amount_paisa BIGINT NOT NULL,             -- signed: debit positive, credit negative
+    created_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
     INDEX idx_postings_entry (entry_id),
     INDEX idx_postings_account (account_id, created_at)
@@ -758,49 +1015,49 @@ vectors including rain surge, bicycle radius limits, pick-up with no rider, and 
 
 ```sql
 CREATE TABLE payout_periods (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    party_type      STRING(8)  NOT NULL CHECK (party_type IN ('VENDOR','RIDER')),
-    iso_year        INT2       NOT NULL,
-    iso_week        INT2       NOT NULL CHECK (iso_week BETWEEN 1 AND 53),
-    window_start    TIMESTAMPTZ NOT NULL,   -- Asia/Dhaka boundaries, stored as UTC
-    window_end      TIMESTAMPTZ NOT NULL,
-    generate_after  TIMESTAMPTZ NOT NULL,   -- Friday 00:00 Dhaka for riders, Saturday for vendors
-    status          STRING(16) NOT NULL DEFAULT 'OPEN'
+    id              BINARY(16) PRIMARY KEY,
+    party_type      VARCHAR(8)  NOT NULL CHECK (party_type IN ('VENDOR','RIDER')),
+    iso_year        SMALLINT       NOT NULL,
+    iso_week        SMALLINT       NOT NULL CHECK (iso_week BETWEEN 1 AND 53),
+    window_start    DATETIME(6) NOT NULL,   -- Asia/Dhaka boundaries, stored as UTC
+    window_end      DATETIME(6) NOT NULL,
+    generate_after  DATETIME(6) NOT NULL,   -- Friday 00:00 Dhaka for riders, Saturday for vendors
+    status          VARCHAR(16) NOT NULL DEFAULT 'OPEN'
         CHECK (status IN ('OPEN','GENERATING','GENERATED','CLOSED')),
-    generated_at    TIMESTAMPTZ,
+    generated_at    DATETIME(6),
 
     UNIQUE INDEX uq_period (party_type, iso_year, iso_week)
 );
 
 CREATE TABLE invoices (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    number              STRING(32) NOT NULL UNIQUE,    -- UND/V/2026/44/00017
-    period_id           UUID NOT NULL REFERENCES payout_periods(id),
-    party_type          STRING(8)  NOT NULL CHECK (party_type IN ('VENDOR','RIDER')),
-    party_id            UUID NOT NULL,
-    order_count         INT8 NOT NULL,
-    gross_paisa         INT8 NOT NULL,
-    commission_paisa    INT8 NOT NULL DEFAULT 0,
-    tax_paisa           INT8 NOT NULL DEFAULT 0,
-    discount_paisa      INT8 NOT NULL DEFAULT 0,
-    campaign_paisa      INT8 NOT NULL DEFAULT 0,
-    bonus_paisa         INT8 NOT NULL DEFAULT 0,
-    penalty_paisa       INT8 NOT NULL DEFAULT 0,
-    adjustment_paisa    INT8 NOT NULL DEFAULT 0,
-    cash_offset_paisa   INT8 NOT NULL DEFAULT 0,       -- riders: cash already settled
-    net_payable_paisa   INT8 NOT NULL,
-    status              STRING(16) NOT NULL DEFAULT 'DRAFT'
+    id                  BINARY(16) PRIMARY KEY,
+    number              VARCHAR(32) NOT NULL UNIQUE,    -- UND/V/2026/44/00017
+    period_id           BINARY(16) NOT NULL REFERENCES payout_periods(id),
+    party_type          VARCHAR(8)  NOT NULL CHECK (party_type IN ('VENDOR','RIDER')),
+    party_id            BINARY(16) NOT NULL,
+    order_count         BIGINT NOT NULL,
+    gross_paisa         BIGINT NOT NULL,
+    commission_paisa    BIGINT NOT NULL DEFAULT 0,
+    tax_paisa           BIGINT NOT NULL DEFAULT 0,
+    discount_paisa      BIGINT NOT NULL DEFAULT 0,
+    campaign_paisa      BIGINT NOT NULL DEFAULT 0,
+    bonus_paisa         BIGINT NOT NULL DEFAULT 0,
+    penalty_paisa       BIGINT NOT NULL DEFAULT 0,
+    adjustment_paisa    BIGINT NOT NULL DEFAULT 0,
+    cash_offset_paisa   BIGINT NOT NULL DEFAULT 0,       -- riders: cash already settled
+    net_payable_paisa   BIGINT NOT NULL,
+    status              VARCHAR(16) NOT NULL DEFAULT 'DRAFT'
         CHECK (status IN ('DRAFT','GENERATED','VERIFIED','PAID','DISPUTED','VOID')),
-    pdf_url             STRING(512),
-    pdf_bytes           INT8,
-    content_hash        BYTES NOT NULL,                -- SHA-256 of the canonical line set
-    verified_by         UUID REFERENCES users(id),
-    verified_at         TIMESTAMPTZ,
-    paid_by             UUID REFERENCES users(id),
-    paid_at             TIMESTAMPTZ,
-    paid_method         STRING(16),
-    paid_reference      STRING(64),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    pdf_url             VARCHAR(512),
+    pdf_bytes           BIGINT,
+    content_hash        BINARY(32) NOT NULL,           -- SHA-256 of the canonical line set
+    verified_by         BINARY(16) REFERENCES users(id),
+    verified_at         DATETIME(6),
+    paid_by             BINARY(16) REFERENCES users(id),
+    paid_at             DATETIME(6),
+    paid_method         VARCHAR(16),
+    paid_reference      VARCHAR(64),
+    created_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
     UNIQUE INDEX uq_invoice_party_period (party_type, party_id, period_id),
     INDEX idx_invoices_status (status, created_at DESC)
@@ -818,21 +1075,21 @@ than silently shipping a 3 MB file.
 
 ```sql
 CREATE TABLE audit_log (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    actor_user_id   UUID REFERENCES users(id),
-    actor_type      STRING(16)  NOT NULL,
-    action          STRING(64)  NOT NULL,       -- 'vendor.commission.update'
-    resource_type   STRING(48)  NOT NULL,
-    resource_id     UUID,
-    before          JSONB,
-    after           JSONB,
-    delta           JSONB,                      -- computed diff, for fast rendering
-    ip              STRING(45)  NOT NULL,
-    user_agent      STRING(512),
-    request_id      STRING(64)  NOT NULL,
-    zone_id         UUID REFERENCES zones(id),
-    risk            STRING(8)   NOT NULL,
-    occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    id              BINARY(16) PRIMARY KEY,
+    actor_user_id   BINARY(16) REFERENCES users(id),
+    actor_type      VARCHAR(16)  NOT NULL,
+    action          VARCHAR(64)  NOT NULL,       -- 'vendor.commission.update'
+    resource_type   VARCHAR(48)  NOT NULL,
+    resource_id     BINARY(16),
+    `before`          JSON,
+    `after`           JSON,
+    delta           JSON,                      -- computed diff, for fast rendering
+    ip              VARCHAR(45)  NOT NULL,
+    user_agent      VARCHAR(512),
+    request_id      VARCHAR(64)  NOT NULL,
+    zone_id         BINARY(16) REFERENCES zones(id),
+    risk            VARCHAR(8)   NOT NULL,
+    occurred_at     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
     INDEX idx_audit_actor (actor_user_id, occurred_at DESC),
     INDEX idx_audit_resource (resource_type, resource_id, occurred_at DESC),
@@ -846,18 +1103,18 @@ audit row, because the grant does not exist.
 
 ```sql
 CREATE TABLE brain_traces (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    kind            STRING(16) NOT NULL
+    id              BINARY(16) PRIMARY KEY,
+    kind            VARCHAR(16) NOT NULL
         CHECK (kind IN ('FARE','DISPATCH','BATCH','RANK','FORECAST','PREPTIME')),
-    order_id        UUID REFERENCES orders(id),
-    zone_id         UUID REFERENCES zones(id),
-    inputs          JSONB NOT NULL,
-    features        JSONB NOT NULL,
-    intermediates   JSONB NOT NULL,
-    output          JSONB NOT NULL,
-    engine_version  STRING(16) NOT NULL,
-    duration_ms     INT8 NOT NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    order_id        BINARY(16) REFERENCES orders(id),
+    zone_id         BINARY(16) REFERENCES zones(id),
+    inputs          JSON NOT NULL,
+    features        JSON NOT NULL,
+    intermediates   JSON NOT NULL,
+    output          JSON NOT NULL,
+    engine_version  VARCHAR(16) NOT NULL,
+    duration_ms     BIGINT NOT NULL,
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 
     INDEX idx_traces_order (order_id),
     INDEX idx_traces_kind_time (kind, created_at DESC)
@@ -899,26 +1156,47 @@ Rules:
    actually happens in production anyway.
 2. **Idempotent.** Every statement uses `IF NOT EXISTS` / `IF EXISTS`, so a partially-applied
    migration can be re-run.
-3. **Online.** No statement may take an exclusive lock on a large table. CockroachDB's schema
-   changes are online by default; the check is that no migration does `ALTER TABLE ... SET NOT NULL`
-   on a populated column without a preceding backfill migration.
-4. **Applied by Actions.** `.github/workflows/migrate.yml` connects with the `COCKROACH_DATABASE_URL`
-   secret, reads `schema_migrations`, and applies what is missing inside a transaction per file.
+3. **Online.** No statement may take an exclusive lock on a large table. TiDB's schema changes are
+   online by default; the check is that no migration does `ALTER TABLE ... MODIFY COLUMN ... NOT
+   NULL` on a populated column without a preceding backfill migration.
+4. **Statement-level, not file-level.** `.github/workflows/migrate.yml` connects with the
+   `TIDB_MIGRATION_URL` secret, reads `schema_migrations`, and applies what is missing **one
+   statement at a time**, recording each as it succeeds.
 5. **Verified.** After applying, the workflow runs `scripts/db/verify_schema.py`, which compares the
    live schema against `docs/schema/expected.json` (generated from this document) and fails on
    drift.
 
 ```sql
 CREATE TABLE IF NOT EXISTS schema_migrations (
-    version     STRING(16) PRIMARY KEY,
-    checksum    BYTES       NOT NULL,
-    applied_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    applied_by  STRING(128) NOT NULL          -- the Actions run URL
+    version         VARCHAR(16)  NOT NULL,
+    statement_index INT          NOT NULL,
+    checksum        VARBINARY(32) NOT NULL,   -- SHA-256 of the whole file
+    applied_at      DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    applied_by      VARCHAR(128) NOT NULL,    -- the Actions run URL
+    PRIMARY KEY (version, statement_index)
 );
 ```
 
 `checksum` means an edited migration file that has already been applied is detected and refused,
-which is the single most common way a team corrupts a schema.
+which is the single most common way a team corrupts a schema. That protection is unchanged.
+
+**Why rule 4 changed, and why it is not cosmetic.** This document previously said migrations were
+applied "inside a transaction per file". **On TiDB that sentence is false.** DDL auto-commits — it
+cannot be rolled back and it cannot be wrapped. A migration file that fails on its seventh statement
+leaves the first six applied and the database in a state no transaction will undo.
+
+The response is to stop pretending the file is atomic and make the **statement** the unit. Each
+statement is individually idempotent (rule 2, which was good practice before and is now load-bearing),
+each is recorded in `schema_migrations` as it succeeds, and a failed run **resumes** from the first
+unrecorded statement rather than restarting. A re-run after a partial failure is therefore safe,
+which is the property the per-file transaction used to provide and the only honest way to provide it
+here.
+
+`verify_schema.py` is rewritten against MySQL's `information_schema`, with one trap worth naming:
+**`CHECK` constraints do not appear in `information_schema.table_constraints` on TiDB.** They are in
+`CHECK_CONSTRAINTS` and `TIDB_CHECK_CONSTRAINTS`. A verifier written against the obvious table finds
+zero checks, reports no drift, and passes forever. The rewritten verifier reads the right tables and
+ships a fixture that drops a `CHECK` and asserts the verifier catches it.
 
 ---
 
@@ -929,29 +1207,37 @@ The five hot queries, with their indexes:
 ### 11.1 Nearby open vendors
 
 ```sql
+-- Stage 1. Cell list and bounding box come from cellsWithin(centre, radius_m),
+-- computed in the Worker before the query opens. See §4.1.2.
 SELECT v.id, v.name, v.cover_url, v.logo_url, v.open_state,
-       ST_Distance(v.point, $1::GEOGRAPHY) AS distance_m,
+       v.lat_e7, v.lon_e7,
        vs.rating_avg, vs.rating_count, vs.prep_time_p50_s, vs.accept_rate
 FROM vendors v
 JOIN vendor_stats vs ON vs.vendor_id = v.id
 WHERE v.deleted_at IS NULL
   AND v.status = 'APPROVED'
-  AND v.zone_id = $2
-  AND ST_DWithin(v.point, $1::GEOGRAPHY, $3)
-ORDER BY distance_m
+  AND v.zone_id = ?
+  AND v.cell_id IN (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  AND v.lat_e7 BETWEEN ? AND ?
+  AND v.lon_e7 BETWEEN ? AND ?
 LIMIT 200;
 ```
 
-Uses `idx_vendors_zone_status` for the equality predicates and `idx_vendors_point` for the spatial
-filter. The 200-row cap is deliberate: the Brain re-ranks within the candidate set, and ranking more
-than 200 vendors in one zone is not a situation that improves the result.
+Uses `idx_vendors_zone_status` for the equality predicates and `idx_vendors_cell` for the cell
+filter. **Stage 2 happens in the Worker:** exact haversine from the centre to each
+`(lat_e7, lon_e7)`, rounded to integer metres, filtered to the true radius, sorted ascending with
+ties broken by `vendor_id`. The distance the client sees is identical to the one `ST_Distance`
+returned, and `geo-parity` is what proves it (§4.1.4).
+
+The 200-row cap is deliberate and unchanged: the Brain re-ranks within the candidate set, and
+ranking more than 200 vendors in one zone is not a situation that improves the result.
 
 ### 11.2 A vendor's live order board
 
 ```sql
 SELECT o.*, (SELECT count(*) FROM order_items oi WHERE oi.order_id = o.id) AS item_count
 FROM orders o
-WHERE o.vendor_id = $1
+WHERE o.vendor_id = ?
   AND o.state IN ('PLACED','ACCEPTED','RIDER_SEARCH','RIDER_ASSIGNED')
 ORDER BY o.placed_at
 LIMIT 50;
@@ -969,10 +1255,10 @@ JOIN rider_shifts s ON s.rider_id = r.id AND s.ended_at IS NULL
 JOIN rider_stats rs ON rs.rider_id = r.id
 WHERE r.status = 'APPROVED'
   AND r.shift_state IN ('ONLINE','ON_ORDER')
-  AND s.zone_id = $1
+  AND s.zone_id = ?
   AND NOT EXISTS (
       SELECT 1 FROM rider_suspensions sus
-      WHERE sus.rider_id = r.id AND sus.active AND sus.until > now()
+      WHERE sus.rider_id = r.id AND sus.active AND sus.until > CURRENT_TIMESTAMP(6)
   );
 ```
 
@@ -986,9 +1272,9 @@ SELECT o.id, o.code, o.delivered_at, o.subtotal_paisa, o.discount_paisa,
        o.commission_paisa, o.tax_paisa, o.vendor_payout_paisa,
        o.small_order_fee_paisa, o.rider_bonus_paisa
 FROM orders o
-WHERE o.vendor_id = $1
+WHERE o.vendor_id = ?
   AND o.state = 'SETTLED'
-  AND o.delivered_at >= $2 AND o.delivered_at < $3
+  AND o.delivered_at >= ? AND o.delivered_at < ?
 ORDER BY o.delivered_at;
 ```
 
@@ -999,15 +1285,20 @@ most common source of double-counted or missing rows in weekly billing.
 
 ```sql
 SELECT o.id, o.code, o.state, o.vendor_id, o.rider_id, o.zone_id,
-       ST_AsGeoJSON(o.pickup_point) AS pickup,
-       ST_AsGeoJSON(o.delivery_point) AS dropoff,
+       o.pickup_lat_e7, o.pickup_lon_e7,
+       o.delivery_lat_e7, o.delivery_lon_e7,
        o.placed_at, o.ready_at_estimate
 FROM orders o
-WHERE o.zone_id = ANY($1)
+WHERE o.live_zone_id IN (?, ?, ?)
   AND o.state IN ('PLACED','ACCEPTED','RIDER_SEARCH','RIDER_ASSIGNED','PICKED_UP','ARRIVED');
 ```
 
-Uses `idx_orders_zone_live`, a partial index that stays small because settled orders fall out of it.
+Uses `idx_orders_zone_live` on the generated `live_zone_id`, which stays small for the same reason
+the partial index did: settled orders evaluate to `NULL` and fall out of it.
+
+There is nothing left to serialise — the four integers go to the Worker, which assembles the same
+GeoJSON the admin map already consumes. **The wire format to the client is unchanged**, which
+matters because [`21`](21-admin-panel.md) is not a document this migration is allowed to alter.
 
 ---
 
@@ -1015,13 +1306,63 @@ Uses `idx_orders_zone_live`, a partial index that stays small because settled or
 
 | Concern | Mitigation |
 | --- | --- |
-| UUID v7 primary keys create a write hotspot on the latest range | Accepted. CockroachDB splits ranges automatically, and Undal's write rate (≈12 orders/minute at 500/day peak) is three orders of magnitude below the point where this matters. The read benefit of time-ordered keys is realised today; the write cost is theoretical. |
-| `orders` grows unboundedly | At 500 orders/day the table reaches ~180 k rows/year, ~400 MB with items. The 10 GiB free tier holds ~20 years. No partitioning needed. |
-| `order_state_events` grows ~8× faster | ~1.5 M rows/year, ~300 MB. Still fine. Events older than 2 years for `SETTLED` orders are archived to a compressed JSONB column on the order and deleted, by a request-triggered sweep. |
-| `brain_traces` is the largest table by bytes | Retention policy (§9) caps it at ~2 GB. |
+| UUID v7 primary keys create a write hotspot on the latest region | Accepted, deliberately. TiDB splits regions automatically, and Undal's write rate (≈12 orders/minute at 500/day peak) is three orders of magnitude below the point where this matters. `AUTO_RANDOM` and `SHARD_ROW_ID_BITS` would spread the writes and **destroy the range-scan locality that is the entire reason this schema chose v7 over v4** (`00 §glossary`). Revisit above 5,000 orders/day, not before. |
+| `orders` grows unboundedly | At 500 orders/day the table reaches ~180 k rows/year, ~400 MB with items. **See the storage note below — the runway is shorter than it was.** No partitioning needed. |
+| `order_state_events` grows ~8× faster | ~1.5 M rows/year, ~300 MB. Still fine. Events older than 2 years for `SETTLED` orders are archived to a compressed `JSON` column on the order and deleted, by a request-triggered sweep. |
+| `brain_traces` is the largest table by bytes | Retention policy (§9) caps it at ~2 GB. TiDB TTL can now enforce that cap at the storage layer, with the request-triggered sweep kept as a fallback. |
 | `ops_logs` sampling | 1% of successes, 100% of errors, 7-day retention, hard row cap of 2 M enforced by the sweep. |
-| Spatial index selectivity | Zone equality is checked before the spatial predicate, so the GIN index operates on a few hundred rows, not the whole table. |
+| Spatial prefilter selectivity | Zone equality is checked before the cell predicate, so `idx_vendors_cell` operates on a few hundred rows, not the whole table. The ordering that made this true under the inverted index still makes it true. |
 | Read amplification from `vendor_stats` joins | `vendor_stats` is a narrow table updated by the post-order effect, so it stays in cache. |
+| Stored generated columns add write cost | Eleven partial indexes became generated columns (§4.3), each computed on write rather than read. The cost is bytes and a few microseconds per insert; the benefit is that the query plans are the ones this document already specified. |
+
+### 12.1 Storage: the runway is about three and a half years, not twenty
+
+This document used to say the free tier held "~20 years". **That figure does not survive the move
+and the replacement is materially worse.** It is stated here rather than quietly dropped.
+
+CockroachDB's free tier gave 10 GiB. TiDB Cloud Starter gives **5 GiB of row storage** plus 5 GiB of
+columnar storage — and the columnar half is a TiFlash replica quota for analytics, not extra primary
+capacity. Row storage halves.
+
+The old figure was also generous with its arithmetic: it divided 10 GiB by orders-and-items alone.
+Counting everything:
+
+| | Size |
+| --- | --- |
+| `brain_traces`, capped by retention | ~2.0 GB |
+| `ops_logs`, capped at 2 M rows | ~0.4 GB |
+| All other tables at steady state | ~0.2 GB |
+| **Fixed subtotal** | **~2.6 GB** |
+| `orders` + `order_items`, per year | ~0.4 GB |
+| `order_state_events`, per year | ~0.3 GB |
+| **Growth** | **~0.7 GB/year** |
+
+(5,120 − 2,600) ÷ 700 ≈ **3.6 years** at 500 orders/day.
+
+That is a real constraint rather than a comfortable one, and it is the tightest limit in the
+platform's free-tier budget. Two levers exist before any money is spent, and both are already
+specified rather than invented here: tightening `brain_traces` retention from 90 days toward 7
+reclaims most of the 2 GB fixed cost, and archiving `order_state_events` at one year instead of two
+halves the largest growth term. Applying both extends the runway past ten years. Neither changes
+platform behaviour; both change a retention number in [`29`](29-secrets-and-configuration.md).
+
+Logged in [`39 §3.4`](39-risk-register-and-truths.md) as R4, rewritten.
+
+### 12.2 Request units cannot be carried across
+
+The old figures — ~21 M RU/month in [`01 §5.1`](01-mission-and-non-negotiables.md), ~31 M RU/month
+in [`39 §2.1`](39-risk-register-and-truths.md), against a 50 M limit — were computed against
+**CockroachDB's** definition of a request unit. TiDB's RU measures different work under a different
+formula. The two numbers are not convertible, and renaming the vendor on an unconverted figure would
+be exactly the silent divergence this migration refuses.
+
+So the estimate is **withdrawn, not translated**. The limit is 50 M RU/month. Undal's consumption
+against TiDB's model is **unmeasured**, it will be recorded during the first week of production, and
+it will be published here with its measurement date. Until then, any claim about RU headroom in this
+corpus is marked unknown.
+
+This also means the 1,500-orders/day threshold in [`39 §4`](39-risk-register-and-truths.md) is
+unknown rather than merely uncertain. It may move in either direction.
 
 ---
 
