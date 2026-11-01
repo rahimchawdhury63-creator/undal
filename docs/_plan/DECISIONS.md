@@ -432,3 +432,32 @@ do in CI.
 the property anyone needs. The fixture is the contract between the two implementations, and it
 immediately earned its keep twice: `null` had to hash like an absent field, and the housekeeping job
 was reading a `payload_sha256` column that does not exist.
+
+## D51 — The tip and the small-order fee are inside the collected cash, not beside it
+
+**Decision.** In the canonical `ORDER_DELIVERED` set the customer's whole payment — food, delivery,
+tax, tip, small-order fee, less the rounding delta — is the single `RIDER_CASH` debit. The tip and
+the small-order fee appear only as credits: the rider's payable grows by the tip and by the rider's
+share of the fee, the platform's small-order revenue grows by the rest. A tip added *after* delivery
+is its own `TIP` entry with the `+tip / −tip` pair that `24 §3` prints.
+
+**Rejected.** Posting `RIDER_CASH +tip` inside the order set, as a literal reading of the §3 table.
+
+**Why.** §2.1's `raw_total` already contains the tip, so a second cash debit counts the customer's
+money twice — the generator caught it on case 21 of the closure property test, which is exactly the
+kind of double count that leaves a ₹5 000 hole in a rider's float after a week of tips. The §3 table
+describes the *pass-through* entry, not the order entry; the difference only shows up when both
+exist, and now the test knows which is which.
+
+## D52 — A balance is a sum, never a stored column
+
+**Decision.** `domain/ledger/balance.ts` computes every balance as `SUM(amount_paisa)` over the
+postings table, in one grouped query for the whole platform, with an optional `asOfSequence`.
+
+**Rejected.** A `balance_paisa` column on `ledger_accounts`, updated on every posting.
+
+**Why.** Two sources of truth for money is one source of truth and one source of argument. A cached
+column drifts the first time a compensating delete runs, and the daily reconciliation compares these
+sums against the provider's statement — so the sum has to be the definition, not a cache of it. The
+`asOfSequence` variant exists because an auditor asking "what did we hold on the 3rd" needs the sum
+as it stood then, which a mutated column cannot answer at all.

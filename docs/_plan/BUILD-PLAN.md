@@ -249,6 +249,13 @@ business domain implemented yet.
 
 ### R6 · Ledger and money domain — B4 · 60 files · 10 000 lines
 
+> **Progress.** R6a (this response): `domain/ledger/` — `accounts`, `closure`, `post-entry`,
+> `trial-balance`, `reverse`, `balance`, `repositories/{accounts,entries}`; `domain/money/rates.ts`
+> and `postings/{order,adjustments,movements,index}` (15 builders covering every §3 row);
+> `test/ledger.test.ts` + `test/postings.test.ts` + `test/generators/ledger.ts` (10 000 closure
+> cases, 100 000-posting trial balance, reversal refusals, 20 hand-checked sets). Remaining for the
+> R6 gate: the 34 golden vector files, money branch coverage to 100%, `LEDGER_IMBALANCE` route wiring.
+
 - `domain/ledger/` — `accounts.ts` (14 types), `post-entry.ts` (closure assertion before commit),
   `closure.ts`, `trial-balance.ts`, `reverse.ts`, `balance.ts`, `repositories/*`
 - `domain/money/postings/` — one module per entry type: `order-delivered`, `order-cancelled`,
