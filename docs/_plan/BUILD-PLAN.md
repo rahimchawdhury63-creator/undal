@@ -282,6 +282,13 @@ trigger test.
 > blocking, clamps, paisa parity). Vector 01 reproduces to the paisa: core 6 520, fee 7 042,
 > margin 522. Remaining for the R7 gate: `rider_payout`, `small_order`, `tax`, `assemble`,
 > `explain`, `bundle`, `engine` + `main.py` dispatch, the 40 vectors, and the 25 money properties.
+>
+> **R7 gate met (second response).** `rider_payout`, `small_order`, `assemble` (closure asserted
+> before a quote leaves the Brain), `explain` (codes and paisa, no prose), `engine` and the input
+> validator are in; the 40 vectors are generated, committed and drift-checked in CI, with vector 01
+> asserted by hand against `10 §12.1`; 25 properties run over 4 000 seeded cases; 62 Brain tests pass.
+> D58 records why the delivery line closes on its residual; D59 records which vectors are the
+> document's and which are pins.
 
 - `workers/brain/src/` — `main.py` (engine dispatch, 400 ms budget), `lib/{paisa,geo,stats,time}.py`,
   `fare/{constants,surge,ride_core,delivery_fee,rider_payout,small_order,tax,assemble,explain,

@@ -128,6 +128,8 @@ jobs:
         # formula changes without regenerating them, this fails instead of the golden file
         # quietly following the code it is supposed to be testing.
         run: python3 scripts/money/gen_posting_vectors.py --check
+      - name: The forty fare vectors match the engine
+        run: python3 workers/brain/test/generate_fare_vectors.py --check
       - name: Python worker
         working-directory: workers/brain
         env:

@@ -121,3 +121,8 @@ BUNDLE_CREDIT_CAP_PAISA = 2_500
 
 #: The quote is valid for this long; the Brain refuses to answer outside its budget.
 FARE_BUDGET_MS = 400
+
+#: The two fulfilment paths, and the set the input validator accepts.
+DELIVERY = "DELIVERY"
+PICKUP = "PICKUP"
+MOTORBIKE_BICYCLE_FULFILMENTS = frozenset({DELIVERY, PICKUP})
