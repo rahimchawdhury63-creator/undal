@@ -451,7 +451,7 @@ once claimed — the tightest constraint in the platform's free-tier budget.
 
 ## 9. Corpus contradictions I found, and how I will resolve them
 
-Each is a real disagreement between two documents. Per the corpus's own rule
+Each is a real disagreement between two documents, or an arithmetic error inside one. Per the corpus's own rule
 ([`35 §8`](../35-execution-plan.md)) I take the more specific document, keep the behaviour that is
 correct for a cash business, and record the decision in `docs/_plan/DECISIONS.md` — then, where the
 corpus is wrong, fix the corpus in the same commit.
@@ -470,6 +470,7 @@ corpus is wrong, fix the corpus in the same commit.
 | 10 | [`07 §3.3`](../07-d1-live-tracking.md) cadence floors and [`01`](../01-mission-and-non-negotiables.md)'s "only ≥ 100 m" read as a conflict at first glance | Not a conflict: 100 m is the base gate, and the cadence *tightens* it near the drop and relaxes the **time** ceiling when stationary. Never loosens the displacement gate; the 54-write budget is the proof |
 | 11 | Occupancy of acceptance criteria: A3 was rewritten for TiDB by the migration, and `geo-parity` is its proof; the count stays **179** | 179, A3 = TiDB + `geo-parity`, A176 guardrails = 31 |
 | 12 | `assets/reference/*.mp4` are 22.0 s (720×540, 60 fps) and 15.37 s (720×1280, 60 fps); [`04`](../04-motion-and-interaction.md) is the normative motion spec | `04` governs every duration and curve; the videos are mood references — ref A warm card UI with a floating cart capsule and in-place stepper morph, ref B glassy liquid surfaces and an image-led scroll. No motion value is taken from a video |
+| 13 | The screen inventories do not add up: [`17 §2`](../17-customer-app.md)'s groups sum to **78** but its total says 68; [`18 §2`](../18-partner-app.md) sums to 64, total 54; [`19 §2`](../19-rider-app.md) sums to 71, total 61 — and [`37 §6`](../37-feature-register.md) registers **283** screens against those 183. Three numbers, none equal | `docs/features/screens.json`, generated from the real route inventory, is the register and the only count that means anything (A159). The 283 figure stands until the register proves otherwise; empty-platform enumerates the register, never an arithmetic total, and the §2 tables are corrected in the response that builds each app (R14, R16, R18). **No screen is invented to reach a number** |
 
 ---
 
