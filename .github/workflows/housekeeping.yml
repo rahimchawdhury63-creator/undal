@@ -1,0 +1,50 @@
+# Undal — retention, orphan cleanup and the audit chain. Licensed under PASVL-1.0.
+#
+# Three jobs that must never run inside a Worker: expire what the free tier
+# charges for, find rows that lost their parent (order_items, order_offers and
+# order_state_events deliberately carry no foreign key), and walk the SHA-256
+# audit chain to prove no historical row was rewritten.
+name: housekeeping
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would be deleted"
+        type: boolean
+        default: true
+  schedule:
+    - cron: "47 19 * * *"   # 01:47 Asia/Dhaka
+
+permissions:
+  contents: read
+
+jobs:
+  housekeeping:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Audit chain walk
+        env:
+          TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
+        run: python3 scripts/db/verify-audit-chain.py --out .artifacts/housekeeping/audit-chain.json
+      - name: Orphan sweep
+        env:
+          TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 scripts/db/sweep-orphans.py --out .artifacts/housekeeping/orphans.json
+      - name: Retention
+        env:
+          TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 scripts/db/apply-retention.py --out .artifacts/housekeeping/retention.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: housekeeping
+          path: .artifacts/housekeeping/
+          retention-days: 30

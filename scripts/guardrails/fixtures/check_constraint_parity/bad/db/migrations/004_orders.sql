@@ -1,0 +1,1 @@
+CREATE TABLE `orders` (`id` BINARY(16) NOT NULL);

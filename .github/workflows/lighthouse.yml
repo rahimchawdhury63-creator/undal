@@ -1,0 +1,38 @@
+# Undal — performance and accessibility budgets. Licensed under PASVL-1.0.
+#
+# Runs against the production URL after a deploy, on the mobile profile a
+# customer in Sylhet actually has. Below 95 in any category, the run goes red and
+# the guardrail reads the artifact.
+name: lighthouse
+
+on:
+  pull_request:
+    paths: ["web/**"]
+  workflow_dispatch:
+  schedule:
+    - cron: "37 21 * * *"   # 03:37 Asia/Dhaka
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.3"
+      - name: Audit the storefront
+        env:
+          TARGET: ${{ vars.PUBLIC_WEB_HOST }}
+        run: node scripts/ci/lighthouse.mjs --target "$TARGET" --out .artifacts/lighthouse/summary.json
+      - name: Guardrail
+        run: python3 scripts/guardrails/run.py --only lighthouse_budget a11y
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse
+          path: .artifacts/lighthouse/
+          retention-days: 30

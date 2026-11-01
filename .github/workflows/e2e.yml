@@ -1,0 +1,50 @@
+# Undal — Playwright against a deployed preview. Licensed under PASVL-1.0.
+#
+# The flows that matter are the ones that touch cash: browse a vendor, place a
+# COD order, accept it as a vendor, claim it as a rider, scan the pickup code,
+# deliver, confirm collection. Every one of them runs against the real API with
+# a test zone and a test vendor created and destroyed inside the run, because a
+# mocked backend would test the mock.
+name: e2e
+
+on:
+  pull_request:
+    paths: ["web/**", "workers/**", "packages/**"]
+  workflow_dispatch:
+  schedule:
+    - cron: "23 18 * * *"   # 00:23 Asia/Dhaka
+
+permissions:
+  contents: read
+
+jobs:
+  playwright:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.3"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run the cash-path suite
+        env:
+          E2E_BASE_URL: ${{ vars.PUBLIC_WEB_HOST }}
+          E2E_API_BASE: ${{ vars.PUBLIC_API_BASE }}
+          E2E_TEST_ZONE: ${{ vars.E2E_TEST_ZONE }}
+          E2E_VENDOR_PHONE: ${{ secrets.E2E_VENDOR_PHONE }}
+          E2E_VENDOR_PASSWORD: ${{ secrets.E2E_VENDOR_PASSWORD }}
+          E2E_RIDER_PHONE: ${{ secrets.E2E_RIDER_PHONE }}
+          E2E_RIDER_PASSWORD: ${{ secrets.E2E_RIDER_PASSWORD }}
+        run: pnpm exec playwright test --project=e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14

@@ -1,0 +1,39 @@
+# Undal — secrets, dependencies and static analysis. Licensed under PASVL-1.0.
+#
+# The repository is public, so a leaked credential is not a hypothetical: it is a
+# bill and a data breach in the same minute. Three layers: GitHub secret scanning
+# (push protection is enabled on the repository), the guardrail's own entropy
+# scan, and CodeQL for the JavaScript and Python surfaces.
+name: security-scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "13 20 * * 1"   # Mondays, 02:13 Asia/Dhaka
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  guardrails:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Entropy and pattern scan
+        run: python3 scripts/guardrails/run.py --only secret_scan dependency_licence_and_cost license_headers
+  codeql:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          language: ${{ matrix.language }}
+      - uses: github/codeql-action/analyze@v3

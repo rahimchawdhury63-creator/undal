@@ -1,0 +1,26 @@
+# Undal — the single version catalogue. Licensed under PASVL-1.0.
+#
+# Four version constants govern this platform (Turborepo, no changesets): the
+# app version, the schema version, the API version and the token version. This
+# file holds the library versions that make those constants buildable.
+[versions]
+kotlin = "2.0.21"
+junit = "5.11.3"
+coroutines = "1.9.0"
+composeBom = "2024.10.01"
+room = "2.6.1"
+hilt = "2.52"
+maplibre = "11.4.2"
+okhttp = "4.12.0"          # pinned: Okronet ships OkHttp 4 ABI
+
+[libraries]
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }
+maplibre-android = { module = "org.maplibre.gl:android-sdk", version.ref = "maplibre" }
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

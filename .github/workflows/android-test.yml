@@ -1,0 +1,62 @@
+# Undal — unit, Robolectric and screenshot tests. Licensed under PASVL-1.0.
+#
+# Screenshots are compared per screen and per theme, because the failure this
+# catches is almost never "the test threw": it is a card that lost its radius or
+# a Bengali label that wrapped onto two lines.
+name: android-test
+
+on:
+  push:
+    paths: ["android/**"]
+  pull_request:
+    paths: ["android/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: JVM tests, including the money module
+        working-directory: android
+        run: ./gradlew test --no-daemon
+      - name: Publish the Kotlin side of the differential
+        run: cp android/shared/money/build/money/kotlin.json .artifacts/money/kotlin.json
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-test-results
+          path: |
+            android/**/build/reports/tests/**
+            .artifacts/money/kotlin.json
+          retention-days: 14
+
+  robolectric-screenshots:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Pixel-diff every registered screen
+        working-directory: android
+        run: ./gradlew :shared:screenshots:verifyPaparazzi --no-daemon
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: screenshot-failures
+          path: android/shared/screenshots/build/reports/paparazzi/**
+          retention-days: 14

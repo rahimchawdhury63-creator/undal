@@ -1,0 +1,32 @@
+# Undal — does the live database match the schema this commit expects? Licensed
+# under PASVL-1.0.
+#
+# Drift between the repository and the database is how a deploy becomes a
+# five-minute outage instead of a five-second one. This workflow compares the
+# two nightly and refuses to stay quiet about a difference.
+name: verify-schema
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [migrate]
+    types: [completed]
+  schedule:
+    - cron: "17 20 * * *"   # 02:17 Asia/Dhaka — Actions infrastructure, not app logic
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compare live schema to docs/schema/expected.json
+        env:
+          TIDB_MIGRATION_URL: ${{ secrets.TIDB_MIGRATION_URL }}
+        run: python3 scripts/db/verify-schema.py --expected docs/schema/expected.json

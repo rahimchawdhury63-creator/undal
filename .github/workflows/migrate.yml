@@ -1,0 +1,60 @@
+# Undal — forward-only schema migrations. Licensed under PASVL-1.0.
+#
+# DDL in TiDB auto-commits, so a migration that fails halfway leaves the schema
+# in a state no rollback can describe. Two defences: every migration file is
+# individually idempotent, and this workflow runs them one at a time in filename
+# order inside a `schema_migrations` ledger, stopping at the first failure and
+# printing exactly which file the database is now at.
+name: migrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type MIGRATE to run against production"
+        required: true
+      dry_run:
+        description: "Print the statements without executing them"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migrate
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Refuse an unconfirmed migration
+        run: test "${{ inputs.confirm }}" = "MIGRATE"
+
+  migrate:
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Guardrails must be green first
+        run: python3 scripts/guardrails/run.py
+      - name: Apply pending migrations
+        env:
+          TIDB_MIGRATION_URL: ${{ secrets.TIDB_MIGRATION_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 scripts/db/migrate.py --dir db/migrations --ledger schema_migrations
+      - name: Summarise the resulting schema
+        env:
+          TIDB_MIGRATION_URL: ${{ secrets.TIDB_MIGRATION_URL }}
+        run: python3 scripts/db/dump-schema.py --out docs/schema/expected.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: expected-schema
+          path: docs/schema/expected.json
+          retention-days: 30

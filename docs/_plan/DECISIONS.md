@@ -235,3 +235,83 @@ than discovered in a Play Console device report.
 
 *Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.*
 *SPDX-License-Identifier: LicenseRef-PASVL-1.0*
+
+---
+
+## D36 — The five platform-wide error codes keep their bare names
+
+**Decision.** The sixteenth group file is `packages/contracts/src/errors/rows/system.ts`, but its
+five codes are exactly `INTERNAL`, `SERVICE_DEGRADED`, `DEPENDENCY_TIMEOUT`, `IDEMPOTENCY_CONFLICT`
+and `NOT_IMPLEMENTED` — no `SYSTEM_` prefix — and the three `OAUTH_*` codes are counted inside the
+`AUTH_` group.
+
+**Rejected.** Inventing `SYSTEM_INTERNAL` and the rest so that every prefix matches its table row.
+
+**Why.** `08 §11` labels the row `SYSTEM_` but names the codes without it, and clients match on the
+code string exactly. The registry is the contract, so the 184 strings are authoritative and the table
+label is the typo. The parity test asserts `AUTH_ + OAUTH_ = 21` and `BARE = 5` so the reconciliation
+lives in the test rather than in a reader's head.
+
+## D37 — `platform_config.zone_id` uses the all-zero UUID for "global"
+
+**Decision.** `zone_id BINARY(16) NOT NULL DEFAULT 0x00…00`, where the zero UUID means the global
+default. The DDL in `29` was rewritten from CockroachDB types to `VARCHAR`/`BINARY(16)`/`JSON`/
+`DATETIME(6)`.
+
+**Rejected.** Keeping `zone_id UUID NULL` with a nullable primary-key column.
+
+**Why.** MySQL — and therefore TiDB — will not store `NULL` in a primary-key column: the insert fails
+with 1048 rather than creating the global row the design describes. The sentinel keeps the same
+semantics, the same key order and the same access path, and it is visible in the type instead of in
+a comment that the database ignores. `no-postgres-dialect` caught the original DDL on the first
+guardrail run.
+
+## D38 — An unknown route answers `NOT_IMPLEMENTED`, not `404`
+
+**Decision.** `undal-core` and `undal-realtime` return HTTP 501 with code `NOT_IMPLEMENTED` and
+`details: { method, path }` for any path they do not serve.
+
+**Rejected.** Adding a `ROUTE_NOT_FOUND` code (which would break the 184-code contract) or borrowing
+`CATALOG_VENDOR_NOT_FOUND` (which would lie about what was missing).
+
+**Why.** On a versioned API an unknown path means "this build does not serve this", which is exactly
+what 501 says in RFC 9110, and it is the one registered code whose meaning is true. A `404` would tell
+the client the resource exists elsewhere and send it looking.
+
+## D39 — Guardrail exemptions are named, not silent
+
+**Decision.** Three exemptions are written into the rules themselves: markdown is exempt from the
+700-line cap; test and fixture paths are exempt from the placeholder scan and the money-float scan;
+`scripts/guardrails/` is exempt from the placeholder scan.
+
+**Rejected.** Keep-whole rules with a suppression comment, or a `# guardrail-ignore` escape hatch.
+
+**Why.** A rule that can be silenced locally stops being a rule. Each exemption below is a property of
+the tree rather than of a file: the spec corpus is one document per subject and splitting
+`06-data-model-tidb.md` at line 700 would separate a table from the paragraph that explains it; tests
+are not shipped and a test that asserts "no TODO in the registry" must be able to spell the word; the
+guardrail tooling is the code that lists the forbidden words.
+
+## D40 — The Kotlin differential runs on its own workflow
+
+**Decision.** `ci.yml` compares TypeScript against Python on every push; `money-math.yml` adds the
+Kotlin answers from the JVM-only `:shared:money` module.
+
+**Rejected.** Setting up a JVM in the main gate for one more language.
+
+**Why.** Three minutes on every push for an assertion whose inputs change only when
+`packages/money` or `android/shared/money` change is three minutes the maintainer spends waiting on a
+tablet. The paths filter on `money-math.yml` runs it exactly when it can fail.
+
+## D41 — Operational workflows ship before the scripts they call
+
+**Decision.** `migrate`, `verify-schema`, `d1-migrate`, `db-query`, `housekeeping` and `brain-replay`
+exist from this response as the interface a browser-only maintainer uses, while the scripts they
+invoke arrive with the migration pipeline (R6) and the Brain (R17).
+
+**Rejected.** Deferring the workflows until their scripts exist.
+
+**Why.** Each of these is a `workflow_dispatch` button, and a button that exists, is documented and
+fails loudly at a named missing script is better than a button discovered missing at 2 a.m. with a
+broken deployment — the failure names its own remedy. Nothing here runs on push, so the gate that
+guards every commit is unaffected, and no step in any of them pretends to have done work it did not do.

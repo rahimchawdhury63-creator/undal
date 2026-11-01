@@ -1,0 +1,42 @@
+# Undal — 50 widths × 2 themes × 2 languages. Licensed under PASVL-1.0.
+#
+# The breakpoints are the ones in `03 §9`, from 200 px to 3840 px. Every cell is
+# screenshotted and measured; the guardrail reads the measurements and fails the
+# build on horizontal overflow, a clipped control or a tap target under 44 px.
+name: responsive-matrix
+
+on:
+  pull_request:
+    paths: ["web/**", "packages/tokens/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.3"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Measure every cell
+        env:
+          MATRIX_BASE_URL: ${{ vars.PUBLIC_WEB_HOST }}
+        run: node scripts/ci/responsive-matrix.mjs --out .artifacts/responsive/matrix.json --shots .artifacts/responsive/shots
+      - name: Guardrail
+        run: python3 scripts/guardrails/run.py --only responsive_matrix no_fixed_width
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: responsive-matrix
+          path: .artifacts/responsive/
+          retention-days: 14

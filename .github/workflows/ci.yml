@@ -1,0 +1,130 @@
+# Undal — the gate. Licensed under PASVL-1.0.
+#
+# Every push and every pull request runs this. It is the only workflow that can
+# block a merge, and it is ordered cheapest-first: the guardrails finish in
+# about forty seconds and a repository-level violation makes everything after
+# them irrelevant.
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22.22.3"
+
+jobs:
+  guardrails:
+    name: guardrails (31 rules)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: All thirty-one rules pass on clean code
+        run: python3 scripts/guardrails/run.py
+      - name: Every rule still rejects its bad fixture
+        run: python3 scripts/guardrails/run.py --fixtures
+
+  contracts:
+    name: contracts and money arithmetic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Error registry, envelope, pagination, locale
+        run: pnpm --filter @undal/contracts test
+      - name: Integer paisa arithmetic
+        run: pnpm --filter @undal/money test
+      - name: TypeScript, strict
+        run: pnpm -r typecheck
+
+  workers:
+    name: workers (core, realtime, brain)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --frozen-lockfile
+      - name: TypeScript workers
+        run: pnpm --filter undal-core --filter undal-realtime test
+      - name: Python worker
+        working-directory: workers/brain
+        run: python3 -m unittest discover -s test
+
+  money-differential:
+    name: paisa differential (TS and Python)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --frozen-lockfile
+      - name: Generate the 110 000 vectors from the committed seed
+        run: node --experimental-strip-types packages/money/test/differential.ts
+      # The Kotlin third of the differential runs in `money-math.yml`, where a
+      # JVM is already being set up for the Android build; comparing it here
+      # would add three minutes to every push for one extra assertion.
+      - name: Compare the two languages byte for byte
+        run: python3 scripts/money/differential.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: money-differential
+          path: .artifacts/money/
+          retention-days: 14
+
+  summary:
+    name: ci
+    if: always()
+    needs: [guardrails, contracts, workers, money-differential]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail unless every job succeeded
+        run: |
+          echo "guardrails=${{ needs.guardrails.result }}"
+          echo "contracts=${{ needs.contracts.result }}"
+          echo "workers=${{ needs.workers.result }}"
+          echo "money-differential=${{ needs.money-differential.result }}"
+          test "${{ needs.guardrails.result }}" = "success"
+          test "${{ needs.contracts.result }}" = "success"
+          test "${{ needs.workers.result }}" = "success"
+          test "${{ needs.money-differential.result }}" = "success"

@@ -1,0 +1,42 @@
+# Undal — D1 schema for ephemeral rider location. Licensed under PASVL-1.0.
+#
+# D1 holds only what may be lost: the last known position of every on-shift
+# rider, deleted when a shift ends. It never holds an order, a payment or a
+# person, which is why it can be rebuilt from nothing without a reconciliation.
+name: d1-migrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type D1 to apply to the production database"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.3"
+      - run: test "${{ inputs.confirm }}" = "D1"
+      - run: pnpm install --frozen-lockfile
+      - name: Apply the D1 schema
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+        run: |
+          for file in db/d1/*.sql; do
+            echo "applying $file"
+            pnpm exec wrangler d1 execute "$D1_DATABASE_ID" --remote --file "$file"
+          done

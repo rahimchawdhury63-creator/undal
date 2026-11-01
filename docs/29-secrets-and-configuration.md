@@ -187,16 +187,18 @@ Business rules live in the database so they can be changed without a deploy — 
 browser-only developer, is the difference between a 10-second change and an 11-minute one.
 
 ```sql
-CREATE TABLE platform_config (
-  key          STRING NOT NULL,
-  zone_id      UUID,                   -- NULL = global default
-  value        JSONB NOT NULL,
-  version      STRING NOT NULL,        -- 'r10.3.1'
-  effective_at TIMESTAMPTZ NOT NULL,
-  created_by   UUID NOT NULL,
-  reason       STRING NOT NULL,
-  PRIMARY KEY (key, zone_id, effective_at DESC)
-);
+CREATE TABLE `platform_config` (
+  `key`          VARCHAR(120) NOT NULL,
+  `zone_id`      BINARY(16)   NOT NULL DEFAULT 0x00000000000000000000000000000000,
+                               -- all-zero UUID = the global default. MySQL keys cannot
+                               -- hold NULL, so the sentinel replaces the old nullable row.
+  `value`        JSON         NOT NULL,
+  `version`      VARCHAR(32)  NOT NULL,      -- 'r10.3.1'
+  `effective_at` DATETIME(6)  NOT NULL,      -- UTC; connections pin time_zone='+00:00'
+  `created_by`   BINARY(16)   NOT NULL,
+  `reason`       VARCHAR(255) NOT NULL,
+  PRIMARY KEY (`key`, `zone_id`, `effective_at` DESC)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 ```
 
 | Property | Rule |

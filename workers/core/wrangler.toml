@@ -1,0 +1,14 @@
+# Undal — undal-core. Licensed under PASVL-1.0.
+#
+# No `[triggers] crons`: every periodic job in this platform is a GitHub Actions
+# workflow, because a cron that stops firing is invisible while a skipped run is
+# a red X in a place somebody looks at.
+name = "undal-core"
+main = "src/index.ts"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[vars]
+PUBLIC_API_BASE = "https://api.undal.app"
+LOG_LEVEL = "info"

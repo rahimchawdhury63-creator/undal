@@ -1,0 +1,44 @@
+# Undal — replay recent dispatch decisions against current weights. Licensed
+# under PASVL-1.0.
+#
+# The Brain's weights change; the orders it ranked do not. Replaying the last 500
+# traces answers the only question that matters after a weight change: would this
+# have picked the same rider, and if not, who would have been faster to the
+# vendor? A regression here is a silent 90-second delivery-time increase, so it
+# runs nightly and publishes the diff.
+name: brain-replay
+
+on:
+  workflow_dispatch:
+    inputs:
+      traces:
+        description: "How many recent traces to replay"
+        default: "500"
+  schedule:
+    - cron: "9 19 * * *"   # 01:09 Asia/Dhaka
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the Brain's pinned requirements
+        run: python3 -m pip install --requirement workers/brain/requirements.txt
+      - name: Replay and diff
+        env:
+          TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
+        run: python3 workers/brain/replay.py --traces "${{ inputs.traces || '500' }}" --out .artifacts/brain/replay.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brain-replay
+          path: .artifacts/brain/replay.json
+          retention-days: 30
+      - name: Fail if a chosen rider is no longer the best-ranked
+        run: python3 workers/brain/replay_check.py --report .artifacts/brain/replay.json

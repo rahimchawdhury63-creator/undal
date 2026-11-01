@@ -1,0 +1,19 @@
+{
+  "name": "@undal/money",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Integer paisa arithmetic. The TypeScript side of the three-language differential.",
+  "license": "LicenseRef-PASVL-1.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test"
+  },
+  "devDependencies": {
+    "@types/node": "22.7.4"
+  }
+}

@@ -1,0 +1,38 @@
+# Undal — read-only database queries from the browser. Licensed under PASVL-1.0.
+#
+# This is the maintainer's only way to look at production data from a tablet, so
+# it is deliberately narrow: the credential is a read-only TiDB user, the query
+# is checked against an allowlist of statement shapes, results land in the job
+# summary, and nothing is written back.
+name: db-query
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "A single SELECT statement"
+        required: true
+      confirm:
+        description: "Type query to run it against production"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  query:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run the statement
+        env:
+          QUERY: ${{ inputs.query }}
+          TIDB_READONLY_URL: ${{ secrets.TIDB_READONLY_URL }}
+        run: |
+          test "${{ inputs.confirm }}" = "query"
+          python3 scripts/db/query.py --statement "$QUERY" --max-rows 200 >> "$GITHUB_STEP_SUMMARY"

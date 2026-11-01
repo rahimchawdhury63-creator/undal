@@ -1,0 +1,65 @@
+# Undal — GitHub Release with artifacts and checksums. Licensed under PASVL-1.0.
+#
+# A tag is the one moment where the three apps, the Workers and the storefront are
+# all expected to be the same version. The release job waits for the signed
+# Android artifacts from `android-release`, verifies the checksums it publishes,
+# and attaches them to the release with notes generated from the commits.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish"
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Guardrails
+        run: python3 scripts/guardrails/run.py
+      - name: Contracts and money
+        run: |
+          node --experimental-strip-types --test packages/contracts/test/*.test.ts
+          node --experimental-strip-types --test packages/money/test/*.test.ts
+
+  publish:
+    needs: checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect the signed Android artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: android-release
+          name: undal-(undal|partner|rider)-release
+          name_is_regexp: true
+          path: artifacts
+      - name: Verify every checksum before publishing
+        run: |
+          cd artifacts
+          for file in */*-sha256.txt; do
+            (cd "$(dirname "$file")" && sha256sum --check "$(basename "$file")")
+          done
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "Undal $TAG" \
+            --generate-notes \
+            artifacts/**/*.apk artifacts/**/*.aab artifacts/**/*-sha256.txt

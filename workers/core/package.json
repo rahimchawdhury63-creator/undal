@@ -1,0 +1,22 @@
+{
+  "name": "undal-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "undal-core \u2014 the catalogue, order lifecycle, cash and admin API.",
+  "license": "LicenseRef-PASVL-1.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@undal/contracts": "workspace:*",
+    "@undal/money": "workspace:*"
+  },
+  "devDependencies": {
+    "wrangler": "3.80.4",
+    "@types/node": "22.7.4"
+  }
+}

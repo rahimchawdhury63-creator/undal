@@ -1,0 +1,89 @@
+# Undal — deploy the three Workers. Licensed under PASVL-1.0.
+#
+# Order matters: core goes last. Realtime and Brain speak to endpoints that core
+# owns, and a deployment that reverses the order leaves a two-minute window in
+# which riders receive offers for orders that do not exist yet.
+name: deploy-workers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "workers/**"
+      - "packages/**"
+      - ".github/workflows/deploy-workers.yml"
+  workflow_dispatch:
+    inputs:
+      worker:
+        description: "Which Worker to deploy"
+        type: choice
+        options: [all, realtime, brain, core]
+        default: all
+      confirm:
+        description: "Type deploy to confirm"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-workers
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: confirmation gate
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Refuse an unconfirmed manual deploy
+        if: github.event_name == 'workflow_dispatch'
+        run: test "${{ inputs.confirm }}" = "deploy"
+
+  deploy:
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.3"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - name: Deploy undal-realtime
+        if: github.event_name == 'push' || inputs.worker == 'all' || inputs.worker == 'realtime'
+        working-directory: workers/realtime
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --var PUBLIC_API_BASE:"${{ vars.PUBLIC_API_BASE }}"
+      - name: Deploy undal-brain
+        if: github.event_name == 'push' || inputs.worker == 'all' || inputs.worker == 'brain'
+        working-directory: workers/brain
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy
+      - name: Deploy undal-core
+        if: github.event_name == 'push' || inputs.worker == 'all' || inputs.worker == 'core'
+        working-directory: workers/core
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
+          JWT_SIGNING_KEY: ${{ secrets.JWT_SIGNING_KEY }}
+        run: pnpm exec wrangler deploy
+      - name: Smoke-test the public health endpoint
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --max-time 10 "${{ vars.PUBLIC_API_BASE }}/health" > /dev/null; then
+              echo "healthy"; exit 0
+            fi
+            sleep 6
+          done
+          echo "undal-core did not answer /health after five attempts"; exit 1
