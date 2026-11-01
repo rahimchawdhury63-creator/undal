@@ -286,7 +286,7 @@ A criterion with no proof is not a criterion; it is a hope. Every row has one.
 | A173 | All 44 secrets are documented in `.env.example` | `env-example-complete` |
 | A174 | No secret appears in any built artifact | Artifact scan |
 | A175 | Every file carries the PASVL licence header | `license-headers` |
-| A176 | All 28 guardrails pass, each with a fixture proving it can fail | 56 fixtures |
+| A176 | All 30 guardrails pass, each with a fixture proving it can fail | 60 fixtures |
 | A177 | A deploy failure rolls back automatically | Rollback test |
 | A178 | Every documented feature has a code reference and every public module has a doc comment | `doc-coverage` |
 

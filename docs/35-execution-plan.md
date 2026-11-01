@@ -236,7 +236,7 @@ The platform is done when every item below is true and demonstrable:
 | 12 | 56 600 responsive renders with zero overflow |
 | 13 | Lighthouse ≥ 95 on every public route |
 | 14 | Zero serious or critical accessibility violations |
-| 15 | All 28 guardrails pass, each with a fixture proving it can fail |
+| 15 | All 30 guardrails pass, each with a fixture proving it can fail |
 | 16 | `.env.example` covers every secret and config key |
 | 17 | Every file ≤ 700 lines, every file carries the licence header |
 | 18 | A real order can be placed, dispatched, picked up, delivered, settled and invoiced end to end |

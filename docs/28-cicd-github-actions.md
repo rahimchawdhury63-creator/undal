@@ -104,7 +104,7 @@ jobs:
 
 ### 3.1 The guardrail jobs
 
-Twenty-eight named checks, each implementing a rule stated somewhere in this corpus. They run
+Thirty named checks, each implementing a rule stated somewhere in this corpus. They run
 first because they are fast and because a repository-level violation makes everything downstream
 irrelevant.
 
@@ -138,6 +138,32 @@ irrelevant.
 | `contrast` | A used token pair fails 4.5:1 (or 3:1 for large/UI) |
 | `no-fixed-width` | A fixed pixel width above 64 outside the allowlist |
 | `no-layout-animation` | An animation drives a layout property (3 documented exemptions) |
+| `no-postgres-dialect` | A CockroachDB or PostgreSQL construct appears in `db/` or in a SQL block in the corpus |
+| `geo-parity` | The integer geospatial layer disagrees with the reference geometry |
+
+The last two are new, added by the move to TiDB.
+
+**`no-postgres-dialect`** fails on any of: `INT8`, `STRING(`, `TIMESTAMPTZ`, `JSONB`, `BYTES`,
+`UUID` as a column type, `gen_random_uuid`, `ON CONFLICT`, `RETURNING`, `ST_`, `GEOGRAPHY`,
+`GEOMETRY`, `INVERTED`, `pg_`, `::` casts, `INDEX ... WHERE`, `ILIKE`, `string_agg`,
+`INSERT IGNORE`, `SERIALIZABLE`. It also parses every `CREATE TABLE` in
+[`06`](06-data-model-tidb.md) as MySQL and fails if any statement does not parse.
+
+`INT8` is the reason this job exists rather than being a style rule. MySQL reads `INT8` as `INT(8)`,
+a 4-byte integer capping at ৳21,474,836, so a schema that merely *looks* converted would overflow
+money silently. `INSERT IGNORE` is forbidden for the same shape of reason: it swallows truncation
+and foreign-key errors alongside duplicate-key ones, which is how a ledger row disappears without a
+log line.
+
+Two patterns are deliberately **not** matched. `ST_IGNORE_BATTERY_OPTIMIZATIONS`, `ST_NOTIFICATIONS`
+and `ST_FIX` are Android constants in [`07`](07-d1-live-tracking.md),
+[`15`](15-wakeup-alarm-fcm.md) and [`16`](16-android-foundation.md); the `ST_` rule is scoped to SQL
+contexts, and the fixture includes one of them as a must-not-fire case.
+
+**`geo-parity`** is specified in [`06 §4.1.4`](06-data-model-tidb.md): 10,000 radius cases and
+10,000 point-in-polygon cases over the Sylhet bounding box, at least 2,000 of the latter within 5 m
+of an edge, requiring identical candidate sets, distances within ±1 m, and exact boundary
+agreement against a reference geometry library used only in the test.
 
 ---
 
@@ -321,7 +347,7 @@ jobs:
       - run: npm ci
       - name: Push secrets
         run: |
-          for s in COCKROACH_DATABASE_URL COCKROACH_CA_CERT IMGBB_API_KEY \
+          for s in TIDB_DATABASE_URL IMGBB_API_KEY \
                    CLOUDINARY_CLOUD_NAME CLOUDINARY_UPLOAD_PRESET \
                    FIREBASE_SERVICE_ACCOUNT_JSON ORDER_QR_SECRET \
                    UNDAL_BKASH_PAYOUT_NUMBER OSRM_BASE_URL WEATHER_BASE_URL \
@@ -375,6 +401,11 @@ on:
 | Summary | Statements executed, rows affected, duration, and the new schema hash, all in the job summary |
 
 The twelve migrations are listed in [`06`](06-data-model-tidb.md).
+
+**The runner applies statements, not files.** TiDB auto-commits DDL, so a migration file is not
+atomic and cannot be wrapped in a transaction. `migrate.yml` records each statement in
+`schema_migrations` as it succeeds and resumes from the first unrecorded statement after a failure.
+See [`06 §10`](06-data-model-tidb.md) for why this replaced the per-file transaction.
 
 ---
 
