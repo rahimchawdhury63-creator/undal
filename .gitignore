@@ -26,6 +26,12 @@ test-results/
 playwright-report/
 .nyc_output/
 .artifacts/
+# ...except inside the guardrail fixtures. Seven rules exist to reject a bad
+# `.artifacts` report, so their fixtures have to *be* `.artifacts` reports. Git
+# will not re-include a file inside an excluded directory, so the directory is
+# negated first and the files second.
+!scripts/guardrails/fixtures/**/
+!scripts/guardrails/fixtures/**
 
 # Secrets and signing — never, under any circumstance
 *.jks

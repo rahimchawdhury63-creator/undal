@@ -1,0 +1,1 @@
+{"endpoints": [{"endpoint": "GET /v1/vendors", "p95_ms": 420, "budget_ms": 180}]}
