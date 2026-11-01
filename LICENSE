@@ -1,0 +1,86 @@
+Undal — Food & Groceries
+Public Availability with Source Code Visibility License (PASVL), Version 1.0
+
+SPDX-License-Identifier: LicenseRef-PASVL-1.0
+
+================================================================================
+NOTICE
+================================================================================
+
+This work — the Undal platform, comprising its specification corpus, source code,
+brand assets, audio assets, build workflows, and documentation — is licensed under
+the Public Availability with Source Code Visibility License, Version 1.0 ("PASVL-1.0").
+
+The canonical, controlling text of PASVL-1.0 and of the Letter of Software
+Deployment Approval ("LOSDA") instrument is published at:
+
+    https://github.com/bsdc-info-bd/PASVL_LOSDA
+
+In the event of any divergence between this notice and the canonical text, the
+canonical text governs.
+
+================================================================================
+WHAT THIS MEANS IN PRACTICE
+================================================================================
+
+SOURCE IS PUBLIC.
+    You may read, study, audit, fork, and learn from every line of this repository.
+    The source code is deliberately visible. Security researchers, students, and
+    prospective partners are invited to inspect it.
+
+DEPLOYMENT REQUIRES A LOSDA.
+    Running this software as a service — operating it for yourself, for an
+    organisation, or for the public; serving orders; taking payment; dispatching
+    riders — requires a Letter of Software Deployment Approval issued by the
+    rights holder. Reading the code does not grant the right to run it.
+
+ATTRIBUTION IS MANDATORY.
+    Every source file in this repository carries, and must continue to carry, the
+    license header reproduced below.
+
+================================================================================
+REQUIRED FILE HEADER
+================================================================================
+
+Every source file, workflow file, and specification document in this repository
+carries the following header, in the comment syntax appropriate to the file type:
+
+    Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.
+    SPDX-License-Identifier: LicenseRef-PASVL-1.0
+
+Continuous integration enforces the presence of this header. A pull request that
+adds a file without it will not pass the `license-headers` job.
+
+================================================================================
+THIRD-PARTY COMPONENTS
+================================================================================
+
+Undal depends on third-party software distributed under its own terms. Those terms
+are not superseded by PASVL-1.0, and the obligations they impose are independent
+of, and additional to, the obligations in this file. The principal components and
+their licenses are enumerated in `docs/39-risk-register-and-truths.md`, Section 11,
+and reproduced in machine-readable form in `THIRD-PARTY-NOTICES.md` once the build
+begins.
+
+Map data rendered by Undal is © OpenStreetMap contributors and is made available
+under the Open Database License (ODbL). Every surface in Undal that renders OSM
+tiles — the customer app, the partner app, the rider app, the web storefront, and
+the administrative command map — displays the required attribution. Removing that
+attribution is both a license violation and a failing CI check
+(`osm-attribution` job, see `docs/28-cicd-github-actions.md`, Section 14).
+
+================================================================================
+NO WARRANTY
+================================================================================
+
+This software is provided "as is", without warranty of any kind, express or
+implied, including but not limited to the warranties of merchantability, fitness
+for a particular purpose, and non-infringement. In no event shall the authors or
+copyright holders be liable for any claim, damages, or other liability, whether in
+an action of contract, tort, or otherwise, arising from, out of, or in connection
+with the software or the use or other dealings in the software.
+
+================================================================================
+
+Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.
+SPDX-License-Identifier: LicenseRef-PASVL-1.0
