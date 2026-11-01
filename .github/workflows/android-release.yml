@@ -22,7 +22,11 @@ permissions:
   contents: write
 
 jobs:
+    # The app modules arrive in their own responses (R17–R19). The gate is the module's own
+    # build file, so the job switches on the moment the module lands — it is not a date, a
+    # label or a switch somebody has to remember to flip.
   release:
+    if: hashFiles(format('android/app/{0}/build.gradle.kts', matrix.app)) != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
