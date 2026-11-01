@@ -154,8 +154,6 @@ describe("a vendor answering an order", () => {
   });
 
   test("rejecting another vendor's order is refused as not yours, and nothing is written", async () => {
-    const db = vendorDb("PLACED");
-    db.override = undefined;
     const response = await route("/v1/orders/{id}/reject", "POST").run(
       ctxFor(stubDb([
         { match: /FROM `orders` WHERE `id`/u, rows: [ORDER_ROW] },
