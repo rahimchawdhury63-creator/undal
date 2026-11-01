@@ -312,9 +312,15 @@ every vector.
 > replay), `qr.ts` (rotating HMAC, 4 h window, 150 m geofence, six-digit fallback). 53 new tests:
 > every edge for every actor, every illegal pair (200+ refused), guard failure codes, replay
 > divergence, and the pickup proof including forgery and expiry. Remaining for the R8 gate:
-> `snapshots`, `items`, `quote` (5-minute re-price and `409 QUOTE_MISMATCH`), `placement`, `pickup`,
-> `assignment`, `state-events`, `evidence`, `explain`, `effects`, the Core-side Brain call with its
-> deterministic fallback, and `routes/{orders,quotes,cart}`.
+> `snapshots`, `items`, `pickup`, `assignment`, `state-events`, `evidence`, `explain`, `effects`, the
+> Core-side Brain call with its fallback, and `routes/{orders,quotes,cart}`.
+>
+> **R8b (this response).** `quote.ts` — a signed snapshot with a server-stamped five-minute expiry,
+> canonical JSON for a stable signature, and a diff that reports every moved line rather than the
+> first. `placement.ts` — signature, age, cart and money checked in that order, `DRAFT → PLACED`
+> through the table, the full order row with fare provenance, and `cashDuePaisa` for COD.
+> **168 core tests**; 16 new ones cover tampering, a foreign secret, expiry at five minutes and one
+> millisecond, ingredient change, a quote reused at another vendor, and a banned customer.
 
 - `domain/order/` — `state-machine.ts` (transition table as data + a small evaluator),
   `lifecycle.ts`, `guards.ts`, `snapshots.ts`, `items.ts`, `quote.ts` (5-minute quote, re-price,

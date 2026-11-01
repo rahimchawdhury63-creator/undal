@@ -590,3 +590,29 @@ replay of last month's events. A guard that reads the world can only be run in o
 places, and the event log stops being something a reconciliation job can re-derive. "Absent field
 means refused" is the direction that fails closed: a context built by a caller who forgot the quote
 refuses the placement instead of selling the order at a price nobody computed.
+
+## D62 — A quote is a signed snapshot, not a row
+
+**Decision.** The quote is a canonical-JSON snapshot of the fare inputs and totals, HMAC-signed and
+handed to the client; placement verifies the signature, re-prices from scratch and refuses any
+difference with `QUOTE_MISMATCH` and the moved lines. No `quotes` table exists, and none is needed.
+
+**Rejected.** Persisting quotes and comparing rows.
+
+**Why.** A row would be written before the customer has agreed to anything, which means a table that
+grows with abandoned carts — and it would still not enforce the promise, because the promise is
+*re-price and compare*, not *remember*. The signature proves the platform issued the price; the
+re-price is what makes it true. It also survives a Worker restart, a zone boundary and a deploy,
+none of which a row would.
+
+## D63 — The order code is derived from the order id
+
+**Decision.** `UND-` plus eight characters folded from the id's own bytes.
+
+**Rejected.** A sequence, a counter row, or `Math.random()` — then checking for collisions.
+
+**Why.** A counter needs a lock, and this platform deliberately has no interactive transactions: two
+Workers placing in the same millisecond would race for the same number and one would lose an order.
+Deriving the code from the id makes collisions impossible by construction (distinct ids, distinct
+codes at this bit width), needs no coordination, and keeps a code the customer can read down a
+phone line without a homoglyph in it — the alphabet omits `0/O` and `1/I`.
