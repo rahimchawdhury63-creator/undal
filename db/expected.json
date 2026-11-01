@@ -1,6 +1,6 @@
 {
   "note": "Derived from db/migrations by scripts/db/expected.py \u2014 do not edit by hand.",
-  "table_count": 111,
+  "table_count": 113,
   "tables": {
     "_smoke": {
       "columns": [
@@ -2252,6 +2252,13 @@
       "inline_checks": 2,
       "source": "010_support.sql"
     },
+    "refresh_tokens": {
+      "columns": [],
+      "generated": [],
+      "indexes": [],
+      "inline_checks": 0,
+      "source": "013_session_security.sql"
+    },
     "reminder_sends": {
       "columns": [
         {
@@ -2876,6 +2883,13 @@
       "indexes": [],
       "inline_checks": 0,
       "source": "000_smoke.sql"
+    },
+    "security_events": {
+      "columns": [],
+      "generated": [],
+      "indexes": [],
+      "inline_checks": 2,
+      "source": "013_session_security.sql"
     },
     "sessions": {
       "columns": [],

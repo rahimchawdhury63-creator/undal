@@ -12,8 +12,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@noble/hashes": "1.5.0",
+    "@tidbcloud/serverless": "0.1.0",
     "@undal/contracts": "workspace:*",
-    "@undal/money": "workspace:*"
+    "@undal/money": "workspace:*",
+    "@zxcvbn-ts/language-common": "3.0.4",
+    "hash-wasm": "4.11.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "4.20241022.0",

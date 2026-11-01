@@ -396,3 +396,39 @@ rollback. A per-file ledger would then either re-run all six (they are idempoten
 between is wrong) or mark the file applied and skip statement 7 forever. Per-statement resume plus an
 immutability check is the only combination that is safe when the platform has no transactions around
 DDL.
+
+## D48 — Two session-security tables join the identity group
+
+**Decision.** `refresh_tokens` and `security_events` are created by `013_session_security.sql`, the
+inventory's identity group grows from 14 to 16 names, and the total from 109 to 111.
+
+**Rejected.** Storing refresh families in KV, and logging token reuse to `audit_log`.
+
+**Why.** Rotation with family reuse detection needs a row per issued token that survives a KV
+eviction — a stolen token is exactly the event where losing state is unacceptable. Reuse is evidence
+about an actor, not an action taken on data, so it belongs in a table security reads rather than in
+the finance-facing audit chain, which is also append-only with a single writer.
+
+## D49 — Twenty-seven rate limits, not thirty-eight
+
+**Decision.** `ratelimit/limits.ts` implements the 27 limits the `08 §12` table actually lists, and
+asserts that count at module load.
+
+**Rejected.** Inventing eleven more buckets to reach the prose figure.
+
+**Why.** Counted cell by cell the table has 27 filled cells; the surrounding sentence doubles the
+auth pair (IP and phone) and the five SSE caps. Same failure as D42, caught the same way: the table
+is data and the prose is a summary, and a fabricated bucket would be a limit nobody chose.
+
+## D50 — The audit chain is verified by a second implementation, not by itself
+
+**Decision.** `db/fixtures/audit_chain_vectors.json` holds three chained rows with their digests;
+`workers/core/src/audit/chain.ts` and `scripts/db/housekeeping.py` must both reproduce them, and both
+do in CI.
+
+**Rejected.** Verifying the chain only in the language that wrote it.
+
+**Why.** A chain checked by the code that wrote it proves the code is self-consistent, which is not
+the property anyone needs. The fixture is the contract between the two implementations, and it
+immediately earned its keep twice: `null` had to hash like an absent field, and the housekeeping job
+was reading a `payload_sha256` column that does not exist.

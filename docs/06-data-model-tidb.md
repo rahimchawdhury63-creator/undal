@@ -221,7 +221,7 @@ actually checked" is not a state the platform can be in.
 
 | Group | Tables | Count |
 | --- | --- | --- |
-| Identity and access | `users`, `user_profiles`, `sessions`, `devices`, `device_tokens`, `password_history`, `login_attempts`, `oauth_identities`, `totp_secrets`, `recovery_codes`, `admin_roles`, `admin_role_permissions`, `admin_user_roles`, `permissions` | 14 |
+| Identity and access | `users`, `user_profiles`, `sessions`, `devices`, `device_tokens`, `password_history`, `login_attempts`, `oauth_identities`, `totp_secrets`, `recovery_codes`, `admin_roles`, `admin_role_permissions`, `admin_user_roles`, `permissions`, `refresh_tokens`, `security_events` | 16 |
 | Geography | `zones`, `zone_polygons`, `zone_pricing`, `zone_hours`, `addresses`, `address_labels`, `geocode_cache`, `cell_zone` | 8 |
 | Vendors | `vendors`, `vendor_profiles`, `vendor_documents`, `vendor_hours`, `vendor_holidays`, `vendor_contacts`, `vendor_bank_accounts`, `vendor_categories`, `categories`, `vendor_stats`, `vendor_pause_log`, `vendor_commission_overrides` | 12 |
 | Catalogue | `menus`, `menu_sections`, `menu_items`, `item_variants`, `modifier_groups`, `modifiers`, `item_modifier_groups`, `item_availability`, `item_tags`, `tags`, `item_stats`, `item_media` | 12 |
@@ -230,12 +230,14 @@ actually checked" is not a state the platform can be in.
 | Money | `ledger_accounts`, `ledger_entries`, `ledger_postings`, `payout_periods`, `invoices`, `invoice_lines`, `invoice_documents`, `payout_transactions`, `platform_config`, `config_audit`, `tax_records`, `rounding_adjustments` | 12 |
 | Marketing | `promo_codes`, `promo_redemptions`, `campaigns`, `campaign_budgets`, `campaign_redemptions`, `referrals`, `loyalty_tiers`, `customer_loyalty`, `reminders`, `reminder_sends` | 10 |
 | Operations | `audit_log`, `audit_verifications`, `ops_errors`, `ops_metrics`, `ops_logs`, `effect_dead_letters`, `brain_traces`, `dispatch_locks`, `generation_locks`, `exceptions`, `support_tickets`, `support_messages`, `weather_observations`, `notification_log` | 14 |
-| **Total** | | **109** |
+| **Total** | | **111** |
 
 > The rows above sum to 109, not the 99 this table used to claim: the per-group counts were
 > always right and the total was an arithmetic slip, recorded as D43 in `_plan/DECISIONS.md`.
-> The migrations implement the 109 names, and `check_schema_parity` fails the build if the two
-> lists ever disagree again.
+> The migrations implement the 111 names, and `check_schema_parity` fails the build if the two
+> lists ever disagree again. `refresh_tokens` and `security_events` joined the identity group with
+> the auth foundation (D48): the specification requires rotation with family reuse detection and
+> the event reuse raises, and neither behaviour is implementable without a row to hold it.
 
 Three tables are new, and all three exist because a database mechanism went away rather than
 because a feature arrived:

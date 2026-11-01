@@ -20,7 +20,13 @@ from pathlib import Path
 from lib import Finding, is_test_path, read, relative, walk
 
 MUTATION = re.compile(r"['\"](POST|PATCH|PUT|DELETE)['\"]")
-AUDIT_CALL = re.compile(r"\baudit\.(write|record|append)\b|\brecordAudit\b|\bauditWrite\b")
+#: A call into the audit module. `audit.appendAudit` is the name the module actually
+#: exports, so the pattern allows the noun after the verb — matching only `audit.append`
+#: would have failed a file that does write an audit row, which is the one false
+#: positive a rule like this cannot afford.
+AUDIT_CALL = re.compile(
+    r"\baudit\.(write|record|append)(Audit|Row|Entry)?\b|\brecordAudit\b|\bauditWrite\b"
+)
 
 
 def check(root: Path) -> list[Finding]:

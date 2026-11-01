@@ -1,7 +1,7 @@
 {
   "generated_by": "scripts/db/extract_constraints.py",
   "note": "TiDB does not enforce CHECK; these validators are the enforcement (06 \u00a71.2).",
-  "count": 164,
+  "count": 166,
   "constraints": [
     {
       "table": "users",
@@ -1150,6 +1150,20 @@
       "expression": "`effective_to` IS NULL OR `effective_to` > `effective_from`",
       "source": "012_constraints_deferred.sql",
       "origin": "deferred"
+    },
+    {
+      "table": "security_events",
+      "name": "chk_security_events_inline_1",
+      "expression": "`kind` IN ('TOKEN_REUSE','STEP_UP_FAILED','LOCKOUT','DEVICE_MISMATCH', 'IMPERSONATION','PASSWORD_CHANGED','RBAC_CHANGED','RECOVERY_CODE_USED', 'SECRET_ROTATED','BREAK_GLASS')",
+      "source": "013_session_security.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "security_events",
+      "name": "chk_security_events_inline_2",
+      "expression": "`severity` IN ('INFO','NOTICE','WARNING','CRITICAL')",
+      "source": "013_session_security.sql",
+      "origin": "inline"
     }
   ]
 }

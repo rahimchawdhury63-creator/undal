@@ -53,20 +53,100 @@ RETENTION = (
 )
 
 
+SEPARATOR = "\u001f"
+
+
+def canonical_json(value: object) -> str:
+    """JSON with sorted keys and no spaces: the form `audit/chain.ts` hashes."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def digest_input(entry: dict) -> str:
+    """The fields the chain commits to, in the order both implementations agree on."""
+    before = entry.get("before")
+    after = entry.get("after")
+    return SEPARATOR.join(
+        [
+            str(entry["seq"]),
+            entry["occurredAt"],
+            entry.get("actorId") or "",
+            entry["actorType"],
+            entry.get("actorRole") or "",
+            "",  # ip: not part of the digest, kept for symmetry with the TypeScript builder
+            entry["requestId"],
+            entry["action"],
+            entry["resourceType"],
+            entry.get("resourceId") or "",
+            entry.get("subjectId") or "",
+            canonical_json(before) if before is not None else "",
+            canonical_json(after) if after is not None else "",
+            entry.get("reason") or "",
+            entry["severity"],
+        ]
+    )
+
+
 def audit_chain(connection) -> dict[str, object]:
-    """Recompute the whole chain; the first break is reported with its sequence."""
+    """Recompute the whole chain; the first break is reported with its sequence.
+
+    The digest is recomputed from the row's own fields rather than read from a column:
+    a stored digest proves only that somebody wrote the column, while a recomputed one
+    proves the row has not changed since it was chained.
+    """
     with connection.cursor() as cursor:
-        cursor.execute("SELECT `seq`, `prev_hash`, `hash`, `payload_sha256` FROM `audit_log` ORDER BY `seq`")
+        cursor.execute(
+            "SELECT `seq`, `occurred_at`, `actor_id`, `actor_type`, `actor_role`, `request_id`, `action`, "
+            "`resource_type`, `resource_id`, `subject_id`, `before`, `after`, `reason`, `severity`, "
+            "`prev_hash`, `hash` FROM `audit_log` ORDER BY `seq` ASC"
+        )
         rows = cursor.fetchall()
 
     previous = b"\x00" * 32
     broken: list[dict[str, object]] = []
-    for seq, prev_hash, row_hash, payload_sha256 in rows:
-        expected = hashlib.sha256(bytes(prev_hash) + bytes(payload_sha256)).digest()
-        if bytes(prev_hash) != previous or bytes(row_hash) != expected:
-            broken.append({"seq": int(seq), "expected_prev": previous.hex()})
+    for row in rows:
+        (seq, occurred_at, actor_id, actor_type, actor_role, request_id, action, resource_type,
+         resource_id, subject_id, before, after, reason, severity, prev_hash, row_hash) = row
+        entry = {
+            "seq": int(seq),
+            "occurredAt": str(occurred_at),
+            "actorId": _hex_uuid(actor_id),
+            "actorType": str(actor_type),
+            "actorRole": actor_role,
+            "requestId": _hex_uuid(request_id),
+            "action": str(action),
+            "resourceType": str(resource_type),
+            "resourceId": resource_id,
+            "subjectId": _hex_uuid(subject_id),
+            "before": _json_value(before),
+            "after": _json_value(after),
+            "reason": reason,
+            "severity": str(severity),
+        }
+        digest = hashlib.sha256(digest_input(entry).encode("utf-8")).digest()
+        expected = hashlib.sha256(previous + digest).hexdigest()
+        stored_prev = bytes(prev_hash) if prev_hash is not None else b"\x00" * 32
+        if stored_prev != previous or bytes(row_hash).hex() != expected:
+            broken.append({"seq": int(seq), "expected": expected, "actual": bytes(row_hash).hex()})
         previous = bytes(row_hash)
     return {"rows": len(rows), "broken": broken}
+
+
+def _hex_uuid(value: object) -> str | None:
+    """The 16 stored bytes as the dashed UUID string the digest writes."""
+    if value is None:
+        return None
+    raw = bytes(value).hex()
+    return f"{raw[0:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
+
+
+def _json_value(value: object) -> object:
+    """A JSON column as the value the app wrote, whether the driver parsed it or not."""
+    if value is None or not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except ValueError:
+        return value
 
 
 def orphans(connection) -> dict[str, object]:
