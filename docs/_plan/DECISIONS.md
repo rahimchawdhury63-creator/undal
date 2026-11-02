@@ -714,3 +714,21 @@ when the price is unchanged, because the five-minute promise is about *when* the
 and neither is money, so keeping them out of `pricing/` is what lets the money rule refuse *every*
 float in a pricing path with no exceptions to audit. `RouteEstimate` carries `source`, which travels
 into the quote as `distanceSource: "ESTIMATED"` and into the order row as `distance_source`.
+## D70 — Dispatch is fourteen numbered filters and five waves, decided as values
+
+The candidate filters of `11 §3` live in one array with the document's own numbers. A rider who is
+not asked is told *which* filter refused them, because "you cannot take this order" and "you cannot
+take this order because your notifications are off" are different products — the second is fixable by
+the rider in ten seconds. The two rejection filters are separate inputs, not one boolean: a rider who
+said no to *this* order is never re-offered it (12), and a rider in a vendor cooldown is not asked
+about that vendor at all (13). Collapsing them is how a rider gets the same offer twice.
+
+Waves are filled until the chance nobody accepts falls below one in ten, and the candidate that
+crosses the target is *included* — stopping one short sends a wave the model has already judged
+worse than the threshold. Ranking is by predicted acceptance, so a stable ranking gives a stable wave;
+a wave that shuffled between retries would page one rider twice and skip another.
+
+`decideClaim` is the Durable Object's decision written as a pure function, so the race is testable:
+three taps, exactly one winner, and the losers distinguish `OFFER_CLAIMED` (a race) from
+`OFFER_EXPIRED` (nobody came) and `OFFER_NOT_YOURS` (a stale card). A race must never look like a
+malfunction on the losing phone.
