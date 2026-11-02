@@ -4,6 +4,7 @@
  */
 
 import * as audit from "../audit/write.ts";
+import { announce } from "../bindings/announce.ts";
 import { toHexId, newId } from "../lib/ids.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import { uuidBytes } from "../middleware/auth.ts";
@@ -195,6 +196,21 @@ async function vendorMove(
     reason: reasonCode,
     severity: "NOTICE",
   }, nowMs);
+
+  // The watchers hear about it from here: the customer's screen, the vendor's other devices and the zone's
+  // admin map. The broadcast is a notification, so a failure degrades rather than undoing the move (D85).
+  announce(ctx, {
+    zoneId: toHexId(row.zone_id),
+    orderId: row.code,
+    event: outcome.event.event,
+    payload: {
+      orderId: row.code,
+      state: to,
+      seq: moved.seq,
+      ...(to === "ACCEPTED" ? { prepTimeSeconds: prepTime ?? null } : {}),
+    },
+    seq: moved.seq,
+  });
 
   const updated = await findOrder(ctx.db, row.id);
   return successResponse(

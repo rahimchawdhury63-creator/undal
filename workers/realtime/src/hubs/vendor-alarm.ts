@@ -303,14 +303,8 @@ export class VendorAlarm {
       await this.emit(record, "admin.exception_raised", "AUTO_CANCEL", atMs, { reason });
       return { atMs, cancelled: false, reason };
     }
-    if (answer.cancelled) {
-      // Core moved the order; the watchers are told here, because this Worker holds the sockets.
-      await this.emit(record, "order.cancelled", "AUTO_CANCEL", atMs, {
-        orderId: record.orderCode,
-        cancelledBy: "SYSTEM",
-        reason: "VENDOR_DEVICE_UNREACHABLE",
-      });
-    }
+    // A successful cancellation is announced by the Worker that wrote it: core broadcasts the transition
+    // (D85), so publishing it here as well would put two frames on one channel for one event.
     return { atMs, cancelled: answer.cancelled, reason: answer.reason };
   }
 

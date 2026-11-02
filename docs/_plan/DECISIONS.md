@@ -1068,8 +1068,39 @@ exception instead of claiming a cancellation that never happened.
 Two events the ladder publishes were missing from the stream's name map — `vendor.unreachable` and
 `admin.exception_raised`. `StreamHub.record` gates on that map, so a component naming its own catalogue event
 was having it silently dropped; they are in the map now (`08 §9.1`). The cancellation is published from the
-room as `order.cancelled`, because core does not yet broadcast its own transitions — when it does, this line
-becomes a duplicate and moves, and that is noted here rather than discovered later.
+room as `order.cancelled` in this version, because core did not yet broadcast its own transitions — D85
+supersedes that line and the room no longer publishes what core writes.
 
 *Open:* `fcm_dispatches` (`15 §8`) still has no table, so a send's message id lives in the ladder's record
 rather than in the platform's evidence table.
+
+## D85 — A transition announces itself, and the announcement can never undo the transition
+
+Core wrote every order transition to a row and answered the caller. Nothing told the watchers, so the SSE
+stream had nothing in it and the customer's screen learned about an acceptance by polling. `bindings/
+announce.ts` is now called from the four places an order moves — placement, accept, reject, pickup, and the
+ladder's auto-cancel — and each call is one line plus a payload.
+
+Three rules make it safe to call from inside a transaction's aftermath.
+
+**It never throws.** `createRealtimeClient` returns a `Result`; `announce` discards it. An order that moved is
+a fact whether or not a socket heard about it, and a platform that failed a placement because its notification
+path was cold would be losing money to its own broadcast. The suite asserts this against a 502, a thrown
+transport and an unconfigured deployment.
+
+**It never blocks the response.** The call is handed to `ctx.waitUntil`, which is no longer faked: `index.ts`
+now passes the runtime's `ExecutionContext` through, so the promise outlives the response instead of racing
+the isolate's teardown. That was a real defect in the pipeline before this change — `waitUntil` was
+`() => undefined`, which silently turned "schedule this" into "start this and hope".
+
+**It says nothing when it is not configured.** No `REALTIME_BASE` or no `INTERNAL_TOKEN` is a deployment that
+has not wired the stream. That is not an error and not a warning on every order; the client degrades to a poll,
+which is exactly what the platform did before.
+
+The payload is the catalogue name, the order code, the new state and the log sequence. The sequence matters:
+a stream that reconnects with `Last-Event-ID` and a stream that is live must agree on the order of frames, and
+the only number both can agree on is the one the log wrote.
+
+This removes the duplication D84 recorded. The ladder used to publish `order.cancelled` from the room, because
+nothing else did; core announces its own auto-cancel now, so the room's line is gone and one transition
+produces one frame.

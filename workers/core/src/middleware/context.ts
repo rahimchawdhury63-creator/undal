@@ -28,6 +28,13 @@ export interface Env {
   /** KV namespace for rate-limit buckets and idempotency records. */
   readonly RATE_LIMIT: KVNamespace;
   readonly PUBLIC_API_BASE: string;
+  /**
+   * Where `undal-realtime` is, for the broadcasts a transition sends (`D85`).
+   *
+   * Absent, an order still moves and the watchers find out on their next read — the same degradation the
+   * realtime client already promises, decided once here rather than at every call site.
+   */
+  readonly REALTIME_BASE?: string;
   readonly LOG_LEVEL: string;
   readonly ENVIRONMENT: "production" | "staging" | "preview" | "test";
   /**

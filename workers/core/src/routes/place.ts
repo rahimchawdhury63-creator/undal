@@ -9,6 +9,7 @@ import { baseHeaders, failureResponse } from "../middleware/envelope.ts";
 import { success } from "@undal/contracts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { buildOrderItems, type CatalogueEntry } from "../domain/order/items.ts";
+import { announce } from "../bindings/announce.ts";
 import { buildStateEvent } from "../domain/order/state-events.ts";
 import { planPlacement, PlacementRefused, type PlacementContext } from "../domain/order/placement.ts";
 import { verifyQuoteToken, type QuoteSnapshot } from "../domain/order/quote.ts";
@@ -199,6 +200,16 @@ async function place(ctx: Ctx, body: unknown): Promise<Response> {
     },
     nowMs,
   );
+
+  // The order exists; the vendor's screen and the zone's map hear about it before the customer's receipt is
+  // parsed. A failed broadcast degrades to a poll, never to a lost order (D85).
+  announce(ctx, {
+    zoneId: plan.order.zoneId,
+    orderId: plan.order.code,
+    event: plan.event.event,
+    payload: { orderId: plan.order.code, state: plan.order.state, seq: plan.event.seq, vendorId: plan.order.vendorId },
+    seq: plan.event.seq,
+  });
 
   // `201 Created`, built through the same envelope as every other response: a placement that reused
   // the 200 helper would be the one endpoint whose success could not be told from a replayed read.

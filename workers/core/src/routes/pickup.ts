@@ -4,6 +4,7 @@
  */
 
 import * as audit from "../audit/write.ts";
+import { announce } from "../bindings/announce.ts";
 import { newId, toHexId } from "../lib/ids.ts";
 import { sqlDatetime } from "../db/time.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
@@ -157,6 +158,15 @@ async function pickup(ctx: Ctx, orderId: string, body: unknown): Promise<Respons
     },
     nowMs,
   );
+
+  // A pickup is the transition a customer watches for most closely: the meal is on the road.
+  announce(ctx, {
+    zoneId: toHexId(row.zone_id),
+    orderId: row.code,
+    event: outcome.event.event,
+    payload: { orderId: row.code, state: "PICKED_UP", seq },
+    seq,
+  });
 
   return successResponse(
     {

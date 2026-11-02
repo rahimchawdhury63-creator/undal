@@ -256,15 +256,15 @@ describe("the last rung", () => {
     assert.deepEqual(record?.cancellation, { atMs: T0 + 120_000, cancelled: true, reason: "cancelled" });
   });
 
-  test("a cancellation is published to the order and the zone", async () => {
+  test("the room does not publish the cancellation itself — core owns that transition", async () => {
     const { alarm, clock, store } = room();
     await begin(alarm);
     clock.set(T0 + 120_000);
     await alarm.run();
     const order = await store.replay({ kind: "order", id: ORDER }, 0, T0 + 120_000);
-    const zone = await store.replay({ kind: "zone", id: "sylhet" }, 0, T0 + 120_000);
-    assert.equal(order.frames.some((frame) => frame.event === "order.cancelled"), true);
-    assert.equal(zone.frames.some((frame) => frame.event === "admin.exception_raised"), true);
+    // The ladder's own events are here; `order.cancelled` is not, because core broadcasts the transition it
+    // wrote (D85) and two frames for one event is a stream that stutters.
+    assert.deepEqual(order.frames.map((frame) => frame.event), ["vendor.unreachable", "admin.exception_raised"]);
   });
 
   test("a vendor who accepted in the meantime is not cancelled, and the refusal is recorded", async () => {

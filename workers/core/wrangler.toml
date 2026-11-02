@@ -11,4 +11,7 @@ workers_dev = false
 
 [vars]
 PUBLIC_API_BASE = "https://api.undal.app"
+# Where the stream lives. `14 §2` names it `realtime.{domain}`; the broadcasts a transition sends go here
+# and a failure degrades (D85).
+REALTIME_BASE = "https://realtime.undal.app"
 LOG_LEVEL = "info"

@@ -19,7 +19,12 @@ import type { Env } from "./middleware/context.ts";
  * whose cause looks random.
  */
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    return createApp()(request, env);
+  /**
+   * `ctx.waitUntil` is handed in rather than faked. A broadcast is the one thing this Worker starts and
+   * does not wait for, and the runtime's guarantee that it outlives the response is the difference between
+   * a notification and a race with the isolate's teardown (D85).
+   */
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+    return createApp(undefined, ctx === undefined ? {} : { waitUntil: (promise: Promise<unknown>) => ctx.waitUntil(promise) })(request, env);
   },
 };

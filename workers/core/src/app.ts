@@ -119,6 +119,8 @@ export async function tokenKeys(env: Env): Promise<TokenKeys[]> {
 export interface AppDependencies {
   readonly db?: Db;
   readonly now?: () => number;
+  /** The runtime's `ctx.waitUntil`, so a broadcast outlives the response it was sent from (D85). */
+  readonly waitUntil?: (promise: Promise<unknown>) => void;
 }
 
 /**
@@ -148,7 +150,7 @@ export function createApp(routes: readonly RouteDefinition[] = ROUTES, dependenc
       userAgent: clientUserAgent(request),
       locale,
       startedAtMs,
-      waitUntil: () => undefined,
+      waitUntil: (promise: Promise<unknown>) => (dependencies.waitUntil ?? (() => undefined))(promise),
     };
 
     if (url.pathname === "/health" && request.method === "GET") {
