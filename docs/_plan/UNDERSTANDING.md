@@ -438,7 +438,7 @@ once claimed — the tightest constraint in the platform's free-tier budget.
 | No CLI, no local commands; everything from Actions, `workflow_dispatch` on all 23 workflows | Every deploy, the keystore, migrations, releases | `no-local-tooling` (A167) |
 | No placeholders, no TODO, no mocks in production paths | Every file | `no-placeholders`, `no-seed-data` (A160, A161) |
 | Empty means empty: the platform boots with **zero business rows** and 283 screens render correct empty states | Launch day | `empty-platform` (A159) |
-| No secret in code, ever; 43 secrets, 11 mandatory, `.env.example` committed | Every build | `secret-scan`, `env-example-complete` (A173, A174) |
+| No secret in code, ever; 45 secrets, 11 mandatory, `.env.example` committed | Every build | `secret-scan`, `env-example-complete` (A173, A174) |
 | ≤ 700 lines per file (warn at 600), every exported symbol documented | Every file | `line-budget`, `doc-coverage` (A166, A178) |
 | Integer paisa only; no float in a money path | Fare, ledger, invoices | `money-integrity` (A68) |
 | 200 px → 3 840 px, 50 widths, 2 themes, 2 languages, zero overflow | Every screen | `responsive-matrix` (A151, A152) |
@@ -482,7 +482,7 @@ One line per invariant, because these are what "done" means and what every CI ga
 412 endpoints · 412 permission keys · 7 system roles · 283 screens (68 customer + 54 partner +
 61 rider) · 2 147 admin features · 4 055 platform features · 184 error codes · 46 SSE events ·
 94 reason codes · 44 empty states · 22 exception triggers · 118 cuisines · 147 config keys ·
-43 secrets (11 mandatory) · 23 workflows · 31 guardrails (each with a failing fixture) ·
+45 secrets (11 mandatory) · 23 workflows · 31 guardrails (each with a failing fixture) ·
 64 property suites · 40 fare vectors · 179 acceptance criteria · 50 breakpoints · 3 Workers ·
 1 Pages project · 3 Android apps · 99 tables.
 

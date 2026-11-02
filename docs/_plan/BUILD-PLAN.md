@@ -148,7 +148,7 @@ file.
 **Infrastructure (≈ 4 000 lines)**
 
 - root: `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `turbo.json`, `.gitignore`,
-  `.env.example` (43 secrets + 147 config keys, 569 lines), `README.md`, `.editorconfig`
+  `.env.example` (45 secrets + 147 config keys, 581 lines), `README.md`, `.editorconfig`
 - `.github/workflows/` — the 23 from [`28 §2`](../28-cicd-github-actions.md): `ci`, `deploy-workers`,
   `deploy-web`, `deploy-admin`, `migrate`, `verify-schema`, `d1-migrate`, `android-debug`,
   `android-release`, `generate-keystore`, `android-test`, `android-instrumented`, `e2e`,

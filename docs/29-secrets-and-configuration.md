@@ -95,6 +95,8 @@ entry.
 | `GOOGLE_OAUTH_CLIENT_ID` | `undal-core`, clients | None — public |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | `undal-core` | High |
 | `ADMIN_OIDC_*` | `undal-core` | High, when SSO is configured |
+| `JWT_PUBLIC_KEY` | `undal-realtime` | None — the public half. `undal-realtime` verifies a session and cannot mint one. An optional secret: absent, realtime refuses rather than trusting (D79) |
+| `INTERNAL_TOKEN` | `undal-core` → `undal-realtime` | Medium — reaches the internal surface (`/internal/presence`, `/internal/broadcast`). Optional: absent, that surface answers `403`. Rotating it degrades presence, not money |
 
 ### 2.7 Finance
 
@@ -154,7 +156,7 @@ and TOTP enrolment before it can do anything else, and the secret is then meanin
 
 ## 3. Total count
 
-**43 secrets**, of which **11 are mandatory** for a working deployment:
+**45 secrets**, of which **11 are mandatory** for a working deployment:
 
 ```
 TIDB_DATABASE_URL           TIDB_MIGRATION_URL         CLOUDFLARE_API_TOKEN

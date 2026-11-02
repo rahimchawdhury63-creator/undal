@@ -15,6 +15,10 @@ bindings = [
   { name = "COORDINATION_ROOM", class_name = "CoordinationRoom" },
   # One room per stream channel, so a broadcast survives the isolate that recorded it.
   { name = "STREAM_ROOM", class_name = "StreamRoom" },
+  # One room per zone, holding that zone's presence sockets. A room per zone rather than one for the
+  # platform, because presence is a safety signal and a single room would put every zone's heartbeats in
+  # one failure domain.
+  { name = "ZONE_HUB", class_name = "ZoneHub" },
 ]
 
 [[migrations]]
@@ -28,6 +32,10 @@ new_classes = ["CoordinationRoom"]
 [[migrations]]
 tag = "v3"
 new_classes = ["StreamRoom"]
+
+[[migrations]]
+tag = "v4"
+new_classes = ["ZoneHub"]
 
 [vars]
 PUBLIC_API_BASE = "https://api.undal.app"

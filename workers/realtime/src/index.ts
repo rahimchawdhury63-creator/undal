@@ -10,12 +10,14 @@ import { DurableObjectCoordinator } from "./coordination/durable-object.ts";
 import { authenticate } from "./auth/token.ts";
 import type { VerifyingKey } from "./auth/token.ts";
 import { handleStream, SELF_ONLY } from "./routes/stream.ts";
+import { handlePresenceSocket } from "./routes/presence-socket.ts";
 import { handleInternal } from "./routes/internal.ts";
 import { DurableObjectFrameStore } from "./sse/durable-store.ts";
 
 export { OrderRoom } from "./order-room.ts";
 export { CoordinationRoom } from "./coordination/durable-object.ts";
 export { StreamRoom } from "./sse/durable-store.ts";
+export { ZoneHub } from "./hubs/zone-hub.ts";
 
 /** The bindings this Worker is given by `wrangler.toml`. */
 export interface RealtimeEnv {
@@ -31,6 +33,8 @@ export interface RealtimeEnv {
   readonly INTERNAL_TOKEN?: string;
   /** One room per stream channel: the durable rings a broadcast is remembered in. */
   readonly STREAM_ROOM?: DurableObjectNamespace;
+  /** One room per zone: the presence sockets, and the heartbeats they are kept alive by. */
+  readonly ZONE_HUB?: DurableObjectNamespace;
 }
 
 /** JSON with the request id, no caching. */
@@ -62,7 +66,11 @@ function refuse(code: Parameters<typeof failure>[0], requestId: string, details:
  * into the per-channel `StreamRoom` rings when they are bound — a ring in one isolate is forgotten by the
  * next request, which is worse than an honest `NOT_IMPLEMENTED`, so the route refuses when they are not.
  *
- * `/rt/stream` is the only client route wired so far, and every path it takes is a refusal it can explain:
+ * `/v1/presence` is the other client route: the token is verified here, and the identity it carries is
+ * forwarded to the zone's room as headers. The room is addressed by zone, so a zone the token does not
+ * carry is refused before any socket exists.
+ *
+ * `/rt/stream` is the third, and every path it takes is a refusal it can explain:
  * no coordination room, no public key, no token, a token that does not verify, a channel the caller may
  * not read. A stream that starts before any of those answers is a stream that lied.
  */
@@ -124,6 +132,33 @@ export default {
           zoneIds: authenticated.value.zoneIds,
         },
         authorizer: SELF_ONLY,
+      });
+    }
+
+    if (url.pathname === "/v1/presence") {
+      const zoneHub = env.ZONE_HUB;
+      if (zoneHub === undefined) return refuse("NOT_IMPLEMENTED", id, { reason: "zone_hub_not_configured" });
+      const secret = env.JWT_PUBLIC_KEY;
+      if (secret === undefined || secret.trim() === "") {
+        return refuse("NOT_IMPLEMENTED", id, { reason: "jwt_public_key_missing" });
+      }
+      let key: VerifyingKey;
+      try {
+        const { loadVerifyingKey } = await import("./auth/token.ts");
+        key = await loadVerifyingKey(secret);
+      } catch (error) {
+        return refuse("INTERNAL", id, { misconfigured: error instanceof Error ? error.message : String(error) });
+      }
+      const authenticated = await authenticate(request, [key], Date.now());
+      if (!authenticated.ok) {
+        return refuse(authenticated.error === "EXPIRED" ? "AUTH_SESSION_EXPIRED" : "AUTH_TOKEN_INVALID", id, {
+          reason: authenticated.error,
+        });
+      }
+      return handlePresenceSocket(request, {
+        zoneHub,
+        principal: authenticated.value,
+        requestId: id,
       });
     }
 

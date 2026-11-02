@@ -896,3 +896,63 @@ instead of silently running the other backend while the operator believes otherw
 promise is arithmetic rather than a benchmark: 200 ms of transport plus the 1 500 ms grace is 1 700 ms,
 and the grace is clamped to 1 800 ms so no configuration can push detection past 2 000 ms.
 
+
+## D79 — `undal-realtime` holds the public half of the signing key, and refuses without it
+
+`29 §2.6` gives `JWT_SIGNING_KEY` to `undal-core` alone, and `05 §4.2` has realtime authorizing a socket.
+Both are honoured the same way: realtime is given `JWT_PUBLIC_KEY`, a base64url JWK holding only the public
+half, and verifies Ed25519 signatures with it. Verification is the only thing the key can do, so a
+compromised realtime deployment cannot mint a session for a rider it wants to dispatch to.
+
+The `kid` is derived rather than configured — base64url of the first eight bytes of SHA-256 over the JWK's
+`x` — so a rotation is a deploy of two Worker secrets and no coordination between them: core signs with the
+new key, realtime accepts a key whose `kid` it can compute, and an unknown `kid` is `UNKNOWN_KEY` rather
+than a signature failure, because "we have never heard of this key" and "you signed with the wrong key" are
+different answers to an operator.
+
+The route refuses with `501 jwt_public_key_missing` when the secret is absent, and that is a decision rather
+than an oversight. The alternative — treating an absent key as "trust the token's claims" — would make a
+misconfigured deploy an open door instead of a loud refusal, and the failure mode of a missing secret is
+exactly when a deploy is least likely to be inspected. `INTERNAL_TOKEN` is the same shape: absent, the
+internal surface answers `403` rather than serving presence to anybody who finds the URL.
+## D80 — A ring outlives the isolate, so a broadcast is a fact rather than a coincidence
+
+`08 §9` promises a reconnecting client the events it missed. An in-isolate ring cannot keep that promise:
+Cloudflare may evict the isolate between the broadcast and the reconnect, and the client would be told its
+replay is complete when the events it wanted never existed in the process it asked. So a ring lives in a
+`StreamRoom` Durable Object, one per channel (`stream:order:<id>`, `stream:zone:<id>`), and the fanout
+awaits a `record` for every channel before it answers.
+
+Three details are load-bearing. The snapshot carries `evictedThrough` and `highestId` as well as the
+events, because restoring only the events would reset the counters and a later replay would look complete
+while silently skipping the gap. `StreamRoom` prunes to the same five-minute window the in-memory ring uses,
+so a room that is woken after a quiet hour does not replay an hour. And a broadcast whose rooms are not
+bound is refused with `501 rings_not_durable` — the honest answer, since a ring in one isolate is
+forgotten by the next request, which is worse than an error a client can see.
+
+Order streams are the exception, deliberately: an order's event log is already the whole truth and already
+durable in TiDB (`06 §4`), so replay reads the log and the ring holds zone and admin channels. Two copies of
+one order's history would eventually disagree, and the log is the one that is authoritative.
+
+## D81 — Presence is one room per zone, and the Worker hands the room an identity it has already proved
+
+The socket route is `/v1/presence?zone=…` and it forwards into a `ZoneHub` Durable Object addressed as
+`zone:<zoneId>` (`14 §2`). Two things follow, and both were choices rather than consequences.
+
+The room never sees a token. `undal-realtime` verifies the access token with the public JWK (`29 §2.6`),
+and forwards three headers — `X-Undal-Actor`, `X-Undal-Actor-Type`, `X-Undal-Device` — which the room
+believes because there is no other path into it. The headers are set on a *copy* of the request, so a
+client that sends its own `X-Undal-Actor` is overwritten rather than trusted. The alternative, giving the
+room the public key and letting it verify, would put the same verification in two Workers and would let a
+room's misconfiguration be a security difference between routes.
+
+A room per zone rather than one room for the platform: presence is a safety signal and the ladder runs per
+zone, so one failure domain for every zone's heartbeats would be one cold start from being the reason no
+rider is dispatched. The zone travels in the upgrade query and is remembered in the room's storage, because
+`getByName` is not on every account tier and `state.id` on an id-addressed room is opaque. A later upgrade
+with no `zone` reuses the remembered one; an upgrade with neither is `422`, and a zone the token does not
+carry is `403` *before* any socket is opened, so an unauthorized zone never appears in a presence count.
+
+The room's own refusals (`426` for a request that is not an upgrade, `401` for an upgrade with no
+identity) stay rather than being duplicated in the Worker: they are reachable only through the Worker, they
+describe the room's precondition, and a duplicate check is a second thing that can drift.

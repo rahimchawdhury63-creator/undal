@@ -49,6 +49,18 @@ export class MemoryStorage {
   size(): number {
     return this.map.size;
   }
+
+  // The alarm half of Durable Object storage. It is recorded and never fired — a test that waits for
+  // a real alarm is a test that runs in real time, and the room already takes its alarm as a call.
+  alarmAtMs: number | null = null;
+
+  async setAlarm(atMs: number): Promise<void> {
+    this.alarmAtMs = atMs;
+  }
+
+  async deleteAlarm(): Promise<void> {
+    this.alarmAtMs = null;
+  }
 }
 
 /** A `DurableObjectState` good enough for the room, with real serialisation semantics. */
@@ -62,12 +74,17 @@ export function fakeState(): DurableObjectState {
   } as unknown as DurableObjectState;
 }
 
-/** A namespace that routes every room name to one instance, so RPCs exercise the room's real code. */
-export class FakeNamespace {
-  private readonly rooms = new Map<string, CoordinationRoom>();
-  private readonly make: (name: string) => CoordinationRoom;
+/**
+ * A namespace that builds one room per name, so RPCs exercise the room's real code.
+ *
+ * Generic because the Worker binds three kinds of room and a fixture for each would be a third copy of the
+ * same four methods. The default is the coordination room, which is what most of the suites want.
+ */
+export class FakeNamespace<T extends { fetch(request: Request): Promise<Response> } = CoordinationRoom> {
+  private readonly rooms = new Map<string, T>();
+  private readonly make: (name: string) => T;
 
-  constructor(make: (name: string) => CoordinationRoom) {
+  constructor(make: (name: string) => T) {
     this.make = make;
   }
 
