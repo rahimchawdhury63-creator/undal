@@ -801,3 +801,28 @@ the rider must never earn less for carrying two meals than for carrying one.
 A proof is re-validated when the rider accepts (`12 §5`), and it is checked against the proof's *own*
 stored detours as well as the fresh world: a stored detour already over budget means the proof was
 never honest, which is a different failure from a world that moved.
+
+## D75 — The trace emits one key per real factor, and the cascade's clock is absolute
+
+`09 §6` prints a `DISPATCH` trace whose fourteen factor keys include `cooldown` and `zoneFit`, and
+which omits area familiarity. Cooldown is filter 13 — a veto, not a factor — so a trace that listed it
+would show an operator a bar that no score ever produced. The engine therefore derives its trace keys
+from the factor list itself (`TRACE_FACTOR_KEYS`), keeps the document's camelCase spelling where a
+factor matches (`cashRisk`, `zoneFit`, `vehicleFit`), and the test asserts exactly one key per factor
+and that `cooldown` is absent. A new factor cannot be added without appearing in the trace, which is
+the only version of "no field missing" (`D12`) that survives the next change.
+
+The cascade advances a wave **immediately** when every rider in it has rejected. Waiting out the
+25-second TTL for phones that have already answered is pure delay, and the brief's own rejection flow
+says "advance the cascade". The rest of the schedule does not move: the ladder's clock is absolute
+from T+0, so an early wave 2 leaves a gap before wave 3 rather than pushing the fallback later. Any
+claim or rejection stamped at or after T+112 belongs to the ladder, not the cascade, and is not
+replayed into it — a decision after the deadline is a different decision.
+
+The pre-warm invalidates on age (60 s), on drift and at its TTL (180 s), and drift is the *symmetric
+difference* over the previous rider set, not additions alone: a zone that lost five riders and gained
+five different ones is not the same crowd. The threshold is strict — exactly 20% is still warm — and
+the weight version is a fourth invalidation, because a cache that outlives a weights deploy would
+serve yesterday's ranking with today's version stamped on it. Step 1 of the ladder widens only the
+bicycle radius, the cash cap and the zone edge; a motorbike's 12 km limit is a practical bound, not a
+tuning knob, and a boost is floored to taka exactly once like every other amount of money.

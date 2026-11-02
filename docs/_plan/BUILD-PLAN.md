@@ -340,6 +340,14 @@ logged, and a stale quote cannot silently charge a new price.
 
 ### R9 · Brain: dispatch and batch — B7 · 60 files · 14 000 lines
 
+**R9c note.** `dispatch/cascade.py` (the waveform as data: offers, claims, the early advance when a
+wave is unanimously rejected, and the fallback at T+112), `dispatch/expansion.py` (the six-rung ladder,
+the step-1 relaxations as basis points, boosts floored to taka once), `dispatch/prewarm.py` (180 s TTL,
+60 s age, 20% symmetric-difference drift, JSON round-trip for `OrderHub`) and `dispatch/explain.py`
+(the `DISPATCH` trace, its retention table and a schema walk that names every missing path). 45 new
+Python tests; `D3`–`D6`, `D10` and `D12` are asserted directly. The trace-key mismatch in `09 §6` is
+recorded as `D75`.
+
 **R9b note.** `batch/` — `constraints.py` (C1–C10 constants, capacity, detour budgets, handover clamp),
 `feasibility.py` (the detour arithmetic, ten verdicts per ordering, `None` for a constraint that does
 not apply), `permutations.py` (≤ 6 orderings, `Σ detour² + λ·metres`, stable tie-break), `score.py`

@@ -69,7 +69,7 @@ class FilterResult:
     name: str | None = None
 
 
-def _passes(rider: Candidate, order: OrderContext) -> FilterResult:
+def _passes(rider: Candidate, order: OrderContext, zone_tolerance_m: int = ZONE_EDGE_TOLERANCE_M) -> FilterResult:
     checks: tuple[tuple[int, str, Callable[[], bool]], ...] = (
         (1, "KYC_APPROVED", lambda: rider.status == "APPROVED"),
         (2, "ON_SHIFT", lambda: rider.shift_state in ("ONLINE", "ON_ORDER")),
@@ -77,7 +77,7 @@ def _passes(rider: Candidate, order: OrderContext) -> FilterResult:
         (4, "POSITION_FRESH", lambda: rider.fix_age_s <= rider.stale_after_s),
         (5, "NOT_CASH_LOCKED", lambda: not rider.cash_locked),
         (6, "NOT_SUSPENDED", lambda: not rider.suspended),
-        (7, "ZONE_MATCH_OR_NEAR", lambda: rider.zone_id == order.zone_id or rider.distance_to_zone_edge_m <= ZONE_EDGE_TOLERANCE_M),
+        (7, "ZONE_MATCH_OR_NEAR", lambda: rider.zone_id == order.zone_id or rider.distance_to_zone_edge_m <= zone_tolerance_m),
         (8, "WITHIN_VEHICLE_RADIUS", lambda: rider.routed_to_vendor_m <= rider.vehicle_max_radius_m),
         (9, "UNDER_LOAD_LIMIT", lambda: rider.current_load < rider.max_concurrent),
         (10, "BATCH_FEASIBLE", lambda: rider.current_load == 0),
@@ -108,12 +108,21 @@ class FilterOutcome:
         return counts
 
 
-def filter_candidates(riders: list[Candidate], order: OrderContext) -> FilterOutcome:
-    """Apply all fourteen filters, keeping the survivors and recording every reason."""
+def filter_candidates(
+    riders: list[Candidate],
+    order: OrderContext,
+    zone_tolerance_m: int = ZONE_EDGE_TOLERANCE_M,
+) -> FilterOutcome:
+    """Apply all fourteen filters, keeping the survivors and recording every reason.
+
+    `zone_tolerance_m` exists for the expansion ladder (`11 §11` step 1), which widens the edge from
+    1 500 m to 3 000 m when the cascade fails. Everything else about a filter is fixed, because a
+    filter that could be tuned per call is a score wearing a veto's authority.
+    """
     survivors: list[Candidate] = []
     refusals: list[FilterResult] = []
     for rider in riders:
-        result = _passes(rider, order)
+        result = _passes(rider, order, zone_tolerance_m)
         if result.passed:
             survivors.append(rider)
         else:
