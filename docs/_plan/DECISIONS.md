@@ -1169,6 +1169,35 @@ a no-op rather than a second receipt. A receipt that matches nothing — an orde
 tokens were rotated — answers `recorded: 0` and writes no audit row: the alarm already rang, and a log entry
 about a row that was not there is noise.
 
-*Open:* `latencyMs` and `path` are validated-and-dropped. The client sends them and the matrix wants them;
-storing them needs two columns and a decision about whether the device's own measurement is evidence. Recorded
-here rather than half-done.
+*Open:* closed by D88, which stores the two fields the client sends beside the receipt.
+
+## D88 — The device's own measurement is stored beside the receipt, never above it
+
+`15 §8` draws the loop with two numbers in it. The platform can see one of them: `sent_at` from the Worker
+that rang, `received_at` from the socket's clock when the `alarm_received` frame arrived, and the gap between
+them is the send-to-received latency the device matrix ranks OEMs by. The device sees the other: how long its
+own radio took to wake, and which path reached it first. D87 validated those two fields and dropped them,
+because storing them needed a decision about what they are.
+
+They are evidence about the device, so they are stored under names that say so — `device_latency_ms` and
+`device_path` (`015`) — and the platform's own gap keeps the authority. This matters because a slow phone
+often reports a *fast* number: an OEM whose push handler runs before the radio's power state settles measures
+from the process waking, not from the message arriving, and a matrix built on that self-report would clear the
+exact devices the alarm exists to catch. The median the panel charts is `received_at − sent_at`; the device's
+number sits beside it so support can show a vendor "your phone says 400 ms and ours says 9 seconds" instead of
+arguing.
+
+Filtering happens once, in core (`receiptDetails`), and it drops rather than refuses. A latency that is not a
+finite number, is negative, or exceeds ten minutes loses the number and keeps the receipt; a path outside the
+closed set `FCM | SOCKET | BOTH` is not stored, so a client that invents a channel cannot enter one into the
+matrix. Refusing the frame would punish the delivery record for a bug in the measurement, and the delivery
+record is the half that cannot be reconstructed. Realtime forwards both fields as the device made them,
+bounded only so a frame cannot carry a paragraph where a measurement belongs: the room is a pipe, and the
+closed set lives at the writer.
+
+The two columns land in the same `UPDATE` as `received_at`. A second statement would leave a window in which a
+row is stamped by one caller and measured by another, and `received_at IS NULL` is what makes a repeated frame
+a no-op — that guarantee only covers writes inside the statement it guards.
+
+Both columns are null for a client that predates this decision, and the matrix treats null as "not reported"
+rather than zero, because a device that says nothing and a device that says 0 ms are different facts.

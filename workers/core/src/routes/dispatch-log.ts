@@ -39,6 +39,7 @@ import {
   insertDispatch,
   latestUnacknowledged,
   markReceived,
+  receiptDetails,
   tokensForDevice,
 } from "../repositories/dispatches.ts";
 import type { DispatchRow } from "../repositories/dispatches.ts";
@@ -142,6 +143,10 @@ interface ReportedReceipt {
   readonly orderCode?: unknown;
   readonly deviceId?: unknown;
   readonly receivedAtMs?: unknown;
+  /** How long the device measured, in milliseconds. Optional: older clients send none. */
+  readonly latencyMs?: unknown;
+  /** `FCM`, `SOCKET` or `BOTH`, as the device names the path that woke it. */
+  readonly path?: unknown;
 }
 
 /** The most receipts one report may carry. */
@@ -189,7 +194,8 @@ async function recordReceipts(ctx: Ctx, body: unknown): Promise<Response> {
     for (const token of await tokensForDevice(ctx.db, deviceId)) {
       const dispatchId = await latestUnacknowledged(ctx.db, order.id, token);
       if (dispatchId === null) continue;
-      if (await markReceived(ctx.db, dispatchId, receivedAt)) recorded += 1;
+      const details = receiptDetails(entry.latencyMs, entry.path);
+      if (await markReceived(ctx.db, dispatchId, receivedAt, details)) recorded += 1;
     }
   }
 

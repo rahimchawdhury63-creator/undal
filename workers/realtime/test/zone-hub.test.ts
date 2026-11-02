@@ -271,11 +271,19 @@ describe("identity on the upgrade", () => {
 });
 
 /** A receipt recorder that remembers what it was told. */
-function receiptLog(): ReceiptRecorder & { readonly seen: { orderCode: string; deviceId: string; receivedAtMs: number }[] } {
-  const seen: { orderCode: string; deviceId: string; receivedAtMs: number }[] = [];
+interface SeenReceipt {
+  readonly orderCode: string;
+  readonly deviceId: string;
+  readonly receivedAtMs: number;
+  readonly latencyMs?: number | null;
+  readonly path?: string | null;
+}
+
+function receiptLog(): ReceiptRecorder & { readonly seen: SeenReceipt[] } {
+  const seen: SeenReceipt[] = [];
   return {
     seen,
-    async record(receipt: { orderCode: string; deviceId: string; receivedAtMs: number }): Promise<boolean> {
+    async record(receipt: SeenReceipt): Promise<boolean> {
       seen.push(receipt);
       return true;
     },
@@ -292,7 +300,41 @@ describe("the delivery receipt", () => {
     const { hub, server } = room(new FixedClock(T0), log);
     await hub.upgrade(UPGRADES);
     await hub.webSocketMessage(server as unknown as WebSocket, JSON.stringify({ t: "alarm_received", orderId: "UND-7K2M9QX4", latencyMs: 1_400 }));
-    assert.deepEqual(log.seen, [{ orderCode: "UND-7K2M9QX4", deviceId: "phone-1", receivedAtMs: T0 }]);
+    assert.deepEqual(log.seen, [
+      { orderCode: "UND-7K2M9QX4", deviceId: "phone-1", receivedAtMs: T0, latencyMs: 1_400, path: null },
+    ]);
+  });
+
+  test("the device's measurement is forwarded as it was made", async () => {
+    const log = receiptLog();
+    const { hub, server } = room(new FixedClock(T0), log);
+    await hub.upgrade(UPGRADES);
+    await hub.webSocketMessage(
+      server as unknown as WebSocket,
+      JSON.stringify({ t: "alarm_received", orderId: "UND-7K2M9QX4", latencyMs: 2_250, path: "BOTH" }),
+    );
+    assert.equal(log.seen[0]?.latencyMs, 2_250);
+    assert.equal(log.seen[0]?.path, "BOTH");
+  });
+
+  test("a measurement the room cannot read is dropped, and the receipt still goes", async () => {
+    for (const frame of [
+      { latencyMs: "1400", path: "FCM" },
+      { latencyMs: 1_400, path: 7 },
+      { latencyMs: 1_400, path: "A".repeat(40) },
+    ]) {
+      const log = receiptLog();
+      const { hub, server } = room(new FixedClock(T0), log);
+      await hub.upgrade(UPGRADES);
+      await hub.webSocketMessage(
+        server as unknown as WebSocket,
+        JSON.stringify({ t: "alarm_received", orderId: "UND-7K2M9QX4", ...frame }),
+      );
+      assert.equal(log.seen.length, 1, "the receipt is the load-bearing half of the frame");
+      const seen = log.seen[0];
+      assert.equal(seen?.latencyMs, typeof frame.latencyMs === "number" ? frame.latencyMs : null);
+      assert.equal(seen?.path, typeof frame.path === "string" && frame.path.length <= 16 ? frame.path : null);
+    }
   });
 
   test("the device is taken from the session, not from the frame", async () => {

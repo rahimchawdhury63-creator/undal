@@ -11,6 +11,11 @@
  * built from. The socket is the only place the receipt can arrive — the app does not call the API to say it
  * rang — and the row is written by core, because only core may write TiDB.
  *
+ * The device's own measurement travels with it: `latencyMs` and `path` are forwarded as the device made
+ * them, because the phone is the only witness to how long its radio took to wake. They are not believed —
+ * core decides which names count and whether a number is possible — and the platform's own gap stays the
+ * authority it has been since D87.
+ *
  * Like the dispatch report, this is best-effort and answers `false` rather than throwing. A receipt is
  * evidence about an alarm that has already fired; failing anything because the evidence did not arrive would
  * be punishing the wrong party.
@@ -30,6 +35,10 @@ export interface AlarmReceipt {
   readonly deviceId: string;
   /** When the frame arrived, by the room's clock. */
   readonly receivedAtMs: number;
+  /** How long the device says the push took to reach it, or null when it said nothing usable. */
+  readonly latencyMs?: number | null;
+  /** The path the device names as the one that woke it, or null. Core decides which names count. */
+  readonly path?: string | null;
 }
 
 /** The port a room reports a receipt through. */
@@ -61,7 +70,17 @@ export function createCoreReceiptRecorder(
         const response = await transport(`${base}${RECEIPT_PATH}`, {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-          body: JSON.stringify({ receipts: [receipt] }),
+          body: JSON.stringify({
+            receipts: [
+              {
+                orderCode: receipt.orderCode,
+                deviceId: receipt.deviceId,
+                receivedAtMs: receipt.receivedAtMs,
+                latencyMs: receipt.latencyMs ?? null,
+                path: receipt.path ?? null,
+              },
+            ],
+          }),
           signal: controller.signal,
         });
         if (!response.ok) return false;

@@ -98,8 +98,52 @@ describe("matching a receipt", () => {
     assert.equal(status, 200);
     assert.equal(body.data?.recorded, 1);
     const update = db.calls.find((call) => /UPDATE `fcm_dispatches`/u.test(call.sql));
-    assert.deepEqual([...(update?.params as readonly unknown[])][1], DISPATCH_ID);
+    assert.deepEqual([...(update?.params as readonly unknown[])][3], DISPATCH_ID);
     assert.match(String([...(update?.params as readonly unknown[])][0]), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/u);
+  });
+
+  test("the device's own measurement is written in the same statement as the receipt", async () => {
+    const db = receiptDb();
+    const { body } = await report(db, { receipts: [{ ...RECEIPT, latencyMs: 1_234, path: "FCM" }] });
+    assert.equal(body.data?.recorded, 1);
+    const update = db.calls.find((call) => /UPDATE `fcm_dispatches`/u.test(call.sql));
+    const params = [...(update?.params as readonly unknown[])];
+    assert.equal(params[1], 1_234);
+    assert.equal(params[2], "FCM");
+    assert.match(update?.sql ?? "", /`device_latency_ms` = \?/u);
+    assert.match(update?.sql ?? "", /`device_path` = \?/u);
+  });
+
+  test("a receipt that carried no measurement stores nulls rather than zeroes", async () => {
+    const db = receiptDb();
+    await report(db, { receipts: [RECEIPT] });
+    const update = db.calls.find((call) => /UPDATE `fcm_dispatches`/u.test(call.sql));
+    const params = [...(update?.params as readonly unknown[])];
+    assert.equal(params[1], null);
+    assert.equal(params[2], null);
+  });
+
+  test("an impossible latency loses the number, never the receipt", async () => {
+    for (const latencyMs of [-1, 10_000_000, "1200", null, Number.NaN]) {
+      const db = receiptDb();
+      const { status, body } = await report(db, { receipts: [{ ...RECEIPT, latencyMs, path: "SOCKET" }] });
+      assert.equal(status, 200);
+      assert.equal(body.data?.recorded, 1, `latency ${String(latencyMs)} must not cost the receipt`);
+      const update = db.calls.find((call) => /UPDATE `fcm_dispatches`/u.test(call.sql));
+      const params = [...(update?.params as readonly unknown[])];
+      assert.equal(params[1], null);
+      assert.equal(params[2], "SOCKET");
+    }
+  });
+
+  test("a path name the platform does not know is not stored", async () => {
+    for (const path of ["SMOKE_SIGNAL", "", "fcm", null, 7]) {
+      const db = receiptDb();
+      const { body } = await report(db, { receipts: [{ ...RECEIPT, path }] });
+      assert.equal(body.data?.recorded, 1);
+      const update = db.calls.find((call) => /UPDATE `fcm_dispatches`/u.test(call.sql));
+      assert.equal([...(update?.params as readonly unknown[])][2], null);
+    }
   });
 
   test("the lookup asks for the newest row and only an unacknowledged one", async () => {

@@ -41,7 +41,7 @@ export interface AlarmReceivedFrame {
   readonly orderId?: unknown;
   /** How long the device measured between the push arriving and the alarm starting. */
   readonly latencyMs?: unknown;
-  /** `FCM` or `SOCKET`, as the device reports the path. Recorded nowhere yet, validated and dropped. */
+  /** `FCM`, `SOCKET` or `BOTH`, as the device reports the path that woke it. */
   readonly path?: unknown;
 }
 
@@ -212,7 +212,15 @@ export class ZoneHub {
       return;
     }
     if (this.receipts === null) return;
-    await this.receipts.record({ orderCode, deviceId: session.deviceId, receivedAtMs: this.clock.nowMs() });
+    await this.receipts.record({
+      orderCode,
+      deviceId: session.deviceId,
+      receivedAtMs: this.clock.nowMs(),
+      // Forwarded, not judged. Core owns the closed set of path names and the bound on the number; the room
+      // only stops a frame from carrying a paragraph where a measurement belongs.
+      latencyMs: typeof frame.latencyMs === "number" && Number.isFinite(frame.latencyMs) ? frame.latencyMs : null,
+      path: typeof frame.path === "string" && frame.path.length <= 16 ? frame.path : null,
+    });
   }
 
   /**

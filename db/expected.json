@@ -525,7 +525,16 @@
       "source": "010_support.sql"
     },
     "fcm_dispatches": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "device_latency_ms",
+          "type": "INT"
+        },
+        {
+          "name": "device_path",
+          "type": "VARCHAR(16)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 0,

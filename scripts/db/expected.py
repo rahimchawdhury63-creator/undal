@@ -31,6 +31,11 @@ COLUMN = re.compile(r"^\s*`([a-z_0-9]+)`\s+([A-Za-z]+(?:\s*\([^)]*\))?)", re.M)
 GENERATED = re.compile(r"^\s*`([a-z_0-9]+)`.*\bAS\s*\(", re.M)
 KEY = re.compile(r"^\s*(?:UNIQUE\s+)?(?:KEY|INDEX)\s+`([a-z_0-9]+)`", re.M)
 CHECK = re.compile(r"CHECK\s*\(")
+#: A later migration adding a column to an existing table. Without this, a column that
+#: arrives by `ALTER` is invisible to the expectation and `verify_schema.py` never looks
+#: for it — the schema would drift with the commit that changed it.
+ALTER = re.compile(r"ALTER TABLE\s+`([a-z_0-9]+)`\s+(.*)", re.S)
+ADD_COLUMN = re.compile(r"\bADD COLUMN\s+`([a-z_0-9]+)`\s+([A-Za-z]+(?:\s*\([^)]*\))?)", re.I)
 
 
 def build() -> dict[str, object]:
@@ -38,6 +43,17 @@ def build() -> dict[str, object]:
     tables: dict[str, dict[str, object]] = {}
     for path in migration_files(MIGRATIONS):
         for statement in split_statements(path.read_text(encoding="utf-8")):
+            altered = ALTER.search(statement)
+            if altered is not None:
+                name, body = altered.group(1), altered.group(2)
+                if name not in tables:
+                    raise SystemExit(f"{name} is altered before it is created")
+                columns = tables[name]["columns"]
+                for column, kind in ADD_COLUMN.findall(body):
+                    if any(existing["name"] == column for existing in columns):
+                        raise SystemExit(f"{name}.{column} is added twice")
+                    columns.append({"name": column, "type": " ".join(kind.upper().split())})
+                continue
             match = CREATE.search(statement)
             if not match:
                 continue

@@ -35,8 +35,22 @@ describe("reporting a receipt", () => {
     const { calls, transport } = stub(async () => Response.json({ ok: true, data: { recorded: 1 } }));
     assert.equal(await createCoreReceiptRecorder(BASE, TOKEN, { fetch: transport }).record(RECEIPT), true);
     assert.equal(calls[0]?.url, `${BASE}${RECEIPT_PATH}`);
-    assert.deepEqual(JSON.parse(String(calls[0]?.init.body)), { receipts: [RECEIPT] });
+    assert.deepEqual(JSON.parse(String(calls[0]?.init.body)), {
+      receipts: [{ ...RECEIPT, latencyMs: null, path: null }],
+    });
     assert.equal((calls[0]?.init.headers as Record<string, string>).authorization, `Bearer ${TOKEN}`);
+  });
+
+  test("the device's measurement travels with the receipt", async () => {
+    const { calls, transport } = stub(async () => Response.json({ ok: true, data: { recorded: 1 } }));
+    await createCoreReceiptRecorder(BASE, TOKEN, { fetch: transport }).record({
+      ...RECEIPT,
+      latencyMs: 1_800,
+      path: "FCM",
+    });
+    const body = JSON.parse(String(calls[0]?.init.body)) as { receipts: { latencyMs: unknown; path: unknown }[] };
+    assert.equal(body.receipts[0]?.latencyMs, 1_800);
+    assert.equal(body.receipts[0]?.path, "FCM");
   });
 
   test("a receipt core could not match is not a success", async () => {

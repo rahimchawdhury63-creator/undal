@@ -569,6 +569,13 @@ device:   alarm audible       → ws "alarm_playing"  {orderId, volume, stream}
 device:   user responded      → accept/reject
 ```
 
+`alarm_received` is written as three columns on the dispatch row: `received_at`, the moment the
+frame reached the socket; `device_latency_ms`, the device's own measurement; and `device_path`, the
+channel the device says woke it (`FCM`, `SOCKET` or `BOTH`). The median below is
+`received_at − sent_at` — both ends are the platform's clock, on Workers with the same time source —
+so a phone with a wrong clock can add a data point to the matrix but cannot move the number that
+decides whether a device is flagged. See D88.
+
 | Metric | Target | Action when breached |
 | --- | --- | --- |
 | `alarm_received` within 5 s of send | ≥ 97% | Device flagged; coaching card on next open |
