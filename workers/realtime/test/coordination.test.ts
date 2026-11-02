@@ -17,8 +17,6 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { FixedClock } from "../src/lib/clock.ts";
-import { CoordinationRoom, DurableObjectCoordinator } from "../src/coordination/durable-object.ts";
-import { TiDBCoordinator } from "../src/coordination/tidb.ts";
 import { claimState, nextSeq, openState } from "../src/coordination/machine.ts";
 import {
   DISPATCH_LEASE_MS,
@@ -32,13 +30,12 @@ import {
 import {
   EVENT_PAGE_LIMIT,
   HEARTBEAT_DEADLINE_MS,
-  type Coordinator,
   type OpenDispatchInput,
   type WavePlan,
 } from "../src/coordination/coordinator.ts";
-import { FakeNamespace, MemorySql, MemoryStore, STATEMENTS, fakeState } from "./support/fakes.ts";
-
-const T0 = 1_700_000_000_000;
+import { TiDBCoordinator } from "../src/coordination/tidb.ts";
+import { MemorySql, MemoryStore, STATEMENTS } from "./support/fakes.ts";
+import { BACKENDS, T0 } from "./support/backends.ts";
 
 /** A two-wave plan: two riders now, one at T+25 s. */
 function waves(at: number = T0): WavePlan[] {
@@ -51,36 +48,6 @@ function waves(at: number = T0): WavePlan[] {
 function plan(orderId = "order-1", at: number = T0): OpenDispatchInput {
   return { orderId, zoneId: "zone-1", waves: waves(at) };
 }
-
-/** What a backend factory produces. */
-interface Backend {
-  readonly coordinator: Coordinator;
-  readonly clock: FixedClock;
-  readonly sql?: MemorySql;
-  readonly store?: MemoryStore;
-}
-
-const BACKENDS: readonly { readonly name: string; readonly make: () => Backend }[] = [
-  {
-    name: "durable-object",
-    make: () => {
-      const clock = new FixedClock(T0);
-      const namespace = new FakeNamespace(() => new CoordinationRoom(fakeState(), clock));
-      const coordinator = new DurableObjectCoordinator(namespace as unknown as DurableObjectNamespace, clock);
-      return { coordinator, clock };
-    },
-  },
-  {
-    name: "sql",
-    make: () => {
-      const clock = new FixedClock(T0);
-      const sql = new MemorySql();
-      const store = new MemoryStore();
-      const coordinator = new TiDBCoordinator(sql, store, clock);
-      return { coordinator, clock, sql, store };
-    },
-  },
-];
 
 for (const backend of BACKENDS) {
   describe(`coordinator/${backend.name}`, () => {

@@ -1,8 +1,8 @@
 # Undal — undal-realtime. Licensed under PASVL-1.0.
 #
 # The only paid dependency in the entire platform is the Durable Object used by
-# the `durable-object` presence backend, and it is unused at launch: the `sql`
-# backend is the default and costs nothing. No cron lives here either.
+# the `durable-object` coordination backend, and it is unused at launch: the
+# `sql` backend is the default and costs nothing. No cron lives here either.
 name = "undal-realtime"
 main = "src/index.ts"
 compatibility_date = "2024-10-01"
@@ -16,4 +16,4 @@ new_classes = ["OrderRoom"]
 
 [vars]
 PUBLIC_API_BASE = "https://api.undal.app"
-PRESENCE_BACKEND = "sql"
+COORDINATION_MODE = "sql"
