@@ -17,8 +17,21 @@ import { fail, ok, type Result } from "../lib/result.ts";
 
 /** What the realtime Worker exposes to the core Worker. */
 export interface RealtimeClient {
-  broadcast(input: { zoneId: string; orderId: string; event: string; payload: unknown }): Promise<Result<true>>;
-  presenceOf(riderId: string): Promise<Result<{ online: boolean; lastSeenAt: string | null }>>;
+  /** Fan an order event out to the order's watchers and the zone's admin map. */
+  broadcast(input: {
+    readonly zoneId: string;
+    readonly orderId: string;
+    /** The catalogue name (`order.assigned`) or the stored kind (`RIDER_ASSIGNED`). */
+    readonly event: string;
+    readonly payload: unknown;
+    /** The order's log sequence, when the caller has it; the stream ids the frame otherwise. */
+    readonly seq?: number;
+  }): Promise<Result<true>>;
+  /** Whether a rider is currently present in a zone. Presence is per zone, so the zone is required. */
+  presenceOf(input: {
+    readonly zoneId: string;
+    readonly riderId: string;
+  }): Promise<Result<{ online: boolean; lastSeenAt: string | null }>>;
 }
 
 /** How long a Worker-to-Worker call may take before it is abandoned. */
@@ -43,8 +56,16 @@ export function createRealtimeClient(baseUrl: string, token: string): RealtimeCl
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+      // A non-2xx is decided before the body is read: a 502 from the edge has an HTML body, and parsing
+      // it would turn a degraded dependency into a timeout that the caller retries into the same wall.
       if (!response.ok) return fail("SERVICE_DEGRADED", { details: { status: response.status, path } });
-      return ok((await response.json()) as unknown);
+      // Every response on this platform is the shared envelope (`05 §3.4`), internal calls included.
+      // Reading `data` rather than the whole body is what keeps one client honest across Workers.
+      const envelope = (await response.json()) as { ok?: boolean; data?: unknown };
+      if (envelope.ok !== true) {
+        return fail("SERVICE_DEGRADED", { details: { status: response.status, path, reason: "bad_envelope" } });
+      }
+      return ok(envelope.data);
     } catch (error) {
       return fail("DEPENDENCY_TIMEOUT", { details: { path, error: String(error) } });
     } finally {
@@ -57,8 +78,8 @@ export function createRealtimeClient(baseUrl: string, token: string): RealtimeCl
       const result = await call("/internal/broadcast", input);
       return result.ok ? ok(true) : result;
     },
-    async presenceOf(riderId) {
-      const result = await call("/internal/presence", { riderId });
+    async presenceOf(input) {
+      const result = await call("/internal/presence", input);
       if (!result.ok) return result;
       return ok(result.value as { online: boolean; lastSeenAt: string | null });
     },

@@ -16,8 +16,8 @@
 import type { Channel } from "./channels.ts";
 import { channelKey } from "./channels.ts";
 import type { RingEvent, Resume } from "./ring.ts";
-import { EventRing } from "./ring.ts";
 import type { StreamFrame } from "./frame.ts";
+import { EventRing } from "./ring.ts";
 
 /**
  * The stored event kinds the stream understands, and the catalogue name each becomes.
@@ -49,6 +49,21 @@ export function eventNameFor(kind: string): string | null {
   return EVENT_NAMES[kind] ?? null;
 }
 
+/**
+ * The catalogue name for an event in either spelling.
+ *
+ * `undal-core`'s broadcast sends the catalogue name (`order.assigned`) while the coordinator stores the
+ * kind (`RIDER_ASSIGNED`); both are legitimate inputs and both must land on the same frame name.
+ */
+export function catalogueName(name: string): string | null {
+  const stored = EVENT_NAMES[name];
+  if (stored !== undefined) return stored;
+  return (Object.values(EVENT_NAMES) as readonly string[]).includes(name) ? name : null;
+}
+
+/** An event as the rings hold it, re-exported so a caller does not import two modules to name one. */
+export type { RingEvent };
+
 /** One channel's replay buffer. */
 export interface ChannelReplay {
   readonly frames: readonly StreamFrame[];
@@ -79,12 +94,13 @@ export class StreamHub {
    */
   record(
     channel: Channel,
-    event: { readonly seq: number; readonly kind: string; readonly data: unknown; readonly atMs: number },
+    event: { readonly kind: string; readonly data: unknown; readonly atMs: number; readonly seq?: number },
   ): RingEvent | null {
-    const name = eventNameFor(event.kind);
+    const name = catalogueName(event.kind);
     if (name === null) return null;
-    const frame: RingEvent = { id: event.seq, event: name, data: event.data, atMs: event.atMs };
-    this.ring(channel).push(frame);
+    const ring = this.ring(channel);
+    const frame: RingEvent = { id: event.seq ?? ring.lastId() + 1, event: name, data: event.data, atMs: event.atMs };
+    ring.push(frame);
     return frame;
   }
 
