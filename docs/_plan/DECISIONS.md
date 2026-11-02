@@ -861,3 +861,38 @@ rows the fixtures are the record; the workflow's `--traces` input is reserved fo
 with the realtime worker. The old workflow pointed at `replay.py` and `replay_check.py`, neither of
 which ever existed — a check that cannot run is worse than no check, because it looks green by being
 absent.
+
+## D77 — The `sql` coordinator composes the statement; only `undal-core` executes it
+
+`05 §4.2` says the free-tier claim is one conditional `UPDATE` against `dispatch_locks`, issued by
+`undal-realtime`; `05 §2.1` and `34 §3.1` say `undal-realtime` writes no TiDB row, ever, and reaches the
+database only through a service binding into Core. Both are load-bearing, so the coordination layer
+resolves them the only way that keeps both: `TiDBCoordinator` takes a `SqlExecutor` port and composes the
+statement, and the production executor is Core's internal surface over the binding rather than a driver
+in this Worker. The atomicity the claim relies on is a property of the SQL, not of the process that
+sends it — one `UPDATE` whose `affected_rows` is 1 for exactly one caller — so moving the execution one
+hop changes latency, not correctness.
+
+The consequence is honest about the number R10 must not invent. The claim now includes a binding hop
+(same colo, no egress, one extra isolate) on top of the statement, so the free-path p50 stays a range
+until it is measured, alongside the withdrawn 31 ms figure discussed in `05 §4.2`. What the suite can
+prove without a network is the semantics: `MemorySql` implements the same conditional update and the
+same unique `(order_id, seq)` index, and the 50-way claim runs against the real coordinator class, so a
+regression in the statement fails the build on both backends.
+
+## D78 — Presence is a socket at `/v1/presence`, and the mode has one name
+
+`14 §2` specifies `wss://realtime.{domain}/v1/presence?role=…`, heartbeats as `{"t":"hb","s":n}` frames,
+and the close event as the primary absence signal; `05 §4.1`'s diagram lists `/rt/presence` for
+heartbeats. The specific document wins: presence is the socket, because the two-second budget depends on
+the runtime's close event arriving in under 200 ms, and an HTTP heartbeat route cannot observe a dropped
+connection at all. A POST reconciliation path may be added later, and if it is, it will be a second
+signal rather than the transport.
+
+The variable that selects the backend is `COORDINATION_MODE` (`05 §4.2`, `14 §3.3`, `39 §4`). The code
+previously read `PRESENCE_BACKEND`, a name no document mentions; it now reads the documented name,
+defaults to `sql` because that is what the platform launches on, and refuses a value it does not know
+instead of silently running the other backend while the operator believes otherwise. The two-second
+promise is arithmetic rather than a benchmark: 200 ms of transport plus the 1 500 ms grace is 1 700 ms,
+and the grace is clamped to 1 800 ms so no configuration can push detection past 2 000 ms.
+

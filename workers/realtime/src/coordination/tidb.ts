@@ -17,6 +17,12 @@
  * 1. **KV is eventually consistent.** A presence list can lag a heartbeat by a second. The deadline
  *    that matters is computed from `lastHeartbeatMs` on the row, so a stale row is filtered out by its
  *    timestamp, never trusted for liveness.
+ * The executor this class is given is a port, not a driver. `05 §2.1` and `34 §3.1` are unambiguous that
+ * `undal-core` is the only Worker that writes TiDB, so in production the `SqlExecutor` is filled by
+ * core's internal surface over a service binding, and this class composes the statement rather than
+ * opening a connection. A TiDB driver in this Worker would be a second writer with a second set of
+ * assumptions about the same row, which is the thing the single-writer rule exists to prevent.
+ *
  * 2. **Only the claim is atomic across processes.** `advanceWave` and `closeDispatch` are driven by the
  *    single cascade owner (the socket that holds the dispatch lease), so they are read-then-write on a
  *    row nobody else is writing. If two owners ever raced, the second write would win, and the claim
