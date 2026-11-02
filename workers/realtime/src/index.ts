@@ -11,9 +11,12 @@ import { authenticate } from "./auth/token.ts";
 import type { VerifyingKey } from "./auth/token.ts";
 import { handleStream } from "./routes/stream.ts";
 import { handlePresenceSocket } from "./routes/presence-socket.ts";
+import { handleLadder } from "./routes/ladder.ts";
 import { channelAuthorizer } from "./routes/authorizer.ts";
 import { createCoreOrderViewer } from "./authority/core-viewer.ts";
 import { NO_ORDERS } from "./authority/order-viewer.ts";
+import { createCoreCanceller } from "./authority/core-cancel.ts";
+import { fcmFrom } from "./fcm/from-env.ts";
 import { handleInternal } from "./routes/internal.ts";
 import { DurableObjectFrameStore } from "./sse/durable-store.ts";
 
@@ -21,6 +24,7 @@ export { OrderRoom } from "./order-room.ts";
 export { CoordinationRoom } from "./coordination/durable-object.ts";
 export { StreamRoom } from "./sse/durable-store.ts";
 export { ZoneHub } from "./hubs/zone-hub.ts";
+export { VendorAlarm } from "./hubs/vendor-alarm.ts";
 
 /** The bindings this Worker is given by `wrangler.toml`. */
 export interface RealtimeEnv {
@@ -44,6 +48,8 @@ export interface RealtimeEnv {
   readonly STREAM_ROOM?: DurableObjectNamespace;
   /** One room per zone: the presence sockets, and the heartbeats they are kept alive by. */
   readonly ZONE_HUB?: DurableObjectNamespace;
+  /** One room per order: the two-minute vendor ladder and its alarms (D84). */
+  readonly VENDOR_ALARM?: DurableObjectNamespace;
 }
 
 /** JSON with the request id, no caching. */
@@ -78,6 +84,10 @@ function refuse(code: Parameters<typeof failure>[0], requestId: string, details:
  * `/v1/presence` is the other client route: the token is verified here, and the identity it carries is
  * forwarded to the zone's room as headers. The room is addressed by zone, so a zone the token does not
  * carry is refused before any socket exists.
+ *
+ * `/internal/ladder/*` is the two-minute vendor alarm (D84): the record lives in one room per order, its
+ * alarm wakes on the next rung, and the terminal cancellation is a request to core rather than a write
+ * here — realtime holds the deadline, core holds the order.
  *
  * `/rt/stream` is the third, and every path it takes is a refusal it can explain:
  * no coordination room, no public key, no token, a token that does not verify, a channel the caller may
@@ -176,6 +186,15 @@ export default {
         principal: authenticated.value,
         requestId: id,
       });
+    }
+
+    if (url.pathname.startsWith("/internal/ladder/")) {
+      const ladder = await handleLadder(request, {
+        namespace: env.VENDOR_ALARM,
+        internalToken: env.INTERNAL_TOKEN,
+        requestId: id,
+      });
+      if (ladder !== null) return ladder;
     }
 
     if (url.pathname === "/internal/presence" || url.pathname === "/internal/broadcast") {

@@ -107,7 +107,8 @@ export async function moveState(
     readonly from: OrderState;
     readonly to: OrderState;
     readonly actor: string;
-    readonly actorUserId: Uint8Array;
+    /** `null` for a `SYSTEM` actor — an alarm has no user, and the column allows it. */
+    readonly actorUserId: Uint8Array | null;
     readonly event: string;
     readonly reasonCode: string | null;
     readonly reasonText: string | null;

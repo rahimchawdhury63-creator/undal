@@ -19,6 +19,8 @@ bindings = [
   # platform, because presence is a safety signal and a single room would put every zone's heartbeats in
   # one failure domain.
   { name = "ZONE_HUB", class_name = "ZoneHub" },
+  # One room per order, holding the two-minute vendor ladder and the alarm that walks it (D84).
+  { name = "VENDOR_ALARM", class_name = "VendorAlarm" },
 ]
 
 [[migrations]]
@@ -36,6 +38,10 @@ new_classes = ["StreamRoom"]
 [[migrations]]
 tag = "v4"
 new_classes = ["ZoneHub"]
+
+[[migrations]]
+tag = "v5"
+new_classes = ["VendorAlarm"]
 
 [vars]
 PUBLIC_API_BASE = "https://api.undal.app"

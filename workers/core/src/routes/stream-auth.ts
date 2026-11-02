@@ -25,6 +25,7 @@ import { toHexId } from "../lib/ids.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import { ANONYMOUS, uuidBytes } from "../middleware/auth.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
+import { requireInternalToken } from "../middleware/internal-token.ts";
 import { findOrderByCode, vendorForUser } from "../repositories/orders.ts";
 
 /** The actor types a watch question may name. */
@@ -87,13 +88,8 @@ async function decide(ctx: Ctx, actorId: string, actorType: WatchActorType, code
 
 /** Answer the question. */
 async function watches(ctx: Ctx, body: unknown): Promise<Response> {
-  const presented = ctx.request.headers.get("authorization") ?? "";
-  const expected = ctx.env.INTERNAL_TOKEN;
-  // An unset token is a refusal rather than a pass: a deployment that has not been given the secret is a
-  // deployment that has not been configured, and "configure me and I will answer" is an open surface.
-  if (expected === undefined || expected === "" || presented !== `Bearer ${expected}`) {
-    return failureResponse({ code: "AUTH_TOKEN_INVALID" }, ctx.locale, ctx.requestId);
-  }
+  const refused = requireInternalToken(ctx);
+  if (refused !== null) return refused;
 
   const fields = (typeof body === "object" && body !== null ? body : {}) as WatchRequest;
   const actorId = fields.actorId;

@@ -195,6 +195,13 @@ An order reaches `PLACED` and the vendor must accept it.
 At every step, a single `order.seen` or `order.accept` from the vendor **stops the whole ladder**
 and restores `open_state` to its prior value.
 
+The implementation is `VendorAlarm` (`workers/realtime/src/hubs/vendor-alarm.ts`) — one Durable
+Object per order, one alarm armed at the next unfired rung, and the ladder's record in that room's
+storage rather than in an isolate's memory (D84). The terminal rung is a request to `undal-core`
+(`POST /internal/orders/auto-cancel`), because the order's state is core's to write; a room with no
+sender refuses to begin rather than keeping a ladder it cannot ring, and a room with no canceller
+records that it could not cancel instead of claiming it did.
+
 ### 4.2 The cancellation
 
 ```ts

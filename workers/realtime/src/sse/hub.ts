@@ -42,6 +42,11 @@ export const EVENT_NAMES: Readonly<Record<string, string>> = {
   ITEMS_CHANGED: "order.items_changed",
   DISPUTED: "order.disputed",
   SEARCHING: "order.searching",
+  // Two names the vendor ladder publishes (`14 §4.1`). They are in `08 §9.1`'s catalogue and are emitted by
+  // a component other than the coordinator, which is legitimate — but the ring's gate is this map, so a
+  // name that is missing here is an event that is silently dropped rather than one that travels.
+  VENDOR_UNREACHABLE: "vendor.unreachable",
+  ADMIN_EXCEPTION_RAISED: "admin.exception_raised",
 };
 
 /** The catalogue name for a stored kind, or `null` when the stream does not carry it. */

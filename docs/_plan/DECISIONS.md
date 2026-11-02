@@ -1033,3 +1033,43 @@ device discards while the platform recorded a successful delivery.
 *Open:* the ladder that calls this module (`presence/escalation.ts` decides *what* is due) still has no
 scheduler storing ladder state across isolates, and `fcm_dispatches` (`15 §8`) has no table. Both are the
 next rung, not omissions of this one.
+
+## D84 — The two-minute ladder is one Durable Object per order, and its last rung is a request
+
+`14 §4.1` is a schedule: a probe at 8 s, unreachable and a second push at 10 s, a third at 25 s, the backup
+contact at 45 s, an exception at 60 s, an early-out offer to the customer at 90 s, and cancellation at 120 s.
+The schedule was already a table (`presence/escalation.ts`). What it had was nowhere to live.
+
+It lives in `VendorAlarm`, one Durable Object per order (`VENDOR_ALARM`, migration v5), under one storage
+key. That answers three questions a `setTimeout` cannot. *Does it survive the process that published it?*
+Yes — an order published at 12:00:03 is still being escalated at 12:02:03 if the isolate that published it
+was evicted, which is precisely the case a cold start would otherwise forgive. *What wakes it?* One alarm,
+armed at the next unfired rung and re-armed after every run, so nine instants cost one alarm rather than
+nine timers. *What if the alarm is late?* It fires everything it owes in table order, once, because the rungs
+are marked in the record rather than inferred from the wake-up.
+
+`begin` sends the first push and marks `PUBLISH` fired, because the ladder's 8-second probe assumes the alarm
+started at publication. Each push rung carries its `attempt` (`2`, `3`), and all of them collapse onto
+`order_<id>` so the third replaces the second rather than stacking on a lock screen.
+
+The last rung is a **request, not a write**. `POST /internal/orders/auto-cancel` is answered by core, which
+owns `orders.state`: the `PLACED → AUTO_CANCELLED` edge exists as a `SYSTEM` transition with the
+`vendorUnreachable` guard, so a ladder that fires early is refused by the same table that refuses an illegal
+customer cancel, and the `WHERE state = 'PLACED'` on the update means a vendor who accepts mid-flight wins
+(`raced`). The audit row names `SYSTEM`, carries no user, and records the elapsed time — the one cancellation
+nobody clicked is the one the trail has to explain. `moveState` now takes `actorUserId: Uint8Array | null`,
+because `order_state_events.actor_user_id` is nullable and a `SYSTEM` actor has no user to name.
+
+Two refusals are honest rather than fatal, and the evidence block records both. A room with no push sender
+refuses `begin` (`501 push_not_configured`), because a ladder nobody can ring is worse than no ladder. A room
+with no canceller still runs to 120 s and records `canceller_not_configured`, raising the operator's
+exception instead of claiming a cancellation that never happened.
+
+Two events the ladder publishes were missing from the stream's name map — `vendor.unreachable` and
+`admin.exception_raised`. `StreamHub.record` gates on that map, so a component naming its own catalogue event
+was having it silently dropped; they are in the map now (`08 §9.1`). The cancellation is published from the
+room as `order.cancelled`, because core does not yet broadcast its own transitions — when it does, this line
+becomes a duplicate and moves, and that is noted here rather than discovered later.
+
+*Open:* `fcm_dispatches` (`15 §8`) still has no table, so a send's message id lives in the ladder's record
+rather than in the platform's evidence table.

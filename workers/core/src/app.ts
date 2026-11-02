@@ -23,6 +23,7 @@ import { PLACEMENT_ROUTES } from "./routes/place.ts";
 import { VALIDATE_ROUTES } from "./routes/validate.ts";
 import { QUOTE_ROUTES } from "./routes/quotes.ts";
 import { STREAM_AUTH_ROUTES } from "./routes/stream-auth.ts";
+import { AUTO_CANCEL_ROUTES } from "./routes/auto-cancel.ts";
 
 /**
  * The pipeline, in the order a request meets it: identify, throttle, parse, authenticate,
@@ -44,6 +45,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   ...VALIDATE_ROUTES,
   ...PICKUP_ROUTES,
   ...STREAM_AUTH_ROUTES,
+  ...AUTO_CANCEL_ROUTES,
 ];
 
 /** A matched route plus the parameters its template captured. */
