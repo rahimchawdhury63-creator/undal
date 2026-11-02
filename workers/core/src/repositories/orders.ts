@@ -26,6 +26,8 @@ export interface OrderRow {
   readonly zone_id: Uint8Array;
   readonly fulfilment: string;
   readonly state: OrderState;
+  readonly pickup_lat_e7: number | string;
+  readonly pickup_lon_e7: number | string;
   readonly subtotal_paisa: number | string;
   readonly discount_paisa: number | string;
   readonly delivery_fee_paisa: number | string;
@@ -49,7 +51,8 @@ export interface OrderRow {
 }
 
 const COLUMNS =
-  "`id`, `code`, `customer_user_id`, `vendor_id`, `zone_id`, `fulfilment`, `state`, `subtotal_paisa`, " +
+  "`id`, `code`, `customer_user_id`, `vendor_id`, `zone_id`, `fulfilment`, `state`, `pickup_lat_e7`, " +
+  "`pickup_lon_e7`, `subtotal_paisa`, " +
   "`discount_paisa`, `delivery_fee_paisa`, `small_order_fee_paisa`, `tax_paisa`, `tip_paisa`, " +
   "`rounding_paisa`, `total_paisa`, `cash_collected_paisa`, `commission_paisa`, `rider_bonus_paisa`, " +
   "`rider_payout_paisa`, `vendor_payout_paisa`, `surge_bps`, `prep_time_s`, `rider_id`, " +

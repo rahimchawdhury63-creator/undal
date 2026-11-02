@@ -747,3 +747,17 @@ capture, so it is assertable with no camera, no GPS and no network.
 
 A delivery needs *one* door-side proof — photograph, signature or handover selfie — and a scanned
 pickup code does not count as one: it says the food left the kitchen, not that it reached a doorstep.
+## D72 — Pre-flight answers a question; pickup answers with the scanner's facts
+
+`POST /v1/orders/validate` returns `200` with four named checks and a `canPlace` flag, and only a
+malformed body is a 4xx. A basket that cannot be placed is not an error — it is the answer to the
+question the checkout screen asked, and the screen needs *all* the reasons at once so it can grey the
+button and highlight the right field. The checks are produced by unpacking the refusal the pricing
+service would have returned, so pre-flight and quote cannot disagree about the same cart.
+
+`POST /v1/orders/{id}/pickup` moves an order out of `RIDER_ASSIGNED` on evidence, not on request: the
+presented code is verified against the order's own rotating HMAC, the rider's position is checked
+against the same 150 m geofence a handover uses, and the guards are given the *scanner's* facts
+(`pickupCodeMatches`, `riderDistanceToVendorM`) rather than the request's claims. An order that is not
+waiting at the counter answers `QR_ALREADY_SCANNED` whatever the code contains, and a lost race on the
+state update writes no event row, so a concurrent scan leaves no phantom in the history.
