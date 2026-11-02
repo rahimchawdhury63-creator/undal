@@ -29,6 +29,20 @@ export function toHexId(bytes: Uint8Array): string {
 }
 
 /**
+ * The inverse of `toHexId`: 32 hex characters to sixteen bytes.
+ *
+ * Dashes are tolerated because a UUID arrives from a URL where it usually has them, and rejecting
+ * both spellings at different call sites is how two id formats end up in one table.
+ */
+export function fromHexId(hex: string): Uint8Array {
+  const clean = hex.replace(/-/gu, "");
+  if (!/^[0-9a-f]{32}$/iu.test(clean)) throw new RangeError(`not a hex id: ${hex}`);
+  const bytes = new Uint8Array(16);
+  for (let index = 0; index < 16; index += 1) bytes[index] = Number.parseInt(clean.slice(index * 2, index * 2 + 2), 16);
+  return bytes;
+}
+
+/**
  * A fresh opaque token, base64url so it survives a header and a URL alike.
  *
  * Refresh tokens and password-reset tokens are never stored: only the SHA-256 of

@@ -77,6 +77,8 @@ export class CartRefused extends Error {
 export interface PricedLine {
   readonly itemId: string;
   readonly quantity: number;
+  /** The modifier ids chosen, kept so a quote can be re-priced against the same choices. */
+  readonly modifierIds: readonly string[];
   readonly unitPricePaisa: number;
   readonly modifiersPaisa: number;
   readonly lineTotalPaisa: number;
@@ -124,6 +126,7 @@ function priceLine(input: CartLineInput, menu: ReadonlyMap<string, MenuEntry>, m
   return {
     itemId: entry.itemId,
     quantity: input.quantity,
+    modifierIds: [...input.modifiers],
     unitPricePaisa,
     modifiersPaisa,
     lineTotalPaisa: (unitPricePaisa + modifiersPaisa) * input.quantity,

@@ -22,6 +22,14 @@ export const QUOTE_TTL_MS = 5 * 60 * 1000;
 export interface QuotedItem {
   readonly menuItemId: string;
   readonly quantity: number;
+  /**
+   * The modifier ids chosen, when the quote recorded them.
+   *
+   * A re-price at placement must price the *same choices*, not merely the same item: without the ids
+   * a `৳15 extra cheese` would have to be trusted from the token as a number, and a modifier whose
+   * price moved in the five-minute window would go unnoticed.
+   */
+  readonly modifierIds?: readonly string[];
   /** The unit price in paisa at quote time, before item-level discounts. */
   readonly unitPricePaisa: number;
   /** Modifier total per unit, already summed. */

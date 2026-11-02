@@ -686,3 +686,31 @@ audit-coverage guardrail can stay strict about every other mutating verb without
 with thirty quotes a minute. Free delivery is applied *after* the fare engine, so the total and its
 rounding line are re-derived from the surviving components and floored once — a cash total is always
 whole taka.
+## D68 — Placement takes its cart from the signed token, and a guest quote is claimable once
+
+`POST /v1/orders` never reads a cart from the request body. The items come from the signed quote and
+are re-priced against today's menu and today's rates; the request contributes only what a quote cannot
+know — the delivery point and the customer's note. A client that sent its own items beside a stale
+token would otherwise order a different basket at the old price, and the re-price would confirm a cart
+nobody quoted.
+
+Re-pricing runs the *same* code as quoting (`pricing/cart-service.ts`), because a comparison between
+two implementations reports its own bugs. The snapshot now carries the chosen modifier ids
+(`QuotedItem.modifierIds`), so the re-price prices the same choices rather than trusting a modifier
+total from the token as a number.
+
+A guest quote records no customer, and the customer who signs in to place it claims it. A quote that
+already names a customer belongs to that customer alone. This is what makes it safe to issue a quote
+before the customer has an account, and it is a one-way claim: nothing re-opens a claimed quote.
+
+Refusals keep their own codes. An item that left the menu is `QUOTE_INGREDIENTS_CHANGED` — the
+customer is told the item is gone, not that "the total changed" — while a price that moved is
+`QUOTE_MISMATCH` with every differing line attached, and an expired token is `410 QUOTE_EXPIRED` even
+when the price is unchanged, because the five-minute promise is about *when* the customer agreed.
+
+## D69 — Distance is geography, not money, and it says which it is
+
+`domain/order/distance.ts` owns the straight-line estimate and the degrees→E7 conversion. Both round,
+and neither is money, so keeping them out of `pricing/` is what lets the money rule refuse *every*
+float in a pricing path with no exceptions to audit. `RouteEstimate` carries `source`, which travels
+into the quote as `distanceSource: "ESTIMATED"` and into the order row as `distance_source`.

@@ -119,9 +119,12 @@ export async function planPlacement(input: {
   if (!verdict.ok) throw new PlacementRefused(verdict.code);
 
   const quoted = verdict.snapshot;
-  if (quoted.customerId !== input.request.customerId || quoted.vendorId !== input.request.vendorId) {
-    throw new PlacementRefused("QUOTE_MISMATCH");
-  }
+  // A guest may price a cart (`08 §4`), and the customer who signs in to place it claims the quote:
+  // an unclaimed quote is claimable, a claimed one belongs to exactly one customer. A quote can
+  // therefore never be released to a second account, which is what makes it safe to hand out before
+  // the customer has an account at all.
+  const claimable = quoted.customerId === "" || quoted.customerId === input.request.customerId;
+  if (!claimable || quoted.vendorId !== input.request.vendorId) throw new PlacementRefused("QUOTE_MISMATCH");
   if (!sameItems(quoted.items, input.price.items)) {
     // The ingredients changed under the customer: a different cart is not a price problem, and
     // telling them "the total changed" when the item is gone would be a lie they can see.
