@@ -645,3 +645,24 @@ proof of it.
 `order_state_events.seq` is dense by construction, so `firstGap` treats a hole as an incident rather
 than as history. `orders.state` says where an order is; the event table is the only thing that can
 say how it got there, and a deleted row is a settlement dispute waiting for a quiet week.
+## D66 — Core prices money; the Brain prices the trip, and a disagreement never moves a price
+
+`10 §4` turns rider counts into a surge multiplier, and that curve is the one float in pricing. It
+lives in the Brain (`fare/surge.py`) and nowhere else: Core's deterministic engine takes the
+multiplier *published for the zone* as an integer input and refuses anything that is not a whole
+value in `10 000..22 000` bps. A second float implementation in TypeScript would be a second answer
+to "what does this trip cost", which is exactly what a published multiplier exists to prevent.
+
+Everything below the multiplier is integer paisa and is duplicated deliberately in
+`workers/core/src/pricing/fallback.ts`, because an order must still be priced when the Brain is cold,
+deploying, or merely slow. The duplication is falsifiable rather than hopeful: the same forty fare
+vectors the Python engine is tested against are read from the same file and run through the
+TypeScript engine in `test/pricing-fallback.test.ts`.
+
+`resolveFare` treats the Brain as a second opinion, never as the price. If it answers within its
+400 ms budget with whole paisa and agrees on all four published numbers (delivery fee, ride core,
+rider payout, surge), the order is stamped `fare_source = 'BRAIN'`. If it is late, unavailable,
+malformed, or disagrees by a single paisa, the deterministic breakdown stands, the order is stamped
+`'FALLBACK'`, and the reason plus every disagreeing field is returned so it can be counted. A
+Brain bug therefore cannot charge an unexplainable price, and a Brain outage costs nothing but a
+metric.
