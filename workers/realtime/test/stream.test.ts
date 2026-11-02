@@ -60,7 +60,7 @@ describe("stream response", () => {
       requestId: "req-1",
       channels,
       lastEventId: null,
-      replay: () => ({ frames: [], complete: true }),
+      replays: [],
       schedule: scheduler.schedule,
     });
     assert.equal(response.status, 200);
@@ -77,13 +77,15 @@ describe("stream response", () => {
       requestId: "req-2",
       channels,
       lastEventId: 41,
-      replay: () => ({
-        frames: [
-          { id: 42, event: "order.assigned", data: { riderId: "r1" } },
-          { id: 43, event: "order.picked_up", data: {} },
-        ],
-        complete: true,
-      }),
+      replays: [
+        {
+          frames: [
+            { id: 42, event: "order.assigned", data: { riderId: "r1" } },
+            { id: 43, event: "order.picked_up", data: {} },
+          ],
+          complete: true,
+        },
+      ],
       schedule: scheduler.schedule,
     });
     const reader = response.body?.getReader();
@@ -101,7 +103,7 @@ describe("stream response", () => {
       requestId: "req-3",
       channels,
       lastEventId: 1,
-      replay: () => ({ frames: [{ id: 90, event: "order.placed", data: {} }], complete: false }),
+      replays: [{ frames: [{ id: 90, event: "order.placed", data: {} }], complete: false }],
       schedule: scheduler.schedule,
     });
     const reader = response.body?.getReader();
@@ -118,7 +120,7 @@ describe("stream response", () => {
       requestId: "req-4",
       channels,
       lastEventId: null,
-      replay: () => ({ frames: [], complete: true }),
+      replays: [],
       schedule: scheduler.schedule,
     });
     const reader = response.body?.getReader();
@@ -136,7 +138,7 @@ describe("stream response", () => {
       requestId: "req-5",
       channels,
       lastEventId: null,
-      replay: () => ({ frames: [], complete: true }),
+      replays: [],
       schedule: scheduler.schedule,
     });
     assert.equal(scheduler.live(), 1);
@@ -154,10 +156,10 @@ describe("stream response", () => {
       requestId: "req-6",
       channels,
       lastEventId: 5,
-      replay: (channel) => {
+      replays: channels.map((channel) => {
         asked.push(`${channel.kind}:${channel.id}`);
         return { frames: [{ id: 6, event: "rider.online", data: {} }], complete: true };
-      },
+      }),
       schedule: scheduler.schedule,
     });
     assert.deepEqual(asked, ["order:A", "rider:self"]);

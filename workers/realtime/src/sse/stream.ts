@@ -27,8 +27,14 @@ export interface StreamOptions {
   readonly channels: readonly Channel[];
   /** The client's cursor, or `null` for "start from now". */
   readonly lastEventId: number | null;
-  /** The replay port. `null` cursor means no replay is asked for. */
-  readonly replay: (channel: Channel, cursor: number | null) => ChannelReplay;
+  /**
+   * What to send before the connection goes live, one entry per channel and in the same order.
+   *
+   * The replay is fetched by the caller, not here: a source backed by the order log is a query, and a
+   * streaming response that starts a query has to either buffer or interleave. The route awaits the
+   * replay first, then hands the response a value it can write synchronously.
+   */
+  readonly replays: readonly ChannelReplay[];
   /** A scheduler for the keepalive; the default is a real interval. Returns the stop function. */
   readonly schedule?: (emit: () => void) => () => void;
   readonly keepaliveMs?: number;
@@ -61,10 +67,8 @@ export function streamResponse(options: StreamOptions): Response {
   let stop: (() => void) | null = null;
   let closed = false;
 
-  // The replay is computed once, at construction, so the first pull is pure buffered output.
   const opening: string[] = [];
-  for (const channel of options.channels) {
-    const replay = options.replay(channel, options.lastEventId);
+  for (const replay of options.replays) {
     if (!replay.complete) opening.push(formatComment(RECONCILE_COMMENT));
     for (const frame of replay.frames) opening.push(formatFrame(frame));
   }
