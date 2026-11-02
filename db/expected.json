@@ -1,6 +1,6 @@
 {
   "note": "Derived from db/migrations by scripts/db/expected.py \u2014 do not edit by hand.",
-  "table_count": 113,
+  "table_count": 114,
   "tables": {
     "_smoke": {
       "columns": [
@@ -523,6 +523,13 @@
       ],
       "inline_checks": 3,
       "source": "010_support.sql"
+    },
+    "fcm_dispatches": {
+      "columns": [],
+      "generated": [],
+      "indexes": [],
+      "inline_checks": 0,
+      "source": "014_fcm_dispatches.sql"
     },
     "generation_locks": {
       "columns": [

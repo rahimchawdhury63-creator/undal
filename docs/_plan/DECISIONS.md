@@ -1137,3 +1137,10 @@ would be a log with a hole exactly where the interesting case is.
 *Open:* nothing fills `received_at` yet. `15 §8` wants the device's `alarm_received` frame to complete the
 row, which needs the socket's `alarm_received` message to reach core — the port is `ZoneHub`, where a
 heartbeat already arrives, and the receipt is the next rung rather than an omission of this one.
+
+One finding, recorded rather than fixed. `scripts/db/expected.py` only reads backticked column names, so
+twenty-eight tables parse as zero columns — `orders`, `users`, `devices`, `refresh_tokens` and now
+`fcm_dispatches` among them. The generated `db/expected.json` is still the file `verify_schema.py` compares a
+live database against, which means for those tables it compares nothing. The regeneration is committed here
+because CI regenerates and diffs it; the generator is a change of its own, and this note exists so the gap is
+a known one rather than a check that appears to pass.
