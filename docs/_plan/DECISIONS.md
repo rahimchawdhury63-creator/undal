@@ -1134,9 +1134,7 @@ An unknown order code and an unregistered token both still write a row, with `NU
 have named them. A send that happened is a send that happened; a log that dropped it for want of a foreign key
 would be a log with a hole exactly where the interesting case is.
 
-*Open:* nothing fills `received_at` yet. `15 §8` wants the device's `alarm_received` frame to complete the
-row, which needs the socket's `alarm_received` message to reach core — the port is `ZoneHub`, where a
-heartbeat already arrives, and the receipt is the next rung rather than an omission of this one.
+The receipt half of the loop is D87 — at the time this was written nothing filled `received_at`.
 
 One finding, recorded rather than fixed. `scripts/db/expected.py` only reads backticked column names, so
 twenty-eight tables parse as zero columns — `orders`, `users`, `devices`, `refresh_tokens` and now
@@ -1144,3 +1142,33 @@ twenty-eight tables parse as zero columns — `orders`, `users`, `devices`, `ref
 live database against, which means for those tables it compares nothing. The regeneration is committed here
 because CI regenerates and diffs it; the generator is a change of its own, and this note exists so the gap is
 a known one rather than a check that appears to pass.
+
+## D87 — The receipt arrives on the socket, and the device is the session's, never the frame's
+
+`15 §8` closes the delivery loop with the device's acknowledgement. There is exactly one place that can
+arrive: the presence socket, because the app does not call the API to say its alarm rang — the alarm is
+answered on a lock screen with no app in the foreground.
+
+So `ZoneHub` learned a second frame. `{"t":"alarm_received","orderId":…}` is no longer `not_a_heartbeat`;
+the room looks up the session that owns the socket and reports `(orderCode, deviceId, receivedAtMs)` to
+`POST /internal/fcm/receipts`, which fills `received_at` on the **latest unacknowledged** dispatch for that order
+and device. Anything else on the socket is still refused by name, so a client bug stays a message.
+
+**The device comes from the session, not the frame.** A payload that could name its own device could claim a
+delivery for a phone that never rang, and a delivery matrix built from self-reported identity would flatter
+exactly the broken phones it exists to find. The order does come from the frame: it is a fact about what rang,
+not about who is asking.
+
+A receipt is **not presence evidence**, and there is a test for it. A device can hear an alarm a second after
+its socket went quiet — that is the entire reason the alarm exists — so acknowledging a push must not move a
+heartbeat deadline or cancel an absence. The two frames answer different questions on the same socket.
+
+Two smaller decisions. The match is against the newest unacknowledged row, because an alarm rings three times
+and the receipt is for the one the device heard; and `received_at IS NULL` in the update makes a repeated frame
+a no-op rather than a second receipt. A receipt that matches nothing — an order deleted since, a device whose
+tokens were rotated — answers `recorded: 0` and writes no audit row: the alarm already rang, and a log entry
+about a row that was not there is noise.
+
+*Open:* `latencyMs` and `path` are validated-and-dropped. The client sends them and the matrix wants them;
+storing them needs two columns and a decision about whether the device's own measurement is evidence. Recorded
+here rather than half-done.

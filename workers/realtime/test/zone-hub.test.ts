@@ -20,6 +20,7 @@ import type { Clock } from "../src/lib/clock.ts";
 import { FixedClock } from "../src/lib/clock.ts";
 import { CoordinationRoom } from "../src/coordination/durable-object.ts";
 import { CLOSE_GOING_OFFLINE, CLOSE_HEARTBEAT_TIMEOUT, PRESENCE_GRACE_MS } from "../src/presence/grace.ts";
+import type { ReceiptRecorder } from "../src/authority/core-receipts.ts";
 import { FakeNamespace, fakeState } from "./support/fakes.ts";
 import { T0 } from "./support/backends.ts";
 
@@ -56,7 +57,10 @@ function environment(clock: Clock): ZoneHubEnv {
 }
 
 /** A room with a pair the test can hold both ends of. */
-function room(storeClock: FixedClock = new FixedClock(T0)): {
+function room(
+  storeClock: FixedClock = new FixedClock(T0),
+  receipts: ReceiptRecorder | null = null,
+): {
   hub: ZoneHub;
   server: FakeWebSocket;
   client: FakeWebSocket;
@@ -69,7 +73,7 @@ function room(storeClock: FixedClock = new FixedClock(T0)): {
     client: client as unknown as WebSocket,
     server: server as unknown as WebSocket,
   });
-  const hub = new ZoneHub(state, environment(storeClock), { clock: storeClock, pair });
+  const hub = new ZoneHub(state, environment(storeClock), { clock: storeClock, pair, receipts });
   return { hub, server, client, clock: storeClock };
 }
 
@@ -263,5 +267,87 @@ describe("identity on the upgrade", () => {
     assert.equal(roleFor("ADMIN"), "ADMIN");
     assert.equal(roleFor("CUSTOMER"), "CUSTOMER");
     assert.equal(roleFor("SOMETHING_ELSE"), "CUSTOMER");
+  });
+});
+
+/** A receipt recorder that remembers what it was told. */
+function receiptLog(): ReceiptRecorder & { readonly seen: { orderCode: string; deviceId: string; receivedAtMs: number }[] } {
+  const seen: { orderCode: string; deviceId: string; receivedAtMs: number }[] = [];
+  return {
+    seen,
+    async record(receipt: { orderCode: string; deviceId: string; receivedAtMs: number }): Promise<boolean> {
+      seen.push(receipt);
+      return true;
+    },
+  };
+}
+
+describe("the delivery receipt", () => {
+  const UPGRADES = new Request("https://rt.undal.app/v1/presence?zone=zone-1", {
+    headers: { Upgrade: "websocket", "X-Undal-Actor": "rider-a", "X-Undal-Actor-Type": "RIDER", "X-Undal-Device": "phone-1" },
+  });
+
+  test("an alarm_received frame is recorded against the session's device", async () => {
+    const log = receiptLog();
+    const { hub, server } = room(new FixedClock(T0), log);
+    await hub.upgrade(UPGRADES);
+    await hub.webSocketMessage(server as unknown as WebSocket, JSON.stringify({ t: "alarm_received", orderId: "UND-7K2M9QX4", latencyMs: 1_400 }));
+    assert.deepEqual(log.seen, [{ orderCode: "UND-7K2M9QX4", deviceId: "phone-1", receivedAtMs: T0 }]);
+  });
+
+  test("the device is taken from the session, not from the frame", async () => {
+    const log = receiptLog();
+    const { hub, server } = room(new FixedClock(T0), log);
+    await hub.upgrade(UPGRADES);
+    await hub.webSocketMessage(
+      server as unknown as WebSocket,
+      JSON.stringify({ t: "alarm_received", orderId: "UND-7K2M9QX4", deviceId: "somebody-elses-phone" }),
+    );
+    assert.equal(log.seen[0]?.deviceId, "phone-1");
+  });
+
+  test("a receipt is not presence evidence: it does not move the heartbeat deadline", async () => {
+    const clock = new FixedClock(T0);
+    const log = receiptLog();
+    const { hub, server } = room(clock, log);
+    await hub.upgrade(UPGRADES);
+    clock.set(T0 + 3_000);
+    await hub.webSocketMessage(server as unknown as WebSocket, JSON.stringify({ t: "alarm_received", orderId: "UND-7K2M9QX4" }));
+    // Past the 2 000 ms deadline, the sweep still finds the device silent.
+    await hub.alarm();
+    assert.equal(log.seen.length, 1);
+    assert.equal(server.closes.length, 1);
+  });
+
+  test("a frame with no order is refused by name", async () => {
+    const { hub, server } = room(new FixedClock(T0), receiptLog());
+    await hub.upgrade(UPGRADES);
+    await hub.webSocketMessage(server as unknown as WebSocket, JSON.stringify({ t: "alarm_received" }));
+    assert.deepEqual(server.lastFrame(), { t: "error", reason: "not_a_receipt" });
+  });
+
+  test("a receipt from a socket the room does not hold is refused", async () => {
+    const log = receiptLog();
+    const { hub, server } = room(new FixedClock(T0), log);
+    await hub.upgrade(UPGRADES);
+    const stranger = new FakeWebSocket();
+    await hub.webSocketMessage(stranger as unknown as WebSocket, JSON.stringify({ t: "alarm_received", orderId: "UND-7K2M9QX4" }));
+    assert.deepEqual(stranger.lastFrame(), { t: "error", reason: "not_connected" });
+    assert.deepEqual(log.seen, []);
+  });
+
+  test("a deployment with no receipt recorder does not answer the frame with an error", async () => {
+    const { hub, server } = room(new FixedClock(T0), null);
+    await hub.upgrade(UPGRADES);
+    await hub.webSocketMessage(server as unknown as WebSocket, JSON.stringify({ t: "alarm_received", orderId: "UND-7K2M9QX4" }));
+    assert.deepEqual(server.sent, []);
+  });
+
+  test("a heartbeat still works after a receipt", async () => {
+    const { hub, server } = room(new FixedClock(T0), receiptLog());
+    await hub.upgrade(UPGRADES);
+    await hub.webSocketMessage(server as unknown as WebSocket, JSON.stringify({ t: "alarm_received", orderId: "UND-7K2M9QX4" }));
+    await hub.webSocketMessage(server as unknown as WebSocket, JSON.stringify({ t: "hb", s: 1 }));
+    assert.equal(server.lastFrame().t, "hb_ack");
   });
 });

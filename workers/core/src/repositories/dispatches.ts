@@ -55,3 +55,46 @@ export async function insertDispatch(db: Db, row: DispatchRow): Promise<void> {
     [row.id, row.orderId, row.deviceId, row.token, row.attempt, row.outcome, row.messageId, row.sentAt, null],
   );
 }
+
+/** The tokens a device currently holds. A device may have refreshed its token; both stay valid for a while. */
+export async function tokensForDevice(db: Db, deviceId: Uint8Array): Promise<readonly string[]> {
+  const rows = await db.query<{ fcm_token: string }>(
+    "SELECT `fcm_token` FROM `device_tokens` WHERE `device_id` = ? AND `valid` = true",
+    [deviceId],
+  );
+  return rows.map((row) => row.fcm_token);
+}
+
+/**
+ * The most recent dispatch to this token for this order that has not been acknowledged.
+ *
+ * "Most recent" rather than "any": an alarm rings three times, and the receipt that comes back is for the
+ * one the device heard — which is the latest one it could have heard. Acknowledging an older row would leave
+ * the newest send looking undelivered, and the newest is the one the delivery matrix reads.
+ */
+export async function latestUnacknowledged(
+  db: Db,
+  orderId: Uint8Array,
+  token: string,
+): Promise<Uint8Array | null> {
+  const row = await db.first<{ id: Uint8Array }>(
+    "SELECT `id` FROM `fcm_dispatches` WHERE `order_id` = ? AND `fcm_token` = ? AND `received_at` IS NULL " +
+      "ORDER BY `sent_at` DESC LIMIT 1",
+    [orderId, token],
+  );
+  return row === null ? null : new Uint8Array(row.id);
+}
+
+/**
+ * Fill in the receipt.
+ *
+ * `received_at IS NULL` in the `WHERE` is what makes a receipt idempotent: a device that reports the same
+ * alarm twice — a reconnect, a retried frame — updates one row once and the second write matches nothing.
+ */
+export async function markReceived(db: Db, dispatchId: Uint8Array, receivedAt: string): Promise<boolean> {
+  const result = await db.execute(
+    "UPDATE `fcm_dispatches` SET `received_at` = ? WHERE `id` = ? AND `received_at` IS NULL",
+    [receivedAt, dispatchId],
+  );
+  return result.affectedRows === 1;
+}

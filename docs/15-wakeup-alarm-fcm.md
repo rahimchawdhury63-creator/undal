@@ -173,7 +173,7 @@ Only `undal-realtime` may call FCM. Core and Brain have no FCM binding at all, w
 | `SENDER_ID_MISMATCH` | Token deleted, error logged — means a config mistake |
 | `QUOTA_EXCEEDED` | Exponential backoff, admin exception; FCM's free quota is effectively unlimited for this volume but the handler exists |
 | Latency budget | p95 FCM accept ≤ 400 ms; breaches are logged and charted |
-| Delivery proof | Every send stores `(message_id, token, sent_at)` in `fcm_dispatches` — reported by `undal-realtime` to `POST /internal/fcm/dispatches` and written by `undal-core`, because only core may write TiDB (D86); the device ACKs receipt over the socket, closing the loop and producing a real measured delivery rate per device model |
+| Delivery proof | Every send stores `(message_id, token, sent_at)` in `fcm_dispatches` — reported by `undal-realtime` to `POST /internal/fcm/dispatches` and written by `undal-core`, because only core may write TiDB (D86); the device ACKs receipt over the socket (`ZoneHub` forwards an `alarm_received` frame to `POST /internal/fcm/receipts`, D87), closing the loop and producing a real measured delivery rate per device model |
 
 ---
 

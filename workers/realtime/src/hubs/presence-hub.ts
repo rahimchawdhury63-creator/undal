@@ -147,6 +147,19 @@ export class PresenceHub {
   }
 
   /**
+   * Who a socket belongs to, or `null` when this room does not hold it.
+   *
+   * The receipt path needs this: a device's `alarm_received` frame names an order, not a device, and the
+   * session is the only place the room knows which device sent it. An unknown socket answers `null` rather
+   * than throwing — a receipt that arrives as the socket is closing is a race, not an error.
+   */
+  async sessionFor(socket: HubSocket): Promise<PresenceSession | null> {
+    await this.load();
+    const entry = [...this.sockets.values()].find((held) => held.socket === socket);
+    return entry === undefined ? null : entry.session;
+  }
+
+  /**
    * A socket closed.
    *
    * Nothing is published yet. The return value is what was scheduled, so a caller can log the grace it

@@ -21,12 +21,28 @@ import { systemClock } from "../lib/clock.ts";
 import { PresenceHub } from "./presence-hub.ts";
 import { CLOSE_GOING_OFFLINE } from "../presence/grace.ts";
 import { coordinatorFrom } from "../coordination/from-env.ts";
+import { createCoreReceiptRecorder } from "../authority/core-receipts.ts";
+import type { ReceiptRecorder } from "../authority/core-receipts.ts";
 import type { CoordinatorEnv } from "../coordination/from-env.ts";
 import type { PresenceRole } from "../coordination/coordinator.ts";
 
 /** The bindings the room needs. */
 export interface ZoneHubEnv extends CoordinatorEnv {
   readonly INTERNAL_TOKEN?: string;
+  /** Where core is, for the receipt a `alarm_received` frame produces. */
+  readonly CORE_BASE_URL?: string;
+  readonly PUBLIC_API_BASE?: string;
+}
+
+/** The frame a device sends when the alarm it was pushed actually rang (`15 §8`). */
+export interface AlarmReceivedFrame {
+  readonly t: string;
+  /** The public order code the alarm was for. */
+  readonly orderId?: unknown;
+  /** How long the device measured between the push arriving and the alarm starting. */
+  readonly latencyMs?: unknown;
+  /** `FCM` or `SOCKET`, as the device reports the path. Recorded nowhere yet, validated and dropped. */
+  readonly path?: unknown;
 }
 
 /** A connected device, as the Worker passes it in headers after verifying the token. */
@@ -68,15 +84,23 @@ export class ZoneHub {
   private hubInstance: PresenceHub | null = null;
 
   private readonly pair: SocketPairFactory;
+  /** Where a delivery receipt goes. Absent, receipts are acknowledged-and-forgotten (D86). */
+  private readonly receipts: ReceiptRecorder | null;
 
   constructor(
     state: DurableObjectState,
     env: ZoneHubEnv,
-    deps: { clock?: Clock; pair?: SocketPairFactory } = {},
+    deps: { clock?: Clock; pair?: SocketPairFactory; receipts?: ReceiptRecorder | null } = {},
   ) {
     this.state = state;
     this.env = env;
     this.clock = deps.clock ?? systemClock;
+    this.receipts =
+      deps.receipts === undefined
+        ? (this.env.INTERNAL_TOKEN === undefined || this.env.INTERNAL_TOKEN === ""
+            ? null
+            : createCoreReceiptRecorder(this.env.CORE_BASE_URL ?? this.env.PUBLIC_API_BASE ?? "", this.env.INTERNAL_TOKEN))
+        : deps.receipts;
     this.pair =
       deps.pair ??
       (() => {
@@ -135,14 +159,25 @@ export class ZoneHub {
     return { ok: true, client, server, zoneId, session: session.session };
   }
 
-  /** A heartbeat, or a polite refusal of anything else. */
+  /**
+   * Two kinds of frame arrive on this socket, and they answer different questions.
+   *
+   * A heartbeat says *the device is alive*, and it feeds presence. An `alarm_received` frame says *the alarm
+   * rang*, and it feeds the delivery log (`15 §8`) — it is not presence evidence, because a device can hear an
+   * alarm while its socket is a second late, and the whole point of the alarm is that it does not need the
+   * socket. Anything else is refused by name, so a client bug is a message rather than a silent drop.
+   */
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const text = typeof message === "string" ? message : new TextDecoder().decode(message);
-    let frame: HeartbeatFrame;
+    let frame: HeartbeatFrame & AlarmReceivedFrame;
     try {
-      frame = JSON.parse(text) as HeartbeatFrame;
+      frame = JSON.parse(text) as HeartbeatFrame & AlarmReceivedFrame;
     } catch {
       ws.send(JSON.stringify({ t: "error", reason: "not_json" }));
+      return;
+    }
+    if (frame.t === "alarm_received") {
+      await this.noteAlarmReceived(ws, frame);
       return;
     }
     if (frame.t !== "hb" || typeof frame.s !== "number") {
@@ -151,6 +186,33 @@ export class ZoneHub {
     }
     const hub = await this.hub();
     await hub.beat(ws, frame.s);
+  }
+
+  /**
+   * The alarm rang on the device, and the room says so to core.
+   *
+   * The order comes from the frame; the **device** comes from the session, never from the frame. A client that
+   * could name its own device could claim a delivery for a phone that never heard anything, and a delivery
+   * matrix built on self-reported identity is a matrix that flatters every broken phone.
+   */
+  private async noteAlarmReceived(ws: WebSocket, frame: AlarmReceivedFrame): Promise<void> {
+    const orderCode = typeof frame.orderId === "string" ? frame.orderId.trim() : "";
+    if (orderCode === "" || orderCode.length > 64) {
+      ws.send(JSON.stringify({ t: "error", reason: "not_a_receipt" }));
+      return;
+    }
+    const hub = await this.maybeHub();
+    if (hub === null) {
+      ws.send(JSON.stringify({ t: "error", reason: "not_connected" }));
+      return;
+    }
+    const session = await hub.sessionFor(ws);
+    if (session === null) {
+      ws.send(JSON.stringify({ t: "error", reason: "not_connected" }));
+      return;
+    }
+    if (this.receipts === null) return;
+    await this.receipts.record({ orderCode, deviceId: session.deviceId, receivedAtMs: this.clock.nowMs() });
   }
 
   /**
