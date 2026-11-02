@@ -27,10 +27,9 @@ import {
   isHalted,
   noteProbeReply,
   noteSeen,
-  reapDecision,
-  shouldAutoCancel,
   startLadder,
 } from "../src/presence/escalation.ts";
+import { reapDecision, shouldAutoCancel } from "../src/presence/reaper.ts";
 import { buildEvidence, ladderEntries } from "../src/presence/evidence.ts";
 import { T0 } from "./support/backends.ts";
 

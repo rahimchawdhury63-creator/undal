@@ -15,7 +15,7 @@
  */
 
 import { HEARTBEAT_DEADLINE_MS } from "../coordination/coordinator.ts";
-import { HEARTBEAT_INTERVAL_MS, MISSED_ACKS_BEFORE_TEARDOWN } from "./policy.ts";
+import { HEARTBEAT_INTERVAL_MS, MISSED_ACKS_BEFORE_TEARDOWN } from "./grace.ts";
 
 /** One device's heartbeat counters. */
 export interface HeartbeatState {

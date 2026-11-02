@@ -31,7 +31,7 @@ import {
   isWithinDetectionBudget,
   publishAtMs,
   worstCaseDetectionMs,
-} from "../src/presence/policy.ts";
+} from "../src/presence/grace.ts";
 import {
   deadlineOf,
   isSilent,

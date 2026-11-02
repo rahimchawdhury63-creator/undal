@@ -16,7 +16,7 @@
  * once per device: a device that is already absent and closes again is not a second absence.
  */
 
-import type { AbsenceReason } from "./policy.ts";
+import type { AbsenceReason } from "./grace.ts";
 
 /** An absence that has been scheduled but not yet published. */
 export interface PendingAbsence {
