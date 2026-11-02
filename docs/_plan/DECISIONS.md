@@ -991,3 +991,45 @@ you are, not which orders are yours; the second changes with every assignment.
 The `sql` coordinator's executor (D77) is the *other* thing this route is the boundary for, and it stays
 unbuilt: it needs the same token and a statement-level permission that has not been designed yet. Naming it
 here is deliberate so the next reader does not mistake one finished port for two.
+
+## D83 — The push payload is data-only and signed, and its access token is cached in the isolate
+
+`15 §2.1` fixes the payload and `15 §2.2` shows a KV-backed token cache. The payload is built exactly as
+specified — `v`, `type`, `severity`, the order and vendor, `issuedAt`/`expiresAt`, `itemCount`,
+`totalPaisa`, `customerArea`, `alarm`, `alarmMaxMs`, `sig`, with `android.priority: "high"`, a TTL of at
+most 300 s, `collapse_key`, `direct_boot_ok` — with two additions and one deviation, all recorded here.
+
+**The signature is hex, over the sorted map, excluding `sig` itself.** `k=v` pairs joined by a newline,
+HMAC-SHA256, lowercase hex — the same construction `11 §3` uses for other signed payloads. Sorting is not
+cosmetic: JSON object order is not preserved across every runtime the platform touches, so a signature over
+the serialised JSON would verify on the Worker and fail on a device built by a different Kotlin compiler.
+Excluding `sig` lets the map be signed once and the signature inserted, which is why `signatureOf` is a
+pure function of the map.
+
+**Every data value is a string, and money is integer paisa.** FCM's client map is `Map<String, String>`;
+a number that arrives as a number is an integer on one platform and a double on another, and ৳549.00 as a
+double is 54900.0000000001 paisa by the time it is formatted. `totalPaisa` crosses as `"54900"` and the
+client formats it.
+
+**Attempts are numbered.** The ladder sends a second push at 10 s and a third at 25 s (`14 §4.1`), and they
+replace rather than stack via `collapse_key`. Each carries `attempt: "2"` / `"3"` so the device can tell
+which one it is ringing for, and the evidence block (`presence/evidence.ts`) records the message ids.
+
+*Deviation:* the access token is cached **in the isolate**, not in KV. A token lives an hour; a KV read per
+alarm would be a paid request per push for a value that changes twelve times a day per isolate, and a cold
+isolate can mint a new one in a WebCrypto signature plus one HTTPS round trip. Refresh is single-flight, so
+the first alarm of a busy minute mints one token rather than twenty, and a failed mint is not inherited by
+the next caller. The cache object is per `createTokenSource` call, so two isolates each hold their own —
+which is correct, because a token is cheap and a shared one would need a shared store.
+
+The sender is the only module that may POST to FCM, and it addresses `https://fcm.googleapis.com/v1/…`
+from a constant rather than a caller-supplied URL. Failures are classified, not retried blindly:
+`UNREGISTERED`/`NOT_FOUND` means delete the token (and, if it was the device's last, raise an exception),
+`SENDER_ID_MISMATCH` means a build pointing at the wrong project, `QUOTA_EXCEEDED` backs off, and
+everything else gets three attempts at 250/750/2 000 ms. A deployment with only one of the two secrets is
+refused at construction (`fcmFrom`), because a service account with no signing key would send payloads every
+device discards while the platform recorded a successful delivery.
+
+*Open:* the ladder that calls this module (`presence/escalation.ts` decides *what* is due) still has no
+scheduler storing ladder state across isolates, and `fcm_dispatches` (`15 §8`) has no table. Both are the
+next rung, not omissions of this one.

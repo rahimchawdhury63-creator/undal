@@ -36,6 +36,10 @@ export interface RealtimeEnv {
   readonly INTERNAL_TOKEN?: string;
   /** Where core is, for the questions only core can answer. Defaults to `PUBLIC_API_BASE`. */
   readonly CORE_BASE_URL?: string;
+  /** The service account that may send a push. Present, this Worker can wake a locked phone (D83). */
+  readonly FIREBASE_SERVICE_ACCOUNT_JSON?: string;
+  /** The HMAC key payloads are signed with; the Android client holds the same one. */
+  readonly FCM_SIG_KEY?: string;
   /** One room per stream channel: the durable rings a broadcast is remembered in. */
   readonly STREAM_ROOM?: DurableObjectNamespace;
   /** One room per zone: the presence sockets, and the heartbeats they are kept alive by. */

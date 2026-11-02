@@ -156,6 +156,10 @@ export async function getAccessToken(env: Env): Promise<string> {
 environment variable by the deploy workflow. It never appears in the repository, in a log, or in
 any client.
 
+The implementation lives in `workers/realtime/src/fcm/` (`payload.ts`, `token.ts`, `send.ts`,
+`from-env.ts`). Two details differ from the sketches above and are recorded in D83: the signature is
+lowercase hex over the sorted data map, and the access token is cached in the isolate rather than KV.
+
 ### 2.3 Sending
 
 Only `undal-realtime` may call FCM. Core and Brain have no FCM binding at all, which makes the
