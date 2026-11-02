@@ -55,7 +55,7 @@ import { advanceState, claimState, closeState, dispatchKey, openState, withdrawS
 import { leaseFrom } from "./lease.ts";
 import type { Clock } from "../lib/clock.ts";
 import { systemClock } from "../lib/clock.ts";
-import { uuidv7 } from "@undal/contracts";
+import { COORDINATION_STATEMENTS, uuidv7 } from "@undal/contracts";
 
 /** The SQL surface the coordinator needs. The core Worker's `Db` satisfies it. */
 export interface SqlExecutor {
@@ -120,39 +120,36 @@ export function sqlTime(atMs: number): string {
   return new Date(atMs).toISOString().slice(0, 23).replace("T", " ");
 }
 
-/** The claim statement, spelled once so the tests can assert the lock is in the WHERE clause. */
-export const CLAIM_SQL = `UPDATE dispatch_locks
-   SET holder = ?, expires_at = ?
- WHERE order_id = UNHEX(?)
-   AND (holder = 'NONE' OR (holder = ? AND expires_at >= ?) OR expires_at < ?)`;
+/**
+ * The statements this coordinator composes.
+ *
+ * They live in the shared catalogue (`D90`) rather than here, because the free path does not run SQL in this
+ * Worker: core does. The coordinator still *composes* the statement — it holds the spelling, chooses the
+ * parameters and decides which statement a situation calls for — and the executor sends the catalogue's
+ * name, so the SQL itself never crosses the service boundary.
+ */
+export const CLAIM_SQL = COORDINATION_STATEMENTS.claim_lock.sql;
 
 /** The row that must exist before anybody can claim. */
-export const OPEN_LOCK_SQL = `INSERT IGNORE INTO dispatch_locks (id, order_id, holder, expires_at, created_at)
-VALUES (UNHEX(?), UNHEX(?), 'NONE', ?, ?)`;
+export const OPEN_LOCK_SQL = COORDINATION_STATEMENTS.open_lock.sql;
 
 /** Release a lock won by a claim that then turned out to be invalid. */
-export const RELEASE_LOCK_SQL = `UPDATE dispatch_locks
-   SET holder = 'NONE', expires_at = ?
- WHERE order_id = UNHEX(?) AND holder = ?`;
+export const RELEASE_LOCK_SQL = COORDINATION_STATEMENTS.release_lock.sql;
 
 /** Who holds the lock, for the loser's answer and for an admin looking at a stuck order. */
-export const LOCK_HOLDER_SQL = `SELECT holder, expires_at FROM dispatch_locks WHERE order_id = UNHEX(?)`;
+export const LOCK_HOLDER_SQL = COORDINATION_STATEMENTS.lock_holder.sql;
 
 /** The next sequence number for an order's log. */
-export const NEXT_SEQ_SQL = `SELECT COALESCE(MAX(seq), 0) AS maxSeq FROM order_state_events WHERE order_id = UNHEX(?)`;
+export const NEXT_SEQ_SQL = COORDINATION_STATEMENTS.next_seq.sql;
 
 /** Append one event. The unique index on `(order_id, seq)` is the arbiter of a lost race. */
-export const INSERT_EVENT_SQL = `INSERT INTO order_state_events
-  (id, order_id, seq, from_state, to_state, actor_type, actor_user_id, reason_code, reason_text, metadata, occurred_at)
-VALUES (UNHEX(?), UNHEX(?), ?, NULL, ?, ?, ?, NULL, NULL, ?, ?)`;
+export const INSERT_EVENT_SQL = COORDINATION_STATEMENTS.insert_event.sql;
 
 /** The replay query: everything after a sequence number, oldest first. */
-export const READ_EVENTS_SQL = `SELECT seq, to_state AS kind, actor_type AS actorType, actor_user_id AS actorId,
-       metadata, occurred_at AS occurredAt
-  FROM order_state_events
- WHERE order_id = UNHEX(?) AND seq > ?
- ORDER BY seq ASC
- LIMIT ?`;
+export const READ_EVENTS_SQL = COORDINATION_STATEMENTS.read_events.sql;
+
+/** A liveness read that touches nothing and needs no table. */
+export const PING_SQL = COORDINATION_STATEMENTS.ping.sql;
 
 /** A row of `READ_EVENTS_SQL`, before the JSON column is decoded. */
 interface EventRow {
@@ -464,7 +461,7 @@ export class TiDBCoordinator implements Coordinator {
   async health(): Promise<BackendHealth> {
     const started = this.clock.nowMs();
     try {
-      await this.sql.query("SELECT 1 AS one");
+      await this.sql.query(PING_SQL);
       return {
         backend: "sql",
         ok: true,

@@ -48,5 +48,9 @@ PUBLIC_API_BASE = "https://api.undal.app"
 CORE_BASE_URL = "https://api.undal.app"
 COORDINATION_MODE = "sql"
 
+# The default mode is the free one, and it reaches the database through core: `CORE_BASE_URL` above plus the
+# `INTERNAL_TOKEN` secret. Without both, the Worker says `coordinator_not_configured` and names what is
+# missing rather than starting a coordinator that cannot claim an order (D90).
+
 # Secrets are never written here. `undal-realtime` is given `JWT_PUBLIC_KEY` (the public half of the
 # session signing key, base64url JWK) so it can verify a token and cannot mint one (`29 §2.6`).

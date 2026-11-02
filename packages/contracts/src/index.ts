@@ -30,6 +30,16 @@ export {
   type CursorPage,
 } from "./common/pagination.ts";
 
+export {
+  ALL_COORDINATION_STATEMENTS,
+  COORDINATION_STATEMENTS,
+  MAX_STATEMENT_PARAMS,
+  MAX_STATEMENT_ROWS,
+  statementByName,
+  statementFor,
+  type CoordinationStatement,
+  type CoordinationStatementName,
+} from "./coordination/statements.ts";
 export { LAT_CELL_DIVISOR, LON_CELL_DIVISOR, cellFor, cellLatIndex, cellLonIndex, cellsWithin } from "./db/cell.ts";
 export {
   bboxOf,

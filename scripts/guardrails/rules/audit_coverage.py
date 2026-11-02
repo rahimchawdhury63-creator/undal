@@ -29,6 +29,13 @@ MUTATION = re.compile(r"['\"](POST|PATCH|PUT|DELETE)['\"]")
 #: that only reads. Without it the rule would either miss real mutations or fill the audit log with
 #: thirty quotes a minute.
 READ_ONLY = re.compile(r"\breadOnly:\s*true\b")
+#: A route whose mutations are recorded somewhere the audit log is not the place for, with a reason
+#: attached. One route needs this: the coordinator's statement executor (`D90`), which is a pipe to SQL
+#: that writes lock rows, order events and coordinator state. An audit row per statement would be a trace
+#: of SQL rather than of decisions, and the claim path would serialise fifty racing riders behind one
+#: hash-linked chain. The marker is not a free pass: it has to carry at least sixteen characters of
+#: reason, so the exemption is an argument a reviewer reads rather than a word a handler types.
+AUDIT_EXEMPT = re.compile(r"audit-exempt:\s*\S.{15,}")
 
 AUDIT_CALL = re.compile(
     r"\baudit\.(write|record|append)(Audit|Row|Entry)?\b|\brecordAudit\b|\bauditWrite\b"
@@ -42,7 +49,12 @@ def check(root: Path) -> list[Finding]:
         if is_test_path(rel) or "/routes/" not in rel or not rel.startswith("workers/"):
             continue
         text = read(path)
-        if MUTATION.search(text) and not AUDIT_CALL.search(text) and not READ_ONLY.search(text):
+        if (
+            MUTATION.search(text)
+            and not AUDIT_CALL.search(text)
+            and not READ_ONLY.search(text)
+            and not AUDIT_EXEMPT.search(text)
+        ):
             findings.append(
                 Finding("audit-coverage", rel, 0, "declares a mutating route but writes no audit row")
             )

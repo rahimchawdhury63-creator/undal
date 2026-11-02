@@ -229,18 +229,22 @@ actually checked" is not a state the platform can be in.
 | Orders | `orders`, `order_items`, `order_item_modifiers`, `order_state_events`, `order_fees`, `order_discounts`, `order_assignments`, `order_offers`, `order_batches`, `order_batch_members`, `order_proofs`, `order_cancellations`, `order_ratings`, `order_disputes`, `order_dispute_messages` | 15 |
 | Money | `ledger_accounts`, `ledger_entries`, `ledger_postings`, `payout_periods`, `invoices`, `invoice_lines`, `invoice_documents`, `payout_transactions`, `platform_config`, `config_audit`, `tax_records`, `rounding_adjustments` | 12 |
 | Marketing | `promo_codes`, `promo_redemptions`, `campaigns`, `campaign_budgets`, `campaign_redemptions`, `referrals`, `loyalty_tiers`, `customer_loyalty`, `reminders`, `reminder_sends` | 10 |
-| Operations | `audit_log`, `audit_verifications`, `ops_errors`, `ops_metrics`, `ops_logs`, `effect_dead_letters`, `brain_traces`, `dispatch_locks`, `generation_locks`, `exceptions`, `support_tickets`, `support_messages`, `weather_observations`, `notification_log`, `fcm_dispatches` | 15 |
-| **Total** | | **112** |
+| Operations | `audit_log`, `audit_verifications`, `ops_errors`, `ops_metrics`, `ops_logs`, `effect_dead_letters`, `brain_traces`, `dispatch_locks`, `generation_locks`, `exceptions`, `support_tickets`, `support_messages`, `weather_observations`, `notification_log`, `fcm_dispatches`, `coordination_state` | 16 |
+| **Total** | | **113** |
 
 > The rows above sum to 109, not the 99 this table used to claim: the per-group counts were
 > always right and the total was an arithmetic slip, recorded as D43 in `_plan/DECISIONS.md`.
-> The migrations implement the 111 names, and `check_schema_parity` fails the build if the two
+> The migrations implement the 112 names, and `check_schema_parity` fails the build if the two
 > lists ever disagree again. `refresh_tokens` and `security_events` joined the identity group with
 > the auth foundation (D48): the specification requires rotation with family reuse detection and
 > the event reuse raises, and neither behaviour is implementable without a row to hold it.
 > `fcm_dispatches` joined Operations with the push log (D86): `15 §8` requires a row per send so the
 > delivery matrix is built from data rather than from the absence of complaints, and the rows are
 > written by `undal-core` on `undal-realtime`'s behalf because only core may write TiDB.
+> `coordination_state` joined Operations with the free coordination backend (D90): the wave plan, the
+> zone counter and the presence row need a key, a value and an expiry, and D89's arithmetic rules out
+> Workers KV for them. Its rows are written by core on realtime's behalf for the same single-writer
+> reason — the coordinator composes the statement, and `POST /internal/coordination/statements` runs it.
 
 Three tables are new, and all three exist because a database mechanism went away rather than
 because a feature arrived:

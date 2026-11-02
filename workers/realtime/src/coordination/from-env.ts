@@ -11,14 +11,21 @@
  * is one function, and every caller gets the same answer to the same environment.
  */
 
-import type { Coordinator } from "./coordinator.ts";
+import type { Coordinator, CoordinatorMode } from "./coordinator.ts";
+import { createCoreSqlExecutor } from "./core-sql.ts";
 import { DurableObjectCoordinator } from "./durable-object.ts";
+import { TiDBCoordinator } from "./tidb.ts";
+import { createTiDBStateStore } from "./tidb-store.ts";
 import { readCoordinatorMode } from "../lib/config.ts";
 
 /** The environment keys this factory reads. */
 export interface CoordinatorEnv {
   readonly COORDINATION_MODE?: string;
   readonly COORDINATION_ROOM?: DurableObjectNamespace;
+  /** Where core is, for the `sql` backend's statements (D90). */
+  readonly CORE_BASE_URL?: string;
+  /** The token core's internal surface requires. Absent means the surface answers 403, so the mode cannot. */
+  readonly INTERNAL_TOKEN?: string;
 }
 
 /** Why a coordinator could not be built. */
@@ -30,15 +37,18 @@ export interface CoordinatorUnavailable {
 
 /** A coordinator, or the reason there is none. */
 export type CoordinatorResult =
-  | { readonly ok: true; readonly coordinator: Coordinator; readonly mode: "durable-object" }
+  | { readonly ok: true; readonly coordinator: Coordinator; readonly mode: CoordinatorMode }
   | { readonly ok: false; readonly error: CoordinatorUnavailable };
 
 /**
  * Build the coordinator.
  *
- * Only the `durable-object` mode can be built here. The `sql` backend composes its statements over a
- * `SqlExecutor` that is filled by core's internal surface (`D77`), which does not exist yet — so rather
- * than pretend, this reports `coordinator_not_configured` with the mode in it.
+ * Both backends are real, and each refuses with the reason it cannot be built rather than falling back to
+ * the other: a deployment that believes it is on the free path while every socket is being coordinated by a
+ * Durable Object is a bill someone did not plan for, and the reverse is a capacity the operator paid for and
+ * is not using. The `sql` backend needs core's address and the internal token, because that is where the SQL
+ * runs (`D90`) — the coordinator composes statements and core executes them, so a Worker with no address has
+ * nowhere to send one.
  */
 export function coordinatorFrom(env: CoordinatorEnv): CoordinatorResult {
   let mode;
@@ -50,12 +60,32 @@ export function coordinatorFrom(env: CoordinatorEnv): CoordinatorResult {
       error: { reason: "misconfigured", detail: error instanceof Error ? error.message : String(error) },
     };
   }
-  if (mode !== "durable-object" || env.COORDINATION_ROOM === undefined) {
+  if (mode === "sql") {
+    const baseUrl = (env.CORE_BASE_URL ?? "").trim();
+    const token = (env.INTERNAL_TOKEN ?? "").trim();
+    const missing = [
+      baseUrl === "" ? "CORE_BASE_URL" : null,
+      token === "" ? "INTERNAL_TOKEN" : null,
+    ].filter((name): name is string => name !== null);
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        error: {
+          reason: "coordinator_not_configured",
+          detail: `the sql backend needs ${missing.join(" and ")} so core can run its statements`,
+          mode,
+        },
+      };
+    }
+    const executor = createCoreSqlExecutor(baseUrl, token);
+    return { ok: true, coordinator: new TiDBCoordinator(executor, createTiDBStateStore(executor)), mode };
+  }
+  if (env.COORDINATION_ROOM === undefined) {
     return {
       ok: false,
       error: {
         reason: "coordinator_not_configured",
-        detail: "the sql backend needs core's internal surface before a coordinator can be built",
+        detail: "the durable-object backend needs a COORDINATION_ROOM binding",
         mode,
       },
     };

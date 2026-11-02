@@ -96,7 +96,7 @@ entry.
 | `GOOGLE_OAUTH_CLIENT_SECRET` | `undal-core` | High |
 | `ADMIN_OIDC_*` | `undal-core` | High, when SSO is configured |
 | `JWT_PUBLIC_KEY` | `undal-realtime` | None — the public half. `undal-realtime` verifies a session and cannot mint one. An optional secret: absent, realtime refuses rather than trusting (D79) |
-| `INTERNAL_TOKEN` | `undal-core` → `undal-realtime` | Medium — reaches the internal surface (`/internal/presence`, `/internal/broadcast`). Optional: absent, that surface answers `403`. Rotating it degrades presence, not money |
+| `INTERNAL_TOKEN` | `undal-core` → `undal-realtime` | Medium — reaches the internal surface (`/internal/presence`, `/internal/broadcast`, `/internal/coordination/statements`). Optional: absent, that surface answers `403`. Rotating it degrades presence, not money |
 
 ### 2.7 Finance
 

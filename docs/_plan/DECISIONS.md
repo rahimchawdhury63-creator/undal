@@ -1236,3 +1236,53 @@ store holds and the readers judge: `/internal/presence` answers `online` by the 
 *Open:* the store itself is still the test's `MemoryStore`. `presence_sessions` as a table, and the executor
 that lets core write it, are the next rung — this one fixes the write pattern so that rung has a budget to
 fit inside.
+
+## D90 — The free path's statement travels as a name, and core is the only hand on the database
+
+D77 left the `sql` backend unbuildable: `coordinatorFrom` returned `coordinator_not_configured` because the
+`SqlExecutor` port needed core's internal surface and there was none. This rung builds it, and the shape it
+takes is the decision.
+
+**A name crosses the boundary, never SQL.** `undal-realtime` composes a statement — `CLAIM_SQL`, `state_put`,
+whichever a situation calls for — and the executor turns that text into a catalogue name before anything
+leaves the Worker; core looks the name up and runs *that* statement. The catalogue lives in
+`@undal/contracts`, so there is exactly one spelling of `claim_lock` in the platform, `statementFor` proves
+the coordinator's constant is that spelling, and a statement a caller invented cannot be sent at all: it has
+no name. The alternative — a route that accepts SQL text from a sibling Worker — would be a database proxy
+inside the trust boundary, which is the specific thing `05 §2.1` exists to prevent.
+
+**Thirteen statements, thirteen fixed spellings.** Locks (`open_lock`, `claim_lock`, `release_lock`,
+`lock_holder`), the order log (`next_seq`, `insert_event`, `read_events`), a liveness read (`ping`), and the
+coordinator's state (`state_get`, `state_put`, `state_delete`, `state_list`). No table, column, ordering or
+limit is caller-chosen; parameters are strings, finite numbers and `null`, and a boolean or an object is
+refused rather than coerced, because a driver that quietly turned `true` into `1` is how a lock comes back
+held by nobody. Reads answer `{rows, truncated}` and writes answer `{affectedRows}` — the kind is the
+catalogue's, not a sniff of the SQL.
+
+**The executor throws.** A claim that answered `affectedRows: 0` because core was unreachable is
+indistinguishable from a claim another rider won, and the coordinator would tell a rider the offer was taken
+when it was never offered. Timeouts abort the request and reject: 900 ms, the same budget the other
+authority calls carry.
+
+**The state the coordinator keeps is a table, not a product.** `coordination_state` (`016`) is a key, an
+opaque JSON value and an expiry. D77 named Workers KV and D89 retired it: 1 000 writes a day is one vendor's
+morning. The store validates its own keys — no `%`, no `_`, at most 191 characters — because the listing is a
+`LIKE` prefix and a key carrying a pattern character would turn a zone's presence into every zone's. Expiry is
+an absolute instant computed on the caller's clock, so a row stops being read as present at the moment the
+coordinator that wrote it said it would.
+
+**The route is exempt from the audit rule, on the record.** It writes lock rows, order events and coordinator
+state, and every one of those is the effect of a decision made in the coordinator or in core's order routes,
+where the audit row already lives. An audit row per statement would be a trace of SQL rather than of
+decisions, and on the claim path it would put fifty racing riders behind one hash-linked chain for a row that
+exists to be contended. The exemption is a marker the rule accepts — `audit-exempt:` with a reason of at
+least sixteen characters — so it is an argument a reviewer reads, and the rule still rejects a bare one.
+
+With this, `COORDINATION_MODE=sql` builds when `CORE_BASE_URL` and `INTERNAL_TOKEN` are present, and refuses
+by name when one is missing. What has *not* been measured is the number R10 gates on: presence p95 on the
+`sql` backend. The binding hop is now real, so the next rung can take that measurement instead of estimating
+it.
+
+*Open:* `state_list` is capped at 500 rows, so a zone with more than 500 simultaneous sessions would be
+listed partially and silently. A per-zone counter or a cursor is the fix; neither belongs in the rung that
+first made the store exist.

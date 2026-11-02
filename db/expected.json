@@ -1,6 +1,6 @@
 {
   "note": "Derived from db/migrations by scripts/db/expected.py \u2014 do not edit by hand.",
-  "table_count": 114,
+  "table_count": 115,
   "tables": {
     "_smoke": {
       "columns": [
@@ -336,6 +336,32 @@
       ],
       "inline_checks": 0,
       "source": "008_ledger.sql"
+    },
+    "coordination_state": {
+      "columns": [
+        {
+          "name": "state_key",
+          "type": "VARCHAR(191)"
+        },
+        {
+          "name": "state_value",
+          "type": "LONGTEXT"
+        },
+        {
+          "name": "expires_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "updated_at",
+          "type": "DATETIME(6)"
+        }
+      ],
+      "generated": [],
+      "indexes": [
+        "idx_coordination_state_expiry"
+      ],
+      "inline_checks": 0,
+      "source": "016_coordination_state.sql"
     },
     "customer_loyalty": {
       "columns": [
