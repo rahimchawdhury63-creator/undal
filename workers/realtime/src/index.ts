@@ -9,8 +9,11 @@ import { readCoordinatorMode } from "./lib/config.ts";
 import { DurableObjectCoordinator } from "./coordination/durable-object.ts";
 import { authenticate } from "./auth/token.ts";
 import type { VerifyingKey } from "./auth/token.ts";
-import { handleStream, SELF_ONLY } from "./routes/stream.ts";
+import { handleStream } from "./routes/stream.ts";
 import { handlePresenceSocket } from "./routes/presence-socket.ts";
+import { channelAuthorizer } from "./routes/authorizer.ts";
+import { createCoreOrderViewer } from "./authority/core-viewer.ts";
+import { NO_ORDERS } from "./authority/order-viewer.ts";
 import { handleInternal } from "./routes/internal.ts";
 import { DurableObjectFrameStore } from "./sse/durable-store.ts";
 
@@ -31,6 +34,8 @@ export interface RealtimeEnv {
   readonly JWT_PUBLIC_KEY?: string;
   /** The bearer token `undal-core` presents on the internal surface. */
   readonly INTERNAL_TOKEN?: string;
+  /** Where core is, for the questions only core can answer. Defaults to `PUBLIC_API_BASE`. */
+  readonly CORE_BASE_URL?: string;
   /** One room per stream channel: the durable rings a broadcast is remembered in. */
   readonly STREAM_ROOM?: DurableObjectNamespace;
   /** One room per zone: the presence sockets, and the heartbeats they are kept alive by. */
@@ -72,7 +77,8 @@ function refuse(code: Parameters<typeof failure>[0], requestId: string, details:
  *
  * `/rt/stream` is the third, and every path it takes is a refusal it can explain:
  * no coordination room, no public key, no token, a token that does not verify, a channel the caller may
- * not read. A stream that starts before any of those answers is a stream that lied.
+ * not read. A stream that starts before any of those answers is a stream that lied. `order:` channels are
+ * decided by core through the order-authorization port — realtime cannot answer them and does not guess.
  */
 export default {
   async fetch(request: Request, env: RealtimeEnv): Promise<Response> {
@@ -131,7 +137,13 @@ export default {
           actorType: authenticated.value.actorType,
           zoneIds: authenticated.value.zoneIds,
         },
-        authorizer: SELF_ONLY,
+        // The order-authorization port: core is asked about an order, and a deployment that cannot ask
+        // refuses order channels rather than allowing them. Identity channels do not need the hop.
+        authorizer: channelAuthorizer(
+          env.INTERNAL_TOKEN === undefined || env.INTERNAL_TOKEN === ""
+            ? NO_ORDERS
+            : createCoreOrderViewer(env.CORE_BASE_URL ?? env.PUBLIC_API_BASE, env.INTERNAL_TOKEN),
+        ),
       });
     }
 

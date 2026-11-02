@@ -63,6 +63,17 @@ export async function findOrder(db: Db, orderId: Uint8Array): Promise<OrderRow |
   return db.first<OrderRow>(`SELECT ${COLUMNS} FROM \`orders\` WHERE \`id\` = ?`, [orderId]);
 }
 
+/**
+ * One order by its public code.
+ *
+ * The stream's channel id is the code a customer reads aloud (`08 §9`), not the UUID, so the
+ * order-authorization answer arrives as a code and is looked up here. `code` is uniquely indexed
+ * (`06 §3`), which is what makes one row the right answer rather than "the first of several".
+ */
+export async function findOrderByCode(db: Db, code: string): Promise<OrderRow | null> {
+  return db.first<OrderRow>(`SELECT ${COLUMNS} FROM \`orders\` WHERE \`code\` = ?`, [code]);
+}
+
 /** The next event sequence number for an order, which is per order and starts at 1. */
 export async function nextEventSeq(db: Db, orderId: Uint8Array): Promise<number> {
   const row = await db.first<{ last: number | string | null }>(

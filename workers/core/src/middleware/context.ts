@@ -30,6 +30,11 @@ export interface Env {
   readonly PUBLIC_API_BASE: string;
   readonly LOG_LEVEL: string;
   readonly ENVIRONMENT: "production" | "staging" | "preview" | "test";
+  /**
+   * The bearer token `undal-realtime` presents when it asks a question only this Worker can answer
+   * (D82). Absent, the internal surface refuses everybody rather than answering whoever asks.
+   */
+  readonly INTERNAL_TOKEN?: string;
   readonly GOOGLE_OAUTH_CLIENT_ID?: string;
   readonly GOOGLE_OAUTH_CLIENT_SECRET?: string;
 }

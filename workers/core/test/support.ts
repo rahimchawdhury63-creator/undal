@@ -58,6 +58,7 @@ export function testEnv(overrides: Partial<Env> = {}): Env {
     PUBLIC_API_BASE: "https://api.undal.app",
     LOG_LEVEL: "error",
     ENVIRONMENT: "test",
+    INTERNAL_TOKEN: "test-internal-token",
     ...overrides,
   };
 }

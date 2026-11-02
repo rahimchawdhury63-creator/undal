@@ -956,3 +956,38 @@ carry is `403` *before* any socket is opened, so an unauthorized zone never appe
 The room's own refusals (`426` for a request that is not an upgrade, `401` for an upgrade with no
 identity) stay rather than being duplicated in the Worker: they are reachable only through the Worker, they
 describe the room's precondition, and a duplicate check is a second thing that can drift.
+
+## D82 — The order-authorization answer comes from core, and every other channel is decided locally
+
+`08 §9` lets a client subscribe to `order:UND-7K2M9QX4`, and whether it may is a question about three
+order rows: who placed the order, which vendor cooks it, and which rider was assigned. Those rows are
+`undal-core`'s (`06 §3`), and realtime is not allowed to read them — so the answer arrives through a port,
+`OrderViewer`, implemented by a `POST /internal/stream/watches` call to core with the internal bearer token.
+
+*Rejected:* giving realtime a read replica of `orders`. *Why:* a second copy of the order table is a second
+answer to "who owns this order", and the copy that lags is the one deciding who sees a delivery address.
+
+The client is fail-closed in the strongest sense the shape allows: a timeout, a non-2xx, an HTML body, an
+envelope with `ok:false`, or an `allowed` that is absent all read as "no". That is not defensive
+programming, it is the domain — this one answer decides whether a stranger sees an order's note, its rider
+and its money, so an unsettled answer has exactly one safe reading. The timeout is 900 ms, shorter than the
+client's patience, because a browser held while realtime waits on a slow core reads a silent stream as a
+dead connection.
+
+The rest of the channel table is decided locally and needs no hop. `rider:`, `vendor:` and `admin:` are
+identity channels: only that actor, only under the kind their actor type owns. `zone:` is the admin map's
+channel and carries every order in the zone, so admins only, and only in a zone their token names. Admins
+bypass the port for `order:` as well, because `getOrder` already lets an admin read any order — a hop to be
+told what the API would already have said is a hop that can only fail. Everything not in the table is
+refused, including a channel kind added later by someone who did not update the table.
+
+A deployment with no `INTERNAL_TOKEN` cannot authenticate the question, so it does not ask: `order:`
+channels answer `403` and everything else works. That is the same shape as D79's missing public key —
+absent configuration is a refusal somebody notices, never a silent allow.
+
+*Rejected:* answering the watch question inside realtime from the token's claims. *Why:* a token says who
+you are, not which orders are yours; the second changes with every assignment.
+
+The `sql` coordinator's executor (D77) is the *other* thing this route is the boundary for, and it stays
+unbuilt: it needs the same token and a statement-level permission that has not been designed yet. Naming it
+here is deliberate so the next reader does not mistake one finished port for two.

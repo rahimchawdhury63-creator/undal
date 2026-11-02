@@ -255,6 +255,60 @@ describe("/rt/stream through the Worker", () => {
     assert.equal(response.status, 501);
   });
 
+  test("an order channel asks core, and a yes from core starts the stream", async () => {
+    const pair = await keyPair();
+    const env = { ...(await environment(pair.secret)), INTERNAL_TOKEN: "internal-secret" };
+    const realFetch = globalThis.fetch;
+    const asked: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      asked.push(String(input));
+      return Response.json({ ok: true, data: { allowed: true, reason: "owner" } });
+    }) as typeof fetch;
+    try {
+      const token = await sign({ sub: "cust-a", act: "CUSTOMER" }, pair, Date.now());
+      const response = await worker.fetch(streamRequest("channels=order:UND-7K2M9QX4", token), env);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "text/event-stream; charset=utf-8");
+      assert.deepEqual(asked, ["https://api.undal.app/internal/stream/watches"]);
+      await response.body?.cancel();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("a no from core is a 403, not a stream that carries nothing", async () => {
+    const pair = await keyPair();
+    const env = { ...(await environment(pair.secret)), INTERNAL_TOKEN: "internal-secret" };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => Response.json({ ok: true, data: { allowed: false, reason: "not_party" } })) as typeof fetch;
+    try {
+      const token = await sign({ sub: "cust-a", act: "CUSTOMER" }, pair, Date.now());
+      const response = await worker.fetch(streamRequest("channels=order:UND-7K2M9QX4", token), env);
+      assert.equal(response.status, 403);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("a deployment that cannot ask core refuses order channels without asking", async () => {
+    const pair = await keyPair();
+    const realFetch = globalThis.fetch;
+    let asked = 0;
+    globalThis.fetch = (async () => {
+      asked += 1;
+      return Response.json({ ok: true, data: { allowed: true } });
+    }) as typeof fetch;
+    try {
+      // No `INTERNAL_TOKEN`: there is no way to authenticate the question, so it is not asked.
+      const token = await sign({ sub: "cust-a", act: "CUSTOMER" }, pair, Date.now());
+      const response = await worker.fetch(streamRequest("channels=order:UND-7K2M9QX4", token), await environment(pair.secret));
+      assert.equal(response.status, 403);
+      assert.equal(asked, 0);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   test("a base64url key that is not a JWK is a configuration error, not a 401", async () => {
     const notAJwk = base64url(new TextEncoder().encode(JSON.stringify({ kty: "RSA" })));
     const response = await worker.fetch(streamRequest("channels=rider:self"), await environment(notAJwk));

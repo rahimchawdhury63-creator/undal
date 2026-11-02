@@ -27,7 +27,8 @@ export type RouteGroup =
   | "LOCATION_BATCH"
   | "MEDIA"
   | "ADMIN_WRITE"
-  | "SSE";
+  | "SSE"
+  | "INTERNAL";
 
 /** One bucket: how many requests, over how long, charged to whom. */
 export interface Limit {

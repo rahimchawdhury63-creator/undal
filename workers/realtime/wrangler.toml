@@ -39,6 +39,7 @@ new_classes = ["ZoneHub"]
 
 [vars]
 PUBLIC_API_BASE = "https://api.undal.app"
+CORE_BASE_URL = "https://api.undal.app"
 COORDINATION_MODE = "sql"
 
 # Secrets are never written here. `undal-realtime` is given `JWT_PUBLIC_KEY` (the public half of the
