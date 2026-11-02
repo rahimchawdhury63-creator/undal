@@ -48,6 +48,8 @@ import type { PushSender, SendOutcome } from "../fcm/sender.ts";
 import type { FrameStore } from "../sse/store.ts";
 import { DurableObjectFrameStore } from "../sse/durable-store.ts";
 import { createCoreCanceller } from "../authority/core-cancel.ts";
+import { createCoreDispatchRecorder } from "../authority/core-dispatch.ts";
+import type { DispatchRecorder } from "../authority/core-dispatch.ts";
 import { fcmFrom } from "../fcm/from-env.ts";
 import type { FcmEnv } from "../fcm/from-env.ts";
 
@@ -110,6 +112,8 @@ export interface VendorAlarmDeps {
   readonly signingKey?: string | null;
   readonly store?: FrameStore | null;
   readonly cancel?: OrderCanceller | null;
+  /** Where the delivery log goes. Absent, the record lives only in this room (D86). */
+  readonly dispatchLog?: DispatchRecorder | null;
 }
 
 /** The instant the next unfired rung is due, or `null` when the ladder is finished or stopped. */
@@ -143,6 +147,7 @@ export class VendorAlarm {
   private readonly signingKey: string | null;
   private readonly store: FrameStore | null;
   private readonly cancel: OrderCanceller | null;
+  private readonly dispatchLog: DispatchRecorder | null;
 
   /**
    * The runtime constructs with `(state, env)`; a test constructs with its own ports.
@@ -162,6 +167,12 @@ export class VendorAlarm {
       deps.store === undefined
         ? (env.STREAM_ROOM === undefined ? null : new DurableObjectFrameStore(env.STREAM_ROOM, this.clock))
         : deps.store;
+    this.dispatchLog =
+      deps.dispatchLog === undefined
+        ? (env.INTERNAL_TOKEN === undefined || env.INTERNAL_TOKEN === ""
+            ? null
+            : createCoreDispatchRecorder(env.CORE_BASE_URL ?? env.PUBLIC_API_BASE ?? "", env.INTERNAL_TOKEN))
+        : deps.dispatchLog;
     this.cancel =
       deps.cancel === undefined
         ? (env.INTERNAL_TOKEN === undefined || env.INTERNAL_TOKEN === ""
@@ -323,7 +334,7 @@ export class VendorAlarm {
     const outcomes: SendOutcome[] = await Promise.all(
       record.devices.map((device) => this.push?.send(withToken(envelope, device)) ?? Promise.resolve({ ok: false, reason: "TRANSIENT", detail: "no sender" } as const)),
     );
-    return record.devices.map((device, index) => {
+    const recorded = record.devices.map((device, index) => {
       const outcome = outcomes[index];
       return {
         attempt,
@@ -333,6 +344,21 @@ export class VendorAlarm {
         messageId: outcome !== undefined && outcome.ok ? outcome.messageId : null,
       };
     });
+    // The delivery log is the platform's, not this room's: report the batch and carry on. A failure here
+    // must not fail the alarm, so the answer is ignored (D86).
+    if (this.dispatchLog !== null) {
+      await this.dispatchLog.record(
+        recorded.map((entry) => ({
+          orderCode: record.orderCode,
+          token: entry.device,
+          attempt: entry.attempt,
+          outcome: entry.outcome,
+          messageId: entry.messageId,
+          sentAtMs: entry.atMs,
+        })),
+      );
+    }
+    return recorded;
   }
 
   /** Publish a catalogue event to the order's watchers and the zone's admin map. */

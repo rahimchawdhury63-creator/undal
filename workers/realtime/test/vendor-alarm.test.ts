@@ -17,6 +17,7 @@ import { describe, test } from "node:test";
 
 import { ALARM_KEY, VendorAlarm, nextDueAt, eventFor } from "../src/hubs/vendor-alarm.ts";
 import type { AlarmRecord, OrderCanceller } from "../src/hubs/vendor-alarm.ts";
+import type { DispatchRecorder, ReportedDispatch } from "../src/authority/core-dispatch.ts";
 import type { FcmMessage } from "../src/fcm/payload.ts";
 import type { SendOutcome } from "../src/fcm/sender.ts";
 import { MemoryFrameStore } from "../src/sse/store.ts";
@@ -70,9 +71,27 @@ const PUSH = {
   alarmMaxMs: 120_000,
 };
 
+/** A delivery log that remembers what it was told. */
+function dispatchLog(fail = false): DispatchRecorder & { readonly batches: (readonly ReportedDispatch[])[] } {
+  const batches: (readonly ReportedDispatch[])[] = [];
+  return {
+    batches,
+    async record(dispatches: readonly ReportedDispatch[]): Promise<boolean> {
+      batches.push(dispatches);
+      return !fail;
+    },
+  };
+}
+
 /** A room over fresh storage, with a fixed clock and every port wired. */
 function room(
-  options: { clock?: FixedClock; push?: ReturnType<typeof sender> | null; cancel?: OrderCanceller | null; state?: DurableObjectState } = {},
+  options: {
+    clock?: FixedClock;
+    push?: ReturnType<typeof sender> | null;
+    cancel?: OrderCanceller | null;
+    state?: DurableObjectState;
+    dispatchLog?: DispatchRecorder | null;
+  } = {},
 ): {
   alarm: VendorAlarm;
   clock: FixedClock;
@@ -90,6 +109,7 @@ function room(
     signingKey: KEY,
     store,
     cancel: options.cancel === undefined ? canceller() : options.cancel,
+    dispatchLog: options.dispatchLog === undefined ? dispatchLog() : options.dispatchLog,
   });
   return { alarm, clock, state, sent: push === null ? [] : push.sent, store };
 }
@@ -127,6 +147,35 @@ describe("beginning a ladder", () => {
     await begin(alarm, ["phone-1", "tablet-1"]);
     assert.deepEqual(sent.map((message) => message.token), ["phone-1", "tablet-1"]);
     assert.equal(sent[0]?.data["sig"], sent[1]?.data["sig"]);
+  });
+
+  test("every send is reported to the delivery log, per device", async () => {
+    const log = dispatchLog();
+    const { alarm } = room({ dispatchLog: log });
+    await begin(alarm, ["phone-1", "tablet-1"]);
+    assert.equal(log.batches.length, 1);
+    assert.deepEqual(
+      log.batches[0]?.map((entry) => entry.token),
+      ["phone-1", "tablet-1"],
+    );
+    assert.equal(log.batches[0]?.[0]?.attempt, 1);
+    assert.equal(log.batches[0]?.[0]?.outcome, "SENT");
+    assert.equal(log.batches[0]?.[0]?.orderCode, ORDER);
+    assert.equal(typeof log.batches[0]?.[0]?.sentAtMs, "number");
+  });
+
+  test("a delivery log that refuses the batch does not fail the alarm", async () => {
+    const { alarm, sent } = room({ dispatchLog: dispatchLog(true) });
+    const response = await begin(alarm);
+    assert.equal(response.status, 200);
+    assert.equal(sent.length, 1);
+  });
+
+  test("a room with no delivery log still rings", async () => {
+    const { alarm, sent } = room({ dispatchLog: null });
+    const response = await begin(alarm);
+    assert.equal(response.status, 200);
+    assert.equal(sent.length, 1);
   });
 
   test("a room with no sender refuses to keep a ladder it cannot ring", async () => {

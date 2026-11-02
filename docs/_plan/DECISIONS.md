@@ -1104,3 +1104,36 @@ the only number both can agree on is the one the log wrote.
 This removes the duplication D84 recorded. The ladder used to publish `order.cancelled` from the room, because
 nothing else did; core announces its own auto-cancel now, so the room's line is gone and one transition
 produces one frame.
+
+## D86 — The push log exists, and only core writes it
+
+`15 §8` closes the delivery loop: send → `fcm_dispatches(message_id, token, sent_at)` → the device's
+`alarm_received` → the gap between them. The table did not exist, so a send's message id lived in the ladder's
+Durable Object and the admin panel's "device matrix" had nothing to be built from.
+
+`014_fcm_dispatches.sql` adds it: `order_id` and `device_id` nullable and `ON DELETE SET NULL`, `fcm_token`,
+`attempt`, `outcome`, a nullable `message_id` and `received_at`, and three indexes — one order's attempts, one
+token's record, and the receipt sweep. The nullable subject is the point: a dispatch outlives the order it
+announced, because "was this vendor's phone reachable last week" is a question asked after the order is gone.
+
+*Rejected:* letting realtime write the table. *Why:* `05 §2.1` forbids it TiDB writes, and the reason it does
+is that the only way this Worker would write is with a database credential, which would put a second writer on
+the order tables' neighbourhood to save one HTTP call.
+
+So the room reports and core records (`POST /internal/fcm/dispatches`, internal token, a batch of at most
+twenty). One call per rung rather than one per phone, because a rung rings every device at once. The route is
+not in the path of any decision: nothing reads these rows to decide whether an order moves, so a lost row
+cannot hold an order hostage — and the recorder on the realtime side returns `false` and is ignored rather
+than throwing, because a delivery log that can fail an alarm silences the thing it is auditing.
+
+The batch is audited **once** at `INFO`, naming the order, the attempts and the sent/failed split. Per-device
+audit rows would add tens of thousands a day to a hash-linked chain the admin panel reads end to end, and the
+per-device detail already exists — in `fcm_dispatches`.
+
+An unknown order code and an unregistered token both still write a row, with `NULL` in the column that would
+have named them. A send that happened is a send that happened; a log that dropped it for want of a foreign key
+would be a log with a hole exactly where the interesting case is.
+
+*Open:* nothing fills `received_at` yet. `15 §8` wants the device's `alarm_received` frame to complete the
+row, which needs the socket's `alarm_received` message to reach core — the port is `ZoneHub`, where a
+heartbeat already arrives, and the receipt is the next rung rather than an omission of this one.
