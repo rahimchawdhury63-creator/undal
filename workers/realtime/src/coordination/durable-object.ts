@@ -358,6 +358,9 @@ type RoomTarget = { readonly kind: "order"; readonly id: string } | { readonly k
  * map's first paint is one round trip rather than a query per zone.
  */
 export class DurableObjectCoordinator implements Coordinator {
+  /** One row write per beat, so a row is only as old as the deadline allows (`14 §3.1`). */
+  readonly presenceWindowMs = HEARTBEAT_DEADLINE_MS;
+
   private readonly namespace: DurableObjectNamespace;
   private readonly clock: Clock;
 

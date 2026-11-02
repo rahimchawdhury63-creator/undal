@@ -147,8 +147,15 @@ devices there is no alarm and the DO is evicted from memory entirely. The `no-cr
 
 Without Durable Objects, `undal-realtime` keeps the WebSocket inside the Worker invocation and the
 deadline inside a plain `setTimeout`. The Worker lives as long as the socket does, which is exactly
-what is needed. Absence is written to `presence_sessions` in TiDB and published through a
-`LISTEN`-style poll on the SSE fan-out path.
+what is needed. Absence is written to `presence_sessions` in TiDB and published through the SSE
+fan-out path.
+
+A beat is a frame; a row write is a stamp, and they are not the same event (D89). The `sql` backend
+writes the device's row at most once per 15 s of beating, so 38 400 beats over an eight-hour shift cost
+1 921 writes rather than 76 800 store operations — and a stamped row is read as alive for
+`presenceWindowMs` (the stamp interval plus the heartbeat deadline), not for the two seconds a
+per-beat row would allow. The two-second deadline itself is unchanged: it is enforced by the process
+holding the socket, and expiry is an explicit `markAbsent`, never a row silently missing from a list.
 
 The measured difference: p50 detection 1.7 s (DO) versus 1.9 s (free). Both inside two seconds.
 Both are implemented, both are tested, and `COORDINATION_MODE` selects between them

@@ -149,11 +149,23 @@ for (const backend of BACKENDS) {
       const built = backend.make();
       const context = contextFor(built);
       await built.coordinator.declarePresence({ actorId: "rider-a", deviceId: "d1", role: "RIDER", zoneId: "zone-1" });
-      built.clock.advance(2_001);
+      // The width belongs to the backend: two seconds for a row written per beat, one stamp window for the
+      // `sql` backend's stamped rows (D89).
+      built.clock.advance(built.coordinator.presenceWindowMs + 1);
       const response = await handleInternal(post("/internal/presence", { zoneId: "zone-1", riderId: "rider-a" }), context);
       const body = (await response.json()) as { data: { online: boolean; lastSeenAt: string | null } };
       assert.equal(body.data.online, false);
-      assert.equal(body.data.lastSeenAt, new Date(T0).toISOString());
+      assert.equal(body.data.lastSeenAt, new Date(T0).toISOString(), "the row still says when it last heard");
+    });
+
+    test("presence keeps answering online while a stamped row is between beats", async () => {
+      const built = backend.make();
+      const context = contextFor(built);
+      await built.coordinator.declarePresence({ actorId: "rider-a", deviceId: "d1", role: "RIDER", zoneId: "zone-1" });
+      built.clock.advance(built.coordinator.presenceWindowMs);
+      const response = await handleInternal(post("/internal/presence", { zoneId: "zone-1", riderId: "rider-a" }), context);
+      const body = (await response.json()) as { data: { online: boolean } };
+      assert.equal(body.data.online, true, "the last stamp is still inside the window");
     });
 
     test("presence answers null for a rider who was never seen", async () => {

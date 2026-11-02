@@ -43,7 +43,12 @@ import type {
   PresenceSession,
   ZoneSnapshot,
 } from "./coordinator.ts";
-import { EVENT_PAGE_LIMIT, HEARTBEAT_DEADLINE_MS } from "./coordinator.ts";
+import {
+  EVENT_PAGE_LIMIT,
+  HEARTBEAT_DEADLINE_MS,
+  HEARTBEAT_STAMP_MS,
+  PRESENCE_STALENESS_MS,
+} from "./coordinator.ts";
 import type { ClaimResult } from "./claim.ts";
 import { decideClaim } from "./claim.ts";
 import { advanceState, claimState, closeState, dispatchKey, openState, withdrawState } from "./machine.ts";
@@ -74,6 +79,20 @@ export interface StateStore {
 
 /** The shortest TTL Cloudflare KV accepts. A presence row is swept by its own deadline long before it. */
 export const KV_MIN_TTL_S = 60;
+
+/**
+ * What one isolate remembers about one device between beats.
+ *
+ * `session` is kept so a refresh needs no read: the row this isolate last wrote *is* the row, because a
+ * presence key belongs to one device and two isolates racing on it are two sockets for one device — which
+ * the platform treats as one session either way. `key === null` means the last lookup found no row, and the
+ * memo expires like any other so a beat that arrives before its `declarePresence` is not lost forever.
+ */
+interface PresenceMemo {
+  readonly key: string | null;
+  readonly session: PresenceSession | null;
+  readonly atMs: number;
+}
 
 /** How many times an event insert retries after losing the sequence race. */
 export const EVENT_INSERT_RETRIES = 3;
@@ -153,9 +172,14 @@ interface EventRow {
  * update the database does, rather than mocking the class under test.
  */
 export class TiDBCoordinator implements Coordinator {
+  /** Stamped rows: alive as of the last stamp, plus the deadline that follows it (D89). */
+  readonly presenceWindowMs = PRESENCE_STALENESS_MS;
+
   private readonly sql: SqlExecutor;
   private readonly store: StateStore;
   private readonly clock: Clock;
+  /** Presence rows this isolate is looking after, so a beat costs no store operation at all (D89). */
+  private readonly memos = new Map<string, PresenceMemo>();
 
   constructor(sql: SqlExecutor, store: StateStore, clock: Clock = systemClock) {
     this.sql = sql;
@@ -273,36 +297,107 @@ export class TiDBCoordinator implements Coordinator {
       seq: 0,
     };
     await this.store.put(presenceKey(session), session, KV_MIN_TTL_S);
+    // The upgrade is the moment this isolate learns where the row lives, so it is also the moment a memo
+    // costs nothing and a beat costs nothing.
+    this.memos.set(this.memoKey(session.zoneId, session.actorId, session.deviceId), {
+      key: presenceKey(session),
+      session,
+      atMs: now,
+    });
     return session;
   }
 
+  /**
+   * Accept a heartbeat.
+   *
+   * A beat inside the stamp window touches nothing. The row written when the window last closed still
+   * describes this device — same session, same zone, same role — and the only number a beat changes is the
+   * one the ack carries back, which the caller already has. The deadline that decides whether the device is
+   * alive is enforced by the process holding the socket (`14 §3.1`), so a store write here would be a
+   * forty-thousand-row transcript of a fact nobody reads that precisely.
+   */
   async heartbeat(zoneId: string, actorId: string, deviceId: string, seq: number): Promise<HeartbeatAck> {
     const now = this.clock.nowMs();
-    const key = `presence:${zoneId}:`;
-    const rows = await this.store.list<PresenceSession>(key);
-    const found = rows.find(
-      (row) => row.value.actorId === actorId && row.value.deviceId === deviceId,
-    );
-    if (found === undefined) {
-      return { actorId, deviceId, seq, nowMs: now, deadlineMs: now + HEARTBEAT_DEADLINE_MS, known: false };
+    const memoKey = this.memoKey(zoneId, actorId, deviceId);
+    const memo = this.memos.get(memoKey);
+    const ack = (known: boolean): HeartbeatAck => ({
+      actorId,
+      deviceId,
+      seq,
+      nowMs: now,
+      deadlineMs: now + HEARTBEAT_DEADLINE_MS,
+      known,
+    });
+
+    if (memo !== undefined && now - memo.atMs < HEARTBEAT_STAMP_MS) return ack(memo.key !== null);
+
+    const session = memo !== undefined && memo.key !== null ? memo.session : await this.findPresence(zoneId, actorId, deviceId);
+    if (session === null) {
+      // Re-checked once per window rather than remembered as absent forever: a beat can arrive before the
+      // upgrade that declares the session, and a device must not be invisible because two frames raced.
+      this.memos.set(memoKey, { key: null, session: null, atMs: now });
+      return ack(false);
     }
-    const updated: PresenceSession = { ...found.value, lastHeartbeatMs: now, seq };
-    await this.store.put(found.key, updated, KV_MIN_TTL_S);
-    return { actorId, deviceId, seq, nowMs: now, deadlineMs: now + HEARTBEAT_DEADLINE_MS, known: true };
+
+    const stamped: PresenceSession = { ...session, lastHeartbeatMs: now, seq };
+    const rowKey = memo?.key ?? presenceKey(stamped);
+    await this.store.put(rowKey, stamped, KV_MIN_TTL_S);
+    this.memos.set(memoKey, { key: rowKey, session: stamped, atMs: now });
+    return ack(true);
   }
 
+  /**
+   * Mark a device gone.
+   *
+   * The memo is what makes this one write rather than a list and a write: the isolate that saw the socket
+   * close is normally the isolate whose memo holds the key.
+   */
   async markAbsent(zoneId: string, actorId: string, deviceId: string, reason: string): Promise<void> {
+    void reason;
+    const memoKey = this.memoKey(zoneId, actorId, deviceId);
+    const memo = this.memos.get(memoKey);
+    this.memos.delete(memoKey);
+    if (memo !== undefined && memo.key !== null) {
+      await this.store.delete(memo.key);
+      return;
+    }
+    if (memo !== undefined) return;
     const rows = await this.store.list<PresenceSession>(`presence:${zoneId}:`);
     const found = rows.find((row) => row.value.actorId === actorId && row.value.deviceId === deviceId);
     if (found !== undefined) await this.store.delete(found.key);
   }
 
+  /**
+   * The zone's rows, exactly as they were last written.
+   *
+   * Unfiltered on purpose. Presence expires by an explicit `markAbsent` from the escalation that watched the
+   * socket go quiet, not by quietly dropping rows from a listing: a dropped row is indistinguishable from a
+   * device that never connected, and the two need different answers. A reader that needs "is this alive now"
+   * compares `lastHeartbeatMs` against `presenceWindowMs` itself — which is what the row carries the stamp
+   * for (D89).
+   */
   async listPresence(zoneId: string, role?: PresenceRole): Promise<readonly PresenceSession[]> {
     const rows = await this.store.list<PresenceSession>(`presence:${zoneId}:`);
     return rows
       .map((row) => row.value)
       .filter((session) => role === undefined || session.role === role)
       .sort((left, right) => left.actorId.localeCompare(right.actorId));
+  }
+
+  /** The one row a device's beats are about, found by listing the zone it says it is in. */
+  private async findPresence(
+    zoneId: string,
+    actorId: string,
+    deviceId: string,
+  ): Promise<PresenceSession | null> {
+    const rows = await this.store.list<PresenceSession>(`presence:${zoneId}:`);
+    const found = rows.find((row) => row.value.actorId === actorId && row.value.deviceId === deviceId);
+    return found === undefined ? null : found.value;
+  }
+
+  /** The memo's identity: one device in one zone, whatever role it holds. */
+  private memoKey(zoneId: string, actorId: string, deviceId: string): string {
+    return `${zoneId}|${actorId}|${deviceId}`;
   }
 
   async appendEvent(input: OrderEventInput): Promise<OrderEvent> {

@@ -23,7 +23,7 @@
 
 import { failure, statusFor, success } from "@undal/contracts";
 import type { Coordinator } from "../coordination/coordinator.ts";
-import { HEARTBEAT_DEADLINE_MS } from "../coordination/coordinator.ts";
+
 import type { Clock } from "../lib/clock.ts";
 import { systemClock } from "../lib/clock.ts";
 import { checkInternalToken } from "../lib/secret.ts";
@@ -129,7 +129,9 @@ export async function handleInternal(request: Request, context: InternalContext)
     const now = clock.nowMs();
     const sessions = await context.coordinator.listPresence(zoneId, "RIDER");
     const session = sessions.find((held) => held.actorId === riderId) ?? null;
-    const online = session !== null && now - session.lastHeartbeatMs <= HEARTBEAT_DEADLINE_MS;
+    // How wide "online" is belongs to the backend (D89): a Durable Object writes every beat, the sql backend
+    // stamps once per window. Asking the coordinator keeps both answers true.
+    const online = session !== null && now - session.lastHeartbeatMs <= context.coordinator.presenceWindowMs;
     return json(
       success(
         {

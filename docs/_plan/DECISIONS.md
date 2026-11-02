@@ -1201,3 +1201,38 @@ a no-op — that guarantee only covers writes inside the statement it guards.
 
 Both columns are null for a client that predates this decision, and the matrix treats null as "not reported"
 rather than zero, because a device that says nothing and a device that says 0 ms are different facts.
+
+## D89 — A beat is a frame; a stamp is a write
+
+The `sql` coordinator wrote the presence row on every heartbeat. The arithmetic that makes that wrong is
+short: `14 §3.1` asks for a beat every 750 ms, an eight-hour shift is 38 400 beats, and the old `heartbeat`
+did a `list` to find the row and a `put` to refresh it — 76 800 store operations per device per shift, to
+record a fact the process holding the socket already knows. The same arithmetic kills the store D77 named:
+Workers KV's free tier is 1 000 writes, 1 000 reads and 1 000 lists a day, so one vendor's morning would
+exhaust the allowance before the lunch rush. The free path's presence store is therefore the TiDB the
+executor reaches, which is also what `14 §2` and `14 §3.3` have always said; D77's "key-value store behind a
+lease" is corrected here.
+
+What replaces the per-beat write is a stamp and a memo. The memo is per isolate, holds the row's key, the
+session as last written and the instant it was written, and it means a beat inside the window costs nothing
+at all: no read (the memo holds the value), no list (the key is known), no write. The window is 15 s, so a
+shift costs one write per 15 s of beating. A *negative* memo — the device is not present — expires on the
+same window rather than being remembered forever, because a beat can arrive before the `declarePresence`
+that follows the upgrade, and a device must not be invisible because two frames raced.
+
+The cost is paid in freshness, and it is paid openly. A stamped row is up to one window behind the device
+it describes, so a reader that compares `lastHeartbeatMs` against the two-second deadline would call a
+beating device gone. The width of "online" is therefore a property of the backend, `presenceWindowMs` —
+17 s for stamped rows, 2 s for the Durable Object, which does write on every beat — and `/internal/presence`
+asks the coordinator instead of hard-coding either. The two-second deadline is untouched: it is enforced by
+the process that holds the socket, and the ack still returns `now + 2 000`.
+
+Listings are not filtered. A row disappears when the escalation that watched the socket go quiet calls
+`markAbsent`, never by being quietly omitted from a list, because a row that vanishes is indistinguishable
+from a device that never connected and the two deserve different answers. So `listPresence` returns what the
+store holds and the readers judge: `/internal/presence` answers `online` by the window and still reports
+`lastSeenAt` from the row it found.
+
+*Open:* the store itself is still the test's `MemoryStore`. `presence_sessions` as a table, and the executor
+that lets core write it, are the next rung — this one fixes the write pattern so that rung has a budget to
+fit inside.

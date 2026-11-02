@@ -184,6 +184,16 @@ export interface Coordinator {
   markAbsent(zoneId: string, actorId: string, deviceId: string, reason: string): Promise<void>;
   /** 10. Everyone present in a zone, optionally filtered by role. */
   listPresence(zoneId: string, role?: PresenceRole): Promise<readonly PresenceSession[]>;
+  /**
+   * How old a row from `listPresence` may look and still be read as alive.
+   *
+   * The backend knows how often it writes a presence row, so the backend is the only thing that can answer
+   * this honestly: a Durable Object writes on every beat and a row is stale after the two-second deadline,
+   * while the `sql` backend stamps once per window and a row that looked two seconds old would describe a
+   * device that is beating right now as gone (D89). A caller that hard-codes either number is wrong on the
+   * other backend.
+   */
+  readonly presenceWindowMs: number;
   /** 11. Append to the order's ordered log, assigning the next sequence number. */
   appendEvent(event: OrderEventInput): Promise<OrderEvent>;
   /** 12. Read the log after a sequence number — the SSE resume path. */
@@ -196,6 +206,24 @@ export interface Coordinator {
 
 /** The heartbeat deadline: two seconds of silence means the device is gone (`14 §3.1`). */
 export const HEARTBEAT_DEADLINE_MS = 2_000;
+
+/**
+ * How often a presence *row* is written while a device keeps beating (D89).
+ *
+ * A beat is a socket frame; a stamp is a write. The two are not the same event, and treating them as one
+ * spends a database write every 750 ms per device — forty thousand a shift — to record a fact that the
+ * process holding the socket already knows.
+ */
+export const HEARTBEAT_STAMP_MS = 15_000;
+
+/**
+ * How old a presence row may look and still be read as possibly alive.
+ *
+ * A stamped row is up to one stamp interval behind the device it describes, so a reader adds that interval
+ * to the heartbeat deadline rather than pretending the row is live. This is the honest width of "online as
+ * of the last stamp", and it is a *listing* answer: the two-second deadline is enforced where the socket is.
+ */
+export const PRESENCE_STALENESS_MS = HEARTBEAT_STAMP_MS + HEARTBEAT_DEADLINE_MS;
 
 /** The reconnect grace: a blip shorter than this publishes nothing (`14 §2.1`). */
 export const RECONNECT_GRACE_MS = 1_500;
