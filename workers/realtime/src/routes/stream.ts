@@ -62,8 +62,23 @@ export function resolveSelf(channel: Channel, principal: StreamPrincipal): Chann
   return null;
 }
 
-/** The default authorizer: a caller may watch only its own `self` channel. */
+/** Refuses everything. The right authorizer for a caller whose identity is not established. */
 export const DENY_ALL: ChannelAuthorizer = { allows: () => false };
+
+/**
+ * The production default until core supplies an order-authorization answer.
+ *
+ * A caller may watch its own identity channel (`rider:<own id>`, `vendor:<own id>`, `admin:<own id>`) and
+ * nothing else. That is narrow on purpose: the stream carries order contents, and "may you read order X"
+ * is a question only the Worker that owns the order rows can answer.
+ */
+export const SELF_ONLY: ChannelAuthorizer = {
+  allows: (principal, channel) =>
+    channel.id === principal.actorId &&
+    ((channel.kind === "rider" && principal.actorType === "RIDER") ||
+      (channel.kind === "vendor" && principal.actorType === "VENDOR_OWNER") ||
+      (channel.kind === "admin" && principal.actorType === "ADMIN")),
+};
 
 /** JSON, with the request id and no caching. */
 function json(body: unknown, status: number, requestId: string): Response {

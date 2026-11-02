@@ -8,12 +8,24 @@ main = "src/index.ts"
 compatibility_date = "2024-10-01"
 
 [durable_objects]
-bindings = [{ name = "ORDER_ROOM", class_name = "OrderRoom" }]
+bindings = [
+  { name = "ORDER_ROOM", class_name = "OrderRoom" },
+  # The coordination room is only used when COORDINATION_MODE = "durable-object"; the binding exists so
+  # flipping the variable is the whole upgrade. The free `sql` backend uses no Durable Object at all.
+  { name = "COORDINATION_ROOM", class_name = "CoordinationRoom" },
+]
 
 [[migrations]]
 tag = "v1"
 new_classes = ["OrderRoom"]
 
+[[migrations]]
+tag = "v2"
+new_classes = ["CoordinationRoom"]
+
 [vars]
 PUBLIC_API_BASE = "https://api.undal.app"
 COORDINATION_MODE = "sql"
+
+# Secrets are never written here. `undal-realtime` is given `JWT_PUBLIC_KEY` (the public half of the
+# session signing key, base64url JWK) so it can verify a token and cannot mint one (`29 §2.6`).
