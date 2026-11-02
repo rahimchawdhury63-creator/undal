@@ -732,3 +732,18 @@ a wave that shuffled between retries would page one rider twice and skip another
 three taps, exactly one winner, and the losers distinguish `OFFER_CLAIMED` (a race) from
 `OFFER_EXPIRED` (nobody came) and `OFFER_NOT_YOURS` (a stale card). A race must never look like a
 malfunction on the losing phone.
+## D71 — A snapshot is a copy with a version, and evidence is judged before it is stored
+
+`06 §7.1` says anything on an invoice is frozen into the order at placement. The part that matters a
+year later is the version: a snapshot is read by code that has moved on, so every snapshot carries
+`version`, and a reader that does not recognise it refuses rather than guessing. Reading it anyway is
+how a renderer drops a field it never heard of and prints an address missing its flat number.
+
+A proof is admissible only if it could be evidence of *this* handover: a photograph needs media, a
+scan needs its payload, the capture must be inside the same geofence a pickup scan satisfies, and it
+must be recent — a capture from an hour ago, or one dated in the future by a device with a wrong
+clock, is refused rather than stored and argued about later. The decision is a pure function on a
+capture, so it is assertable with no camera, no GPS and no network.
+
+A delivery needs *one* door-side proof — photograph, signature or handover selfie — and a scanned
+pickup code does not count as one: it says the food left the kitchen, not that it reached a doorstep.
