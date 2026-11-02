@@ -10,6 +10,7 @@ import { DurableObjectCoordinator } from "./coordination/durable-object.ts";
 import { authenticate } from "./auth/token.ts";
 import type { VerifyingKey } from "./auth/token.ts";
 import { handleStream, SELF_ONLY } from "./routes/stream.ts";
+import { handleInternal } from "./routes/internal.ts";
 
 export { OrderRoom } from "./order-room.ts";
 export { CoordinationRoom } from "./coordination/durable-object.ts";
@@ -24,6 +25,8 @@ export interface RealtimeEnv {
   readonly COORDINATION_ROOM?: DurableObjectNamespace;
   /** The public half of the session signing key, base64url JWK. Verification only. */
   readonly JWT_PUBLIC_KEY?: string;
+  /** The bearer token `undal-core` presents on the internal surface. */
+  readonly INTERNAL_TOKEN?: string;
 }
 
 /** JSON with the request id, no caching. */
@@ -50,6 +53,10 @@ function refuse(code: Parameters<typeof failure>[0], requestId: string, details:
  * latency profiles and an operator looking at a p95 regression needs to know which one is running before
  * changing anything. It also refuses a `COORDINATION_MODE` it does not know, rather than running one
  * backend while the operator believes they configured the other.
+ *
+ * `/internal/presence` answers core's question about a rider, and `/internal/broadcast` refuses until a room
+ * owns the rings a broadcast would be remembered in — a ring in one isolate is forgotten by the next
+ * request, which is worse than an honest `NOT_IMPLEMENTED`.
  *
  * `/rt/stream` is the only client route wired so far, and every path it takes is a refusal it can explain:
  * no coordination room, no public key, no token, a token that does not verify, a channel the caller may
@@ -112,6 +119,24 @@ export default {
           zoneIds: authenticated.value.zoneIds,
         },
         authorizer: SELF_ONLY,
+      });
+    }
+
+    if (url.pathname === "/internal/presence" || url.pathname === "/internal/broadcast") {
+      let mode;
+      try {
+        mode = readCoordinatorMode(env.COORDINATION_MODE);
+      } catch (error) {
+        return refuse("INTERNAL", id, { misconfigured: error instanceof Error ? error.message : String(error) });
+      }
+      if (mode !== "durable-object" || env.COORDINATION_ROOM === undefined) {
+        return refuse("NOT_IMPLEMENTED", id, { reason: "coordinator_not_configured", mode });
+      }
+      return handleInternal(request, {
+        coordinator: new DurableObjectCoordinator(env.COORDINATION_ROOM),
+        internalToken: env.INTERNAL_TOKEN,
+        // No room owns the rings yet, so a broadcast is refused rather than remembered for one request.
+        broadcastEnabled: false,
       });
     }
 

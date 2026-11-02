@@ -22,8 +22,10 @@ import { FakeNamespace, fakeState } from "./support/fakes.ts";
 import { NOW, base64url, keyPair, sign } from "./support/token.ts";
 
 /** An environment with a durable-object coordinator and a public key for the given pair. */
-async function environment(publicSecret: string | undefined): Promise<RealtimeEnv> {
-  const clock = new FixedClock(NOW);
+async function environment(publicSecret: string | undefined, startMs: number = Date.now()): Promise<RealtimeEnv> {
+  // The Worker reads the real clock, so the room is built with one too: a room frozen two years ago would
+  // publish every session as absent and the tests would be measuring the fixture.
+  const clock = new FixedClock(startMs);
   const namespace = new FakeNamespace(() => new CoordinationRoom(fakeState(), clock));
   return {
     PUBLIC_API_BASE: "https://api.undal.app",
@@ -137,6 +139,64 @@ describe("/rt/stream through the Worker", () => {
     const response = await worker.fetch(new Request("https://rt.undal.app/v1/presence"), await environment(pair.secret));
     assert.equal(response.status, 501);
     assert.match(response.headers.get("content-type") ?? "", /application\/json/);
+  });
+
+  test("the internal presence question answers with the shared secret", async () => {
+    const env = { ...(await environment(undefined)), INTERNAL_TOKEN: "internal-secret" };
+    const coordinator = new DurableObjectCoordinator(env.COORDINATION_ROOM as DurableObjectNamespace, new FixedClock(Date.now()));
+    await coordinator.declarePresence({ actorId: "rider-a", deviceId: "d1", role: "RIDER", zoneId: "zone-1" });
+    const response = await worker.fetch(
+      new Request("https://rt.undal.app/internal/presence", {
+        method: "POST",
+        headers: { authorization: "Bearer internal-secret", "content-type": "application/json" },
+        body: JSON.stringify({ zoneId: "zone-1", riderId: "rider-a" }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { data: { online: boolean } };
+    assert.equal(body.data.online, true);
+  });
+
+  test("the internal surface has no secret configured, so it refuses everybody", async () => {
+    const env = await environment(undefined);
+    const response = await worker.fetch(
+      new Request("https://rt.undal.app/internal/presence", {
+        method: "POST",
+        headers: { authorization: "Bearer anything" },
+        body: JSON.stringify({ zoneId: "zone-1", riderId: "rider-a" }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 403);
+  });
+
+  test("a broadcast is refused while the rings are per isolate", async () => {
+    const env = { ...(await environment(undefined)), INTERNAL_TOKEN: "internal-secret" };
+    const response = await worker.fetch(
+      new Request("https://rt.undal.app/internal/broadcast", {
+        method: "POST",
+        headers: { authorization: "Bearer internal-secret" },
+        body: JSON.stringify({ zoneId: "zone-1", orderId: "A", event: "order.placed", payload: {} }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 501);
+    const body = (await response.json()) as { error: { details: { reason: string } } };
+    assert.equal(body.error.details.reason, "rings_not_durable");
+  });
+
+  test("the internal surface is not available on the free backend yet", async () => {
+    const env = { ...(await environment(undefined)), COORDINATION_MODE: "sql", INTERNAL_TOKEN: "internal-secret" };
+    const response = await worker.fetch(
+      new Request("https://rt.undal.app/internal/presence", {
+        method: "POST",
+        headers: { authorization: "Bearer internal-secret" },
+        body: JSON.stringify({ zoneId: "zone-1", riderId: "rider-a" }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 501);
   });
 
   test("a base64url key that is not a JWK is a configuration error, not a 401", async () => {

@@ -35,9 +35,18 @@ import { broadcast } from "../sse/fanout.ts";
 /** What the internal routes are given. */
 export interface InternalContext {
   readonly coordinator: Coordinator;
-  readonly hub: StreamHub;
+  /** The rings a broadcast records into. Absent until a room owns them. */
+  readonly hub?: StreamHub;
   /** The shared secret core presents. `undefined` means this deployment accepts no internal calls. */
   readonly internalToken: string | undefined;
+  /**
+   * Whether a broadcast can be recorded.
+   *
+   * A ring lives in one isolate; until a room owns one, a broadcast answered here would be remembered by
+   * the request that handled it and forgotten by the next. Refusing is honest, and it is what core's
+   * client already expects: the broadcast is a notification and a failure degrades.
+   */
+  readonly broadcastEnabled?: boolean;
   readonly clock?: Clock;
 }
 
@@ -101,6 +110,9 @@ export async function handleInternal(request: Request, context: InternalContext)
     if (catalogueName(body.event) === null) {
       return refuse("VALIDATION_FAILED", requestId, { fields: [], reason: "unknown_event", event: body.event });
     }
+    if (context.broadcastEnabled === false || context.hub === undefined) {
+      return refuse("NOT_IMPLEMENTED", requestId, { reason: "rings_not_durable" });
+    }
     const result = broadcast(context.hub, { ...body, atMs: body.atMs === 0 ? clock.nowMs() : body.atMs });
     return json(success({ recorded: result.recorded.length, orderId: body.orderId }, { requestId }), 200, requestId);
   }
@@ -133,6 +145,7 @@ export async function handleInternal(request: Request, context: InternalContext)
 
   return refuse("NOT_IMPLEMENTED", requestId, { path: url.pathname });
 }
+
 
 /** A JSON body, or `undefined` when the body is absent or is not JSON. */
 async function safeJson(request: Request): Promise<unknown> {
