@@ -826,3 +826,38 @@ the weight version is a fourth invalidation, because a cache that outlives a wei
 serve yesterday's ranking with today's version stamped on it. Step 1 of the ladder widens only the
 bicycle radius, the cash cap and the zone edge; a motorbike's 12 km limit is a practical bound, not a
 tuning knob, and a boost is floored to taka exactly once like every other amount of money.
+
+## D76 — The benchmark gates on the comparison, not on the printed targets, and reports nine metrics
+
+`11 §12.1` prints eight metrics; `30 §4.1` prints nine, adding the on-time rate. The report carries all
+nine and the gate checks all nine, because a dispatch that is fast and late is not a good dispatch and
+dropping the ninth number would be choosing the flattering table. The baseline is deliberately strong:
+it uses the same five-wave cascade, the same 90% confidence target and the same random draws, and
+differs only in ranking by distance — plus the expansion ladder and same-vendor batching, which are
+Undal's policy and not the baseline's. Beating a straw man would prove nothing; the gap between the two
+policies is therefore the value of the fourteen factors, measured.
+
+The absolute targets in the documents are shown in every row and are usually missed, which is recorded
+rather than hidden. The synthetic city is 60 orders over eight riders on staggered six-hour shifts,
+with longer trips than the calibrated city the printed numbers came from: assignment waits run in
+minutes rather than the printed 41 seconds, and the batch rate is ~7% against a 15–30% target because a
+bundle needs two consecutive orders at the same vendor inside eight minutes. What the gate enforces is
+that Undal is better than the baseline on every metric — which it is, on 15 000 order-days — because a
+relative regression is the thing that can be caused by a code change, while the distance to a target
+that was calibrated elsewhere cannot.
+
+Three smaller decisions came out of making the benchmark runnable. The world generator lives in
+`bench/world.py` so no file crosses the repository's 700-line cap, and because a world that does not
+know which policy will run on it cannot be quietly kinder to one. "No rider found" counts the orders
+still waiting when the day closes, not orders that waited a while: a late delivery is measured by the
+customer-wait and on-time metrics, and counting it twice would double-charge the same failure. And two
+of the seven adversarial scenarios — GPS plausibility and promo eligibility — are rules for modules that
+land later (R10 and R17); the benchmark asserts the rule now so that it cannot change quietly, and says
+so in the file rather than pretending the shipping code exists.
+
+`brain-replay` is now the harness the workflow calls: a fixture carries the whole request and the answer
+it produced, three are committed, and a changed ranking fails the build. Until `brain_traces` has live
+rows the fixtures are the record; the workflow's `--traces` input is reserved for the loader that lands
+with the realtime worker. The old workflow pointed at `replay.py` and `replay_check.py`, neither of
+which ever existed — a check that cannot run is worse than no check, because it looks green by being
+absent.

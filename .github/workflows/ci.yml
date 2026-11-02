@@ -137,6 +137,27 @@ jobs:
         # `test` is a stdlib package name, so discovery is rooted at the test
         # directory itself; `-s test -t test` is what makes the import work.
         run: python3 -m unittest discover -s test -t test -p 'test_*.py'
+      - name: Dispatch beats nearest-rider on every gated metric
+        # `11 §12.1` is a claim; this is the check. The benchmark fails the build when Undal is not
+        # better than the baseline on any gated metric, and publishes the table as an artifact.
+        working-directory: workers/brain
+        env:
+          PYTHONPATH: src
+        run: python3 -m bench.report --out ../../.artifacts/dispatch
+      - name: The recorded dispatch decisions reproduce exactly
+        working-directory: workers/brain
+        env:
+          PYTHONPATH: src
+        run: python3 -m bench.brain_replay --out ../../.artifacts/brain/replay.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dispatch-benchmark
+          path: |
+            .artifacts/dispatch/dispatch_report.md
+            .artifacts/dispatch/dispatch_report.json
+            .artifacts/brain/replay.json
+          retention-days: 30
 
   money-differential:
     name: paisa differential (TS and Python)

@@ -1,18 +1,20 @@
-# Undal — replay recent dispatch decisions against current weights. Licensed
+# Undal — replay recorded dispatch decisions against the current engine. Licensed
 # under PASVL-1.0.
 #
-# The Brain's weights change; the orders it ranked do not. Replaying the last 500
-# traces answers the only question that matters after a weight change: would this
-# have picked the same rider, and if not, who would have been faster to the
-# vendor? A regression here is a silent 90-second delivery-time increase, so it
-# runs nightly and publishes the diff.
+# The Brain's weights change; the orders it ranked do not. Replaying a recorded decision answers the
+# only question that matters after a weight change: would this have picked the same rider? A regression
+# here is a silent ninety-second delivery-time increase, so it runs nightly and publishes the diff.
+#
+# The fixtures under `workers/brain/bench/fixtures/replay` are the committed record. Reading the last
+# 500 rows of `brain_traces` is the same harness with a different loader; that wiring lands with the
+# realtime worker, when the table has live rows (D76).
 name: brain-replay
 
 on:
   workflow_dispatch:
     inputs:
       traces:
-        description: "How many recent traces to replay"
+        description: "Reserved: live traces to replay. Ignored until the trace reader lands."
         default: "500"
   schedule:
     - cron: "9 19 * * *"   # 01:09 Asia/Dhaka
@@ -31,14 +33,14 @@ jobs:
           python-version: "3.12"
       - name: Install the Brain's pinned requirements
         run: python3 -m pip install --requirement workers/brain/requirements.txt
-      - name: Replay and diff
+      - name: Replay the recorded decisions and diff
+        working-directory: workers/brain
         env:
-          TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
-        run: python3 workers/brain/replay.py --traces "${{ inputs.traces || '500' }}" --out .artifacts/brain/replay.json
+          PYTHONPATH: src
+        run: python3 -m bench.brain_replay --fixtures bench/fixtures/replay --out ../../.artifacts/brain/replay.json
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: brain-replay
           path: .artifacts/brain/replay.json
           retention-days: 30
-      - name: Fail if a chosen rider is no longer the best-ranked
-        run: python3 workers/brain/replay_check.py --report .artifacts/brain/replay.json

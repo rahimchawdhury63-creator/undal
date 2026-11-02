@@ -340,6 +340,14 @@ logged, and a stale quote cannot silently charge a new price.
 
 ### R9 · Brain: dispatch and batch — B7 · 60 files · 14 000 lines
 
+**R9d note.** `bench/world.py` (seeded city: riders, vendors, demand and the road factor),
+`bench/city_sim.py` (two policies over the same days, the real filters/factors/waves, a queue that
+waits rather than dropping orders), `bench/adversarial.py` (seven attacks with fixed seeds),
+`bench/report.py` (nine gated metrics, Markdown and JSON artifacts) and `bench/brain_replay.py` (three
+committed fixtures replayed exactly). The CI worker job now runs the benchmark and the replay harness,
+and `brain-replay.yml` calls the harness that exists. `D76` records why the gate is the comparison and
+not the printed targets, and why the report carries nine metrics where `11 §12.1` prints eight.
+
 **R9c note.** `dispatch/cascade.py` (the waveform as data: offers, claims, the early advance when a
 wave is unanimously rejected, and the fallback at T+112), `dispatch/expansion.py` (the six-rung ladder,
 the step-1 relaxations as basis points, boosts floored to taka once), `dispatch/prewarm.py` (180 s TTL,
@@ -376,6 +384,13 @@ on degenerate inputs; `city_sim` beats nearest-rider on all 8 metrics; `brain-re
 runnable.
 **Done when:** dispatch is deterministic, explainable, and provably better than nearest-rider on the
 simulator.
+
+**R9 gate — met.** `D1`–`D12` and `B1`–`B9` are asserted in `test_dispatch.py`, `test_batch.py` and
+`test_cascade.py`; the weights sum to 1.0 ± 1e-9; every factor is in `[0, 1]` on degenerate inputs;
+`city_sim` beats nearest-rider on all nine reported metrics over 15 000 order-days; and
+`bench.brain_replay` reproduces its fixtures exactly. Filter 10 remains the conservative
+`current_load == 0`: the batch proof is not yet consulted during candidate generation, which is the one
+piece of R9 wiring that waits for in-flight bundle state from the realtime worker.
 
 ---
 

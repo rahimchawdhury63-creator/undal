@@ -9,9 +9,10 @@ acceptance gets them back. That is why the reasons are numbered and returned —
 *why* an order did not arrive, and an ops engineer reading a trace can see which rule emptied the
 candidate list without re-deriving it from the code.
 
-Filter 10 (batch feasibility) is answered by `batch/feasibility.py`, which does not exist yet; until
-it does, a rider already carrying an order is not offered a second one. That is the conservative
-answer, and it is the honest one: a cold meal is worse than a second wave.
+Filter 10 (batch feasibility) is answered by `batch/feasibility.py`, which now exists, but dispatch
+does not yet consult it: a rider already carrying an order is still not offered a second one. That is
+the conservative answer, and it is the honest one — the proof needs the in-flight bundle's legs, which
+the realtime worker supplies, and a cold meal is worse than a second wave.
 """
 
 from __future__ import annotations
