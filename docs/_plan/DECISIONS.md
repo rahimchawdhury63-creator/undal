@@ -666,3 +666,23 @@ malformed, or disagrees by a single paisa, the deterministic breakdown stands, t
 `'FALLBACK'`, and the reason plus every disagreeing field is returned so it can be counted. A
 Brain bug therefore cannot charge an unexplainable price, and a Brain outage costs nothing but a
 metric.
+## D67 — A quote is priced in straight lines and says so; a promotion is a warning, never a refusal
+
+Routed distance needs OSRM, which lives behind the dispatch worker and is not bound yet. Rather than
+invent a routed number, a quote uses the haversine distance between the vendor and the delivery point
+and returns `distanceSource: "ESTIMATED"` beside it. `08 §4.1` already prints `distanceM` in the
+explain sheet, so the provenance travels with the figure: a customer can see that the ৳62 delivery
+was priced on 3.8 km as the crow flies, and the day the binding lands the field changes to `OSRM`
+without a contract change.
+
+A promotion the customer typed is always answered — an unknown or expired code becomes a `warnings`
+entry and a zero `DISCOUNT` line, never a 4xx. Refusing the whole quote because a code is stale makes
+the customer re-enter a basket to be told nothing about the code, and it turns a marketing typo into a
+conversion bug. A code that applies less than its face value (below the minimum, over its cap) is
+reported the same way.
+
+The quote endpoint is a `POST` that writes nothing, and declares `readOnly: true` so the
+audit-coverage guardrail can stay strict about every other mutating verb without filling `audit_log`
+with thirty quotes a minute. Free delivery is applied *after* the fare engine, so the total and its
+rounding line are re-derived from the surviving components and floored once — a cash total is always
+whole taka.

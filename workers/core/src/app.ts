@@ -18,6 +18,7 @@ import { clientIp, clientUserAgent, resolveRequestId } from "./middleware/reques
 import type { Ctx, Env, RouteDefinition, RouteInput } from "./middleware/context.ts";
 import { AUTH_ROUTES } from "./routes/auth.ts";
 import { ORDER_ROUTES } from "./routes/orders.ts";
+import { QUOTE_ROUTES } from "./routes/quotes.ts";
 
 /**
  * The pipeline, in the order a request meets it: identify, throttle, parse, authenticate,
@@ -31,7 +32,7 @@ import { ORDER_ROUTES } from "./routes/orders.ts";
  */
 
 /** The routes this Worker serves. Extending the API means adding a module here. */
-export const ROUTES: readonly RouteDefinition[] = [...AUTH_ROUTES, ...ORDER_ROUTES];
+export const ROUTES: readonly RouteDefinition[] = [...AUTH_ROUTES, ...ORDER_ROUTES, ...QUOTE_ROUTES];
 
 /** A matched route plus the parameters its template captured. */
 interface Match {
@@ -167,9 +168,11 @@ export function createApp(routes: readonly RouteDefinition[] = ROUTES, dependenc
 
       const keys = await tokenKeys(env);
       const anonymous = match.route.permission === "*";
-      const authed = anonymous ? null : await authenticate({ ...base, keys, principal: null } as Ctx);
-      if (authed !== null && !authed.ok) return failureResponse(authed.error, locale, requestId);
-      const principal = authed === null ? null : authed.value;
+      const readsToken = !anonymous || match.route.optionalAuth === true;
+      const authed = readsToken ? await authenticate({ ...base, keys, principal: null } as Ctx) : null;
+      // A required token that fails is a refusal; an optional one that fails is a guest.
+      if (!anonymous && authed !== null && !authed.ok) return failureResponse(authed.error, locale, requestId);
+      const principal = authed !== null && authed.ok ? authed.value : null;
 
       const ctx: Ctx = { ...base, keys, principal };
       const reason = request.headers.get("X-Undal-Reason");

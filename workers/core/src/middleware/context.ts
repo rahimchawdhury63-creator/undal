@@ -65,6 +65,22 @@ export interface RouteDefinition {
   readonly permission: string;
   /** Whether the route mutates state; impersonation sessions may not. */
   readonly write?: boolean;
+  /**
+   * A `POST` that changes no rows.
+   *
+   * Quoting is the only such route today: it computes and signs a price, and writes nothing. Saying
+   * so in the declaration is what lets the audit-coverage rule stay strict about every other
+   * mutating verb, and what stops the next reader wondering why a POST has no audit row.
+   */
+  readonly readOnly?: true;
+  /**
+   * Whether an anonymous route still reads a token when one is presented.
+   *
+   * A guest may price a cart; a signed-in customer pricing the same cart gets a quote that records
+   * who asked, so the discount they are entitled to and the customer the order belongs to are the
+   * same person. Without this flag a `*` route would silently drop the caller's identity.
+   */
+  readonly optionalAuth?: boolean;
   /** Whether the request carries a mandatory reason. */
   readonly reasonRequired?: boolean;
   /** The rate-limit group this route belongs to. */
