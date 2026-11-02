@@ -26,7 +26,7 @@ import type { Channel } from "../sse/channels.ts";
 import { parseChannels } from "../sse/channels.ts";
 import { streamResponse } from "../sse/stream.ts";
 import { parseLastEventId } from "../sse/frame.ts";
-import type { StreamHub } from "../sse/hub.ts";
+import type { FrameStore } from "../sse/store.ts";
 import type { ReplaySource } from "../sse/replay.ts";
 import { collectReplay, orderLogReplay } from "../sse/replay.ts";
 
@@ -48,8 +48,8 @@ export interface StreamContext {
   readonly coordinator: Coordinator;
   readonly principal: StreamPrincipal;
   readonly authorizer: ChannelAuthorizer;
-  /** The in-isolate rings, when a room holds them; the order log is the durable fallback. */
-  readonly hub?: StreamHub;
+  /** The durable rings for zone and admin channels. An order's log is its own replay source. */
+  readonly store?: FrameStore;
   readonly clock?: Clock;
 }
 
@@ -135,9 +135,12 @@ export async function handleStream(request: Request, context: StreamContext): Pr
   const logSource = orderLogReplay(context.coordinator);
   const source: ReplaySource = {
     replay: async (channel, at) => {
-      const fromRing = context.hub?.replay(channel, at, clock.nowMs());
-      if (fromRing !== undefined && fromRing.frames.length > 0) return fromRing;
-      return logSource.replay(channel, at);
+      // An order's log is the whole truth for that order, so it is consulted first and answers even when
+      // nothing has been broadcast. Zone and admin channels have no log of their own; their ring is the
+      // only record, and without one the honest answer is "nothing replayable".
+      if (channel.kind === "order") return logSource.replay(channel, at);
+      if (context.store === undefined) return { frames: [], complete: true };
+      return context.store.replay(channel, at, clock.nowMs());
     },
   };
   const replays = await collectReplay(source, channels, cursor);

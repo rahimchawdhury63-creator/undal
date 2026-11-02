@@ -17,23 +17,58 @@ import { describe, test } from "node:test";
 import worker from "../src/index.ts";
 import type { RealtimeEnv } from "../src/index.ts";
 import { CoordinationRoom, DurableObjectCoordinator } from "../src/coordination/durable-object.ts";
+import { DurableObjectFrameStore, StreamRoom } from "../src/sse/durable-store.ts";
 import { FixedClock } from "../src/lib/clock.ts";
 import { FakeNamespace, fakeState } from "./support/fakes.ts";
 import { NOW, base64url, keyPair, sign } from "./support/token.ts";
 
 /** An environment with a durable-object coordinator and a public key for the given pair. */
-async function environment(publicSecret: string | undefined, startMs: number = Date.now()): Promise<RealtimeEnv> {
+async function environment(
+  publicSecret: string | undefined,
+  startMs: number = Date.now(),
+  withStreamRooms = false,
+): Promise<RealtimeEnv> {
   // The Worker reads the real clock, so the room is built with one too: a room frozen two years ago would
   // publish every session as absent and the tests would be measuring the fixture.
   const clock = new FixedClock(startMs);
   const namespace = new FakeNamespace(() => new CoordinationRoom(fakeState(), clock));
+  const streams = new StreamRoomNamespace(clock);
   return {
     PUBLIC_API_BASE: "https://api.undal.app",
     COORDINATION_MODE: "durable-object",
     ORDER_ROOM: namespace as unknown as DurableObjectNamespace,
     COORDINATION_ROOM: namespace as unknown as DurableObjectNamespace,
+    ...(withStreamRooms ? { STREAM_ROOM: streams as unknown as DurableObjectNamespace } : {}),
     ...(publicSecret === undefined ? {} : { JWT_PUBLIC_KEY: publicSecret }),
   };
+}
+
+/** A namespace of stream rooms, one per channel name, over in-memory state. */
+class StreamRoomNamespace {
+  private readonly rooms = new Map<string, StreamRoom>();
+  private readonly clock: FixedClock;
+
+  constructor(clock: FixedClock) {
+    this.clock = clock;
+  }
+
+  idFromName(name: string): DurableObjectId {
+    return { toString: () => name, name, equals: (other: DurableObjectId) => other.toString() === name } as unknown as DurableObjectId;
+  }
+
+  get(id: DurableObjectId): DurableObjectStub {
+    const name = id.toString();
+    let room = this.rooms.get(name);
+    if (room === undefined) {
+      room = new StreamRoom(fakeState(), this.clock);
+      this.rooms.set(name, room);
+    }
+    const resolved = room;
+    return {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+        resolved.fetch(input instanceof Request ? input : new Request(String(input), init)),
+    } as unknown as DurableObjectStub;
+  }
 }
 
 /** A GET with a bearer token. */
@@ -171,7 +206,7 @@ describe("/rt/stream through the Worker", () => {
     assert.equal(response.status, 403);
   });
 
-  test("a broadcast is refused while the rings are per isolate", async () => {
+  test("a broadcast is refused while no room owns the rings", async () => {
     const env = { ...(await environment(undefined)), INTERNAL_TOKEN: "internal-secret" };
     const response = await worker.fetch(
       new Request("https://rt.undal.app/internal/broadcast", {
@@ -184,6 +219,27 @@ describe("/rt/stream through the Worker", () => {
     assert.equal(response.status, 501);
     const body = (await response.json()) as { error: { details: { reason: string } } };
     assert.equal(body.error.details.reason, "rings_not_durable");
+  });
+
+  test("a broadcast is recorded when the stream rooms are bound", async () => {
+    const env = { ...(await environment(undefined, Date.now(), true)), INTERNAL_TOKEN: "internal-secret" };
+    const response = await worker.fetch(
+      new Request("https://rt.undal.app/internal/broadcast", {
+        method: "POST",
+        headers: { authorization: "Bearer internal-secret" },
+        body: JSON.stringify({ zoneId: "zone-1", orderId: "A", event: "order.assigned", payload: { riderId: "r1" } }),
+      }),
+      env,
+    );
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { data: { recorded: number } };
+    assert.equal(body.data.recorded, 2);
+
+    // The next request — in production, a different isolate — can replay what this one recorded.
+    const store = new DurableObjectFrameStore(env.STREAM_ROOM as DurableObjectNamespace, new FixedClock(Date.now()));
+    const replay = await store.replay({ kind: "zone", id: "zone-1" }, 0, Date.now());
+    assert.deepEqual(replay.frames.map((frame) => frame.event), ["order.assigned"]);
+    assert.equal(replay.complete, true);
   });
 
   test("the internal surface is not available on the free backend yet", async () => {

@@ -28,7 +28,7 @@ import type { Clock } from "../lib/clock.ts";
 import { systemClock } from "../lib/clock.ts";
 import { checkInternalToken } from "../lib/secret.ts";
 import { catalogueName } from "../sse/hub.ts";
-import type { StreamHub } from "../sse/hub.ts";
+import type { FrameStore } from "../sse/store.ts";
 import type { BroadcastInput } from "../sse/fanout.ts";
 import { broadcast } from "../sse/fanout.ts";
 
@@ -36,7 +36,7 @@ import { broadcast } from "../sse/fanout.ts";
 export interface InternalContext {
   readonly coordinator: Coordinator;
   /** The rings a broadcast records into. Absent until a room owns them. */
-  readonly hub?: StreamHub;
+  readonly store?: FrameStore;
   /** The shared secret core presents. `undefined` means this deployment accepts no internal calls. */
   readonly internalToken: string | undefined;
   /**
@@ -110,10 +110,10 @@ export async function handleInternal(request: Request, context: InternalContext)
     if (catalogueName(body.event) === null) {
       return refuse("VALIDATION_FAILED", requestId, { fields: [], reason: "unknown_event", event: body.event });
     }
-    if (context.broadcastEnabled === false || context.hub === undefined) {
+    if (context.broadcastEnabled === false || context.store === undefined) {
       return refuse("NOT_IMPLEMENTED", requestId, { reason: "rings_not_durable" });
     }
-    const result = broadcast(context.hub, { ...body, atMs: body.atMs === 0 ? clock.nowMs() : body.atMs });
+    const result = await broadcast(context.store, { ...body, atMs: body.atMs === 0 ? clock.nowMs() : body.atMs });
     return json(success({ recorded: result.recorded.length, orderId: body.orderId }, { requestId }), 200, requestId);
   }
 

@@ -11,9 +11,11 @@ import { authenticate } from "./auth/token.ts";
 import type { VerifyingKey } from "./auth/token.ts";
 import { handleStream, SELF_ONLY } from "./routes/stream.ts";
 import { handleInternal } from "./routes/internal.ts";
+import { DurableObjectFrameStore } from "./sse/durable-store.ts";
 
 export { OrderRoom } from "./order-room.ts";
 export { CoordinationRoom } from "./coordination/durable-object.ts";
+export { StreamRoom } from "./sse/durable-store.ts";
 
 /** The bindings this Worker is given by `wrangler.toml`. */
 export interface RealtimeEnv {
@@ -27,6 +29,8 @@ export interface RealtimeEnv {
   readonly JWT_PUBLIC_KEY?: string;
   /** The bearer token `undal-core` presents on the internal surface. */
   readonly INTERNAL_TOKEN?: string;
+  /** One room per stream channel: the durable rings a broadcast is remembered in. */
+  readonly STREAM_ROOM?: DurableObjectNamespace;
 }
 
 /** JSON with the request id, no caching. */
@@ -54,9 +58,9 @@ function refuse(code: Parameters<typeof failure>[0], requestId: string, details:
  * changing anything. It also refuses a `COORDINATION_MODE` it does not know, rather than running one
  * backend while the operator believes they configured the other.
  *
- * `/internal/presence` answers core's question about a rider, and `/internal/broadcast` refuses until a room
- * owns the rings a broadcast would be remembered in — a ring in one isolate is forgotten by the next
- * request, which is worse than an honest `NOT_IMPLEMENTED`.
+ * `/internal/presence` answers core's question about a rider, and `/internal/broadcast` fans an order event
+ * into the per-channel `StreamRoom` rings when they are bound — a ring in one isolate is forgotten by the
+ * next request, which is worse than an honest `NOT_IMPLEMENTED`, so the route refuses when they are not.
  *
  * `/rt/stream` is the only client route wired so far, and every path it takes is a refusal it can explain:
  * no coordination room, no public key, no token, a token that does not verify, a channel the caller may
@@ -113,6 +117,7 @@ export default {
 
       return handleStream(request, {
         coordinator: new DurableObjectCoordinator(env.COORDINATION_ROOM),
+        ...(env.STREAM_ROOM === undefined ? {} : { store: new DurableObjectFrameStore(env.STREAM_ROOM) }),
         principal: {
           actorId: authenticated.value.actorId,
           actorType: authenticated.value.actorType,
@@ -135,8 +140,11 @@ export default {
       return handleInternal(request, {
         coordinator: new DurableObjectCoordinator(env.COORDINATION_ROOM),
         internalToken: env.INTERNAL_TOKEN,
-        // No room owns the rings yet, so a broadcast is refused rather than remembered for one request.
-        broadcastEnabled: false,
+        // A broadcast needs a room to be remembered in; without one it is refused rather than answered
+        // into a ring the next request will not see.
+        ...(env.STREAM_ROOM === undefined
+          ? { broadcastEnabled: false }
+          : { store: new DurableObjectFrameStore(env.STREAM_ROOM), broadcastEnabled: true }),
       });
     }
 

@@ -13,6 +13,8 @@ bindings = [
   # The coordination room is only used when COORDINATION_MODE = "durable-object"; the binding exists so
   # flipping the variable is the whole upgrade. The free `sql` backend uses no Durable Object at all.
   { name = "COORDINATION_ROOM", class_name = "CoordinationRoom" },
+  # One room per stream channel, so a broadcast survives the isolate that recorded it.
+  { name = "STREAM_ROOM", class_name = "StreamRoom" },
 ]
 
 [[migrations]]
@@ -22,6 +24,10 @@ new_classes = ["OrderRoom"]
 [[migrations]]
 tag = "v2"
 new_classes = ["CoordinationRoom"]
+
+[[migrations]]
+tag = "v3"
+new_classes = ["StreamRoom"]
 
 [vars]
 PUBLIC_API_BASE = "https://api.undal.app"

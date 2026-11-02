@@ -14,8 +14,9 @@
  */
 
 import type { Channel } from "./channels.ts";
-import type { RingEvent, StreamHub } from "./hub.ts";
+import type { RingEvent } from "./hub.ts";
 import { catalogueName } from "./hub.ts";
+import type { FrameStore } from "./store.ts";
 
 /** What core sends. */
 export interface BroadcastInput {
@@ -50,21 +51,23 @@ export function channelsFor(input: BroadcastInput): readonly Channel[] {
  * An event the catalogue does not carry is refused rather than sent: a client that cannot decode a frame
  * shows nothing, and a silent gap is worse than an error the caller can log.
  */
-export function broadcast(
-  hub: StreamHub,
+export async function broadcast(
+  store: FrameStore,
   input: BroadcastInput,
-): { readonly recorded: readonly RingEvent[]; readonly dropped: boolean } {
-  const name = catalogueName(input.event);
-  if (name === null) return { recorded: [], dropped: true };
-  const recorded: RingEvent[] = [];
+): Promise<{ readonly recorded: readonly { readonly id: number; readonly event: string }[]; readonly dropped: boolean }> {
+  if (catalogueName(input.event) === null) return { recorded: [], dropped: true };
+  const recorded: { id: number; event: string }[] = [];
   for (const channel of channelsFor(input)) {
-    const frame = hub.record(channel, {
+    const frame = await store.record(channel, {
       ...(input.seq === undefined ? {} : { seq: input.seq }),
       kind: input.event,
       data: input.payload,
       atMs: input.atMs,
     });
-    if (frame !== null) recorded.push(frame);
+    if (frame !== null) recorded.push({ id: frame.id, event: frame.event });
   }
   return { recorded, dropped: false };
 }
+
+/** The channels a broadcast reaches, as data a test can assert without a store. */
+export type BroadcastChannels = ReturnType<typeof channelsFor>;

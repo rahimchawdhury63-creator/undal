@@ -17,6 +17,7 @@ import { describe, test } from "node:test";
 import { DENY_ALL, handleStream, resolveSelf } from "../src/routes/stream.ts";
 import type { ChannelAuthorizer, StreamPrincipal } from "../src/routes/stream.ts";
 import { StreamHub } from "../src/sse/hub.ts";
+import { MemoryFrameStore } from "../src/sse/store.ts";
 import { BACKENDS } from "./support/backends.ts";
 
 const RIDER: StreamPrincipal = { actorId: "rider-a", actorType: "RIDER" };
@@ -103,15 +104,15 @@ for (const backend of BACKENDS) {
       await reader?.cancel();
     });
 
-    test("a room's ring is preferred when it has the frames", async () => {
+    test("a zone channel replays from the ring that holds it", async () => {
       const built = backend.make();
       const hub = new StreamHub();
-      hub.record({ kind: "order", id: "A" }, { seq: 9, kind: "PLACED", data: { from: "ring" }, atMs: built.clock.nowMs() });
-      const response = await handleStream(get("channels=order:A", "8"), {
+      hub.record({ kind: "zone", id: "sylhet" }, { seq: 9, kind: "RIDER_ASSIGNED", data: { from: "ring" }, atMs: built.clock.nowMs() });
+      const response = await handleStream(get("channels=zone:sylhet", "8"), {
         coordinator: built.coordinator,
         principal: CUSTOMER,
-        authorizer: allowOnly("order:A"),
-        hub,
+        authorizer: allowOnly("zone:sylhet"),
+        store: new MemoryFrameStore(hub),
         clock: built.clock,
       });
       const reader = response.body?.getReader();

@@ -26,6 +26,13 @@ export interface RingEvent extends StreamFrame {
   readonly atMs: number;
 }
 
+/** A ring's state, in a shape storage can hold. */
+export interface RingSnapshot {
+  readonly events: readonly RingEvent[];
+  readonly evictedThrough: number;
+  readonly highestId: number;
+}
+
 /** What a reconnect gets back. */
 export interface Resume {
   readonly events: readonly RingEvent[];
@@ -100,6 +107,27 @@ export class EventRing {
     const oldestHeld = this.events.length > 0 ? (this.events[0] as RingEvent).id : this.highestId + 1;
     const complete = lastEventId + 1 >= Math.min(oldestHeld, this.evictedThrough + 1);
     return { events, complete };
+  }
+
+  /** The state, for a room that persists its ring between requests. */
+  snapshot(): RingSnapshot {
+    return { events: [...this.events], evictedThrough: this.evictedThrough, highestId: this.highestId };
+  }
+
+  /**
+   * Rebuild a ring from a snapshot.
+   *
+   * The counters come back with the events, which is the point: a restored ring that only remembered its
+   * events would answer "complete" for a cursor it had already forgotten, and the client would be told a
+   * silence was a gap it did not miss.
+   */
+  static restore(snapshot: RingSnapshot | undefined, size: number = EVENT_RING_SIZE, windowMs: number = EVENT_RING_WINDOW_MS): EventRing {
+    const ring = new EventRing(size, windowMs);
+    if (snapshot === undefined) return ring;
+    ring.events = [...snapshot.events];
+    ring.evictedThrough = snapshot.evictedThrough;
+    ring.highestId = snapshot.highestId;
+    return ring;
   }
 
   /** How many events are replayable right now. */

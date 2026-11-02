@@ -17,6 +17,7 @@ import { describe, test } from "node:test";
 import { handleInternal } from "../src/routes/internal.ts";
 import type { InternalContext } from "../src/routes/internal.ts";
 import { StreamHub } from "../src/sse/hub.ts";
+import { MemoryFrameStore } from "../src/sse/store.ts";
 import { parseChannels } from "../src/sse/channels.ts";
 import { BACKENDS, T0 } from "./support/backends.ts";
 import type { Backend } from "./support/backends.ts";
@@ -25,11 +26,13 @@ const TOKEN = "internal-secret-for-tests";
 
 /** A context over one backend, with a hub. */
 function contextFor(backend: Backend, token: string | null = TOKEN): InternalContext & { hub: StreamHub } {
+  const hub = new StreamHub();
   return {
     coordinator: backend.coordinator,
-    hub: new StreamHub(),
+    store: new MemoryFrameStore(hub),
     internalToken: token === null ? undefined : token,
     clock: backend.clock,
+    hub,
   };
 }
 
