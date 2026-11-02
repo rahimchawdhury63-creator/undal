@@ -340,6 +340,12 @@ logged, and a stale quote cannot silently charge a new price.
 
 ### R9 · Brain: dispatch and batch — B7 · 60 files · 14 000 lines
 
+**R9b note.** `batch/` — `constraints.py` (C1–C10 constants, capacity, detour budgets, handover clamp),
+`feasibility.py` (the detour arithmetic, ten verdicts per ordering, `None` for a constraint that does
+not apply), `permutations.py` (≤ 6 orderings, `Σ detour² + λ·metres`, stable tie-break), `score.py`
+(the five weighted terms and the 0.45 floor) and `proof.py` (bundle proof JSON, re-validated at accept).
+28 new Python tests, every constraint exercised at its boundary and just past it.
+
 **R9a note.** `dispatch/factors.py` (the fourteen factors, `PRINTED_WEIGHTS`, `DEFAULT_WEIGHTS`
 normalised to 1.0 ± 1e-9, Wilson lower bound), `dispatch/filters.py` (fourteen numbered vetoes with a
 refusal reason per rider), `dispatch/scoring.py` (one deterministic pass, tie-break on acceptance then

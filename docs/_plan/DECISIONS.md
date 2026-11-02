@@ -779,3 +779,25 @@ The printed figures stay in the module as `PRINTED_WEIGHTS` so the next reader c
 Dispatch also stops pretending filter 10 is implemented: `batch/feasibility.py` does not exist yet, so
 a rider already carrying an order is not offered a second one. That is the conservative answer and the
 honest one — a cold meal is worse than a second wave.
+## D74 — Batching ships the constraints and the cost function; the worked score is 0.5812, not 0.566
+
+`12 §6.1` prints five terms for the Vector 06 bundle — 0.417, 0.579, 0.750, 0.880, 0.393 — and a total
+of **0.566**. The document's own weights (0.32, 0.26, 0.18, 0.14, 0.10, which do sum to 1.0) applied to
+the document's own five terms give **0.5812**. The implementation follows the weights and the terms,
+and the test asserts both numbers — the computed total *and* that it is not the printed one — so the
+next reader finds a recorded discrepancy instead of a silent inequality (`D73` set the precedent for
+dispatch's table).
+
+The detour model is the document's, term for term, including the part that is easy to forget: the
+second order's detour carries the *whole* of the first order's handover. A model that priced the hop
+and forgot the doorstep would promise seven minutes and deliver eleven.
+
+`C2` reports `None` when nothing in the bundle is fragile, which is deliberately different from
+"passed": a constraint that does not apply must not be recorded as a constraint that was satisfied, or
+the trace cannot tell a careful bundle from a lucky one. `C7` charges a fragile item one bag of
+capacity, and `C10` refuses a bundle whose rider payout is below the sum of the two solo minimums —
+the rider must never earn less for carrying two meals than for carrying one.
+
+A proof is re-validated when the rider accepts (`12 §5`), and it is checked against the proof's *own*
+stored detours as well as the fresh world: a stored detour already over budget means the proof was
+never honest, which is a different failure from a world that moved.
