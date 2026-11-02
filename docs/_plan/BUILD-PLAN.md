@@ -340,6 +340,13 @@ logged, and a stale quote cannot silently charge a new price.
 
 ### R9 · Brain: dispatch and batch — B7 · 60 files · 14 000 lines
 
+**R9a note.** `dispatch/factors.py` (the fourteen factors, `PRINTED_WEIGHTS`, `DEFAULT_WEIGHTS`
+normalised to 1.0 ± 1e-9, Wilson lower bound), `dispatch/filters.py` (fourteen numbered vetoes with a
+refusal reason per rider), `dispatch/scoring.py` (one deterministic pass, tie-break on acceptance then
+rider id, weighted contributions for the admin panel) and `dispatch/waves.py` (`MAX_WAVES 5`,
+`MAX_WAVE_SIZE 8`, 90% target, fallback at T+112 s). 31 new Python tests; the `11 §6` table discrepancy
+is recorded in `DocumentDiscrepancyTests` rather than hidden (`D73`).
+
 - `dispatch/` — `filters.py` (14), `factors/` 14 files (`distance`, `eta_fit`, `acceptance`,
   `fairness`, `cash_risk`, `vehicle_fit`, `zone_fit`, `battery`, `rating`, `on_time`,
   `load`, `recent_reject`, `area_familiarity`, `device_health`), `scoring.py`, `waves.py`

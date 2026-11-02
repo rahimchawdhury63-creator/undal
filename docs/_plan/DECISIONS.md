@@ -761,3 +761,21 @@ against the same 150 m geofence a handover uses, and the guards are given the *s
 (`pickupCodeMatches`, `riderDistanceToVendorM`) rather than the request's claims. An order that is not
 waiting at the counter answers `QR_ALREADY_SCANNED` whatever the code contains, and a lost race on the
 state update writes no event row, so a concurrent scan leaves no phantom in the history.
+## D73 — Dispatch ships the formulas, not the worked table, and normalises weights that do not sum to one
+
+`11 §6` prints a worked dispatch for order `UND-7K2M9QX4` with a full factor table and the rank
+**B, A, D, C, E**. Four of its columns do not reproduce from the formulas the same document prints in
+`§5.1` and `§5.2`: `eta_fit` matches only for rider E, `fairness` only for rider B. The formulas are the
+specification and the table is an illustration, so the engine implements the formulas and the test
+file records the discrepancy explicitly (`DocumentDiscrepancyTests`) instead of asserting numbers that
+would have to be reverse-engineered to look right. What the table does establish — the ordering, and
+that nearest-rider is not the winner — is asserted as the ranking.
+
+`11 §5` also prints "Sum: 1.000" above fourteen weights that add to **1.005**. A weighted average is
+only an average if the weights sum to one, and every threshold on a score depends on that, so
+`DEFAULT_WEIGHTS` is the printed set divided by its sum (tolerance ±1e-9, enforced in `Weights.__post_init__`).
+The printed figures stay in the module as `PRINTED_WEIGHTS` so the next reader can see both numbers.
+
+Dispatch also stops pretending filter 10 is implemented: `batch/feasibility.py` does not exist yet, so
+a rider already carrying an order is not offered a second one. That is the conservative answer and the
+honest one — a cold meal is worse than a second wave.
