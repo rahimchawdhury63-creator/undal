@@ -1400,3 +1400,44 @@ expects.
 And the claim was checked the only way that makes it a claim: commenting out the `ringVendor` call fails two
 of the three tests, re-enabling it passes all ten. A test that would not notice the feature's absence is a test
 that documents a hope.
+
+## D95 — A position is a claim by a phone, and the gate says which claims it believes
+
+R11 starts where `07 §4.5` left a table and no code: the rules that decide whether a fix may land in D1 at
+all. `workers/realtime/src/d1/ingest.ts` now implements them, and the decisions that are not in the table are
+the ones worth recording.
+
+**A mock flag is a batch decision, not a fix decision.** One fix carrying the OS's mock flag rejects the whole
+upload and sets `suspendShift`. The tempting alternative — store the nine honest fixes, drop the spoofed one —
+produces a device that is *partly* trustworthy, and the platform has no way to say which part. A rider whose
+phone is mocking its location is either testing the platform or defeating it, and both deserve a human before
+the next order.
+
+**Refusals are named, because the names are different stories.** `poor_accuracy` is a phone under a bridge and
+costs nothing. `implausible_speed` is a tower fix, a tunnel exit, a spoof or a teleport; it increments
+`teleports` so the caller can add it to the rider's `teleport_count`, which is what puts a rider in front a
+reviewer. `outside_zone` sets `raiseException`, because a position twenty kilometres outside its bounding box
+is not a data-quality problem, it is a rider who is somewhere nobody expects. A single "dropped" counter would
+make all three invisible at once.
+
+**A refused fix does not move the baseline.** Speed is measured against the last *accepted* fix, so a rejected
+teleport cannot manufacture a second rejection from the good fix that follows it — the failure mode that makes
+a rider's trail stop updating for a minute after one bad point under a flyover.
+
+**Order of the checks is the order of the reasoning.** Mock, then accuracy (an inaccurate fix is evidence about
+nothing), then the clocks (a time that cannot be trusted makes a speed meaningless), then ordering, then
+speed, then the zone — the only check about *where* rather than *when*.
+
+**One thing the table could not answer.** A backfill carries fixes older than the newest stored one: a rider
+who came out of a tunnel. For those, the fix that precedes them in time has already been pruned by the ring
+buffer, so no speed can be computed; the gate stores them without a speed verdict rather than refusing them
+over a division by a negative interval. The alternative — refusing backfills outright — would throw away the
+exact fixes a tunnel produces.
+
+Nothing here writes. `teleport_count`, the exception row and the shift suspension are the caller's writes, and
+that is deliberate: the gate decides what the platform believes, and the write path decides what to say about
+it.
+
+*Open:* the cadence gate above this (`07 §3.2`, `shouldSend`) and the write budget (`07 §4.2`) are not built;
+this rung is the plausibility half of the edge contract, and the two halves share a caller that does not exist
+yet.

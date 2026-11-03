@@ -316,6 +316,13 @@ anti-spoofing layer:
 A rider accumulating `teleport_count` is surfaced in the admin panel. Three distinct shifts with
 teleports triggers a manual review. Mock-location detection is immediate and automatic.
 
+The gate is implemented in `workers/realtime/src/d1/ingest.ts` (`judgeBatch`, D95): it refuses with a
+named reason rather than a boolean, counts teleports for the caller to add to `teleport_count`, and
+returns `suspendShift` / `raiseException` for the two cases that are a person's problem rather than a
+dataset's. One refinement the table does not state: a backfilled fix older than the newest stored one
+is stored **without** a speed verdict, because the fix that precedes it in time has already been
+pruned — refusing it would refuse a number nobody can compute.
+
 ---
 
 ## 5. The ring buffer
