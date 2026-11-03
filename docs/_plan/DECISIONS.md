@@ -1337,3 +1337,39 @@ not a longer read.
 `state_list`'s parameters therefore changed to `(prefix, after, now, limit)`; the `after` term is `''` on the
 first page, which sorts before every key this platform writes because no key starts with a control character.
 Nothing else about the store changed, which is the point of having kept the port.
+
+## D93 — The ladder was complete and unreachable, so placement now starts it
+
+D84 built the vendor ladder and D87 closed its delivery loop. Nothing called it. `VendorAlarm` could walk
+three rungs, ring every device, receive its own receipt and cancel at 120 s, and a placed order never touched
+it — so the sequence existed and the first sentence did not. A placement now ends by ringing the vendor.
+
+**Three facts, three tables, one module.** The ring needs the vendor's owner (`vendors.owner_user_id`), the
+live tokens that owner's devices registered (`device_tokens` joined `devices`, `valid = 1`, newest first,
+capped at five) and the area to show (`addresses.area`, reached through `orders.delivery_address_id`). They
+live together in `repositories/recipients.ts` because they answer one question — whose phone should ring, and
+what should it say — and a caller assembling a notification from three repositories would eventually assemble
+it slightly differently from the next caller. Staff do not exist yet; when they do, this is the one place that
+learns about them.
+
+**The order does not wait for the ring, and the ring does not stay quiet.** Placement is a money event: it
+writes rows and answers `201`, so the ring is handed to `waitUntil` and a cold room adds nothing to the
+customer's receipt. But D85's rule for announcements — a failure is a degraded poll, so say nothing — does not
+transfer. A missed broadcast means a screen refetches; a missed ring means the vendor never learns, the ladder
+never starts, and the customer waits two minutes for a cancellation nobody chose. So a ring that could not
+happen is an audit row at `WARNING`, `ladder.unrung`, with the reason it did not: `no_device` when the vendor
+has no registered phone, `begin_refused` when realtime would not start the ladder. Both are the platform
+failing to reach somebody, and neither is allowed to be silent.
+
+**What the push says is what the order knows.** `CRITICAL`, `alarm: loop`, twenty seconds per ring so the
+second attempt is audible over the first, and an expiry equal to the ladder's own 120 s — a push that outlives
+the ladder would ring a phone for an order the platform already cancelled. The total crosses as paisa because
+the client formats it, the short code is the part a person reads out (`UND-7K2M9QX4` → `7K2M9QX4`), and
+`attempt` is absent because each rung numbers its own. `customerArea` is the address's area, trimmed, or the
+empty string when the customer pinned a map point and typed nothing: the field is always present so a client
+never has to handle absence, and an empty one is honest in a way a guess is not.
+
+*Open:* the call site itself is one line in `routes/place.ts` and no test would fail if it were removed — the
+ring, its body and both failure paths are tested, the wiring is not. The audit row is the mitigation: a ladder
+that stopped starting would fill the log with `ladder.unrung` rather than emptying the platform of alarms
+quietly.

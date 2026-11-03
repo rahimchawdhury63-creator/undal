@@ -10,6 +10,7 @@ import { success } from "@undal/contracts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { buildOrderItems, type CatalogueEntry } from "../domain/order/items.ts";
 import { announce } from "../bindings/announce.ts";
+import { ringVendor } from "../bindings/ladder.ts";
 import { buildStateEvent } from "../domain/order/state-events.ts";
 import { planPlacement, PlacementRefused, type PlacementContext } from "../domain/order/placement.ts";
 import { verifyQuoteToken, type QuoteSnapshot } from "../domain/order/quote.ts";
@@ -210,6 +211,23 @@ async function place(ctx: Ctx, body: unknown): Promise<Response> {
     payload: { orderId: plan.order.code, state: plan.order.state, seq: plan.event.seq, vendorId: plan.order.vendorId },
     seq: plan.event.seq,
   });
+
+  // The order is placed, so the vendor's phone starts ringing — 120 s, three rungs, and a cancellation nobody
+  // chose at the end of it. Handed to `waitUntil` because the ring is not a precondition of the order, and
+  // written down when it did not happen because a ring that failed is a customer waiting two minutes for
+  // nothing (D93).
+  const publishedAtMs = nowMs;
+  ctx.waitUntil(
+    ringVendor(ctx, {
+      orderId: plan.order.id,
+      orderCode: plan.order.code,
+      zoneId: plan.order.zoneId,
+      vendorId: plan.order.vendorId,
+      itemCount: items.length,
+      totalPaisa: plan.order.totals.totalPaisa,
+      publishedAtMs,
+    }),
+  );
 
   // `201 Created`, built through the same envelope as every other response: a placement that reused
   // the 200 helper would be the one endpoint whose success could not be told from a replayed read.
