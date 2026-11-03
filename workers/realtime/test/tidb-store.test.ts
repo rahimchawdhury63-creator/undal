@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { COORDINATION_STATEMENTS } from "@undal/contracts";
+import { COORDINATION_STATEMENTS, MAX_STATEMENT_ROWS } from "@undal/contracts";
 
 import { FixedClock } from "../src/lib/clock.ts";
 import type { SqlExecutor } from "../src/coordination/tidb.ts";
@@ -82,14 +82,51 @@ describe("the value and the expiry", () => {
 });
 
 describe("a prefix is a prefix", () => {
-  test("the listing passes the prefix, the clock and the row cap", async () => {
+  test("the listing passes the prefix, an empty cursor, the clock and the cap", async () => {
     const sql = new ScriptedSql();
     sql.rows = [{ state_key: "presence:zone-1:RIDER:rider-a:p1", state_value: '{"role":"RIDER"}' }];
     const rows = await store(sql).list("presence:zone-1:");
     assert.deepEqual(rows, [{ key: "presence:zone-1:RIDER:rider-a:p1", value: { role: "RIDER" } }]);
     const params = last(sql)?.params as readonly unknown[];
     assert.equal(params[0], "presence:zone-1:");
-    assert.equal(typeof params[2], "number");
+    assert.equal(params[1], "", "the first page starts before every key");
+    assert.equal(typeof params[2], "string");
+  });
+
+  test("a zone larger than one page is listed in full, by keyset (D92)", async () => {
+    const sql = new ScriptedSql();
+    const page = (from: number) =>
+      Array.from({ length: MAX_STATEMENT_ROWS }, (_, index) => ({
+        state_key: `presence:zone-1:RIDER:r${String(from + index).padStart(4, "0")}:p`,
+        state_value: '{"role":"RIDER"}',
+      }));
+    const pages = [page(0), page(MAX_STATEMENT_ROWS), page(2 * MAX_STATEMENT_ROWS).slice(0, 1)];
+    let call = 0;
+    sql.query = async <T,>(statement: string, params: readonly unknown[] = []): Promise<T[]> => {
+      sql.calls.push({ sql: statement, params });
+      const answer = pages[call] ?? [];
+      call += 1;
+      return answer as unknown as T[];
+    };
+
+    const rows = await store(sql).list("presence:zone-1:");
+    assert.equal(rows.length, 2 * MAX_STATEMENT_ROWS + 1);
+    assert.equal(sql.calls.length, 3, "two full pages, then the short one that ends it");
+    assert.equal(sql.calls[1]?.params[1], `presence:zone-1:RIDER:r${String(MAX_STATEMENT_ROWS - 1).padStart(4, "0")}:p`);
+    assert.equal(new Set(rows.map((row) => row.key)).size, rows.length, "no key appears twice");
+  });
+
+  test("a listing that cannot finish says so instead of stopping short", async () => {
+    const sql = new ScriptedSql();
+    sql.query = async <T,>(statement: string, params: readonly unknown[] = []): Promise<T[]> => {
+      sql.calls.push({ sql: statement, params });
+      // Every page is full, so the loop never reaches a short answer.
+      return Array.from({ length: MAX_STATEMENT_ROWS }, (_, index) => ({
+        state_key: `presence:zone-1:RIDER:r${String(index).padStart(4, "0")}:p`,
+        state_value: "{}",
+      })) as unknown as T[];
+    };
+    await assert.rejects(store(sql).list("presence:zone-1:"), /exceeded 20 pages/u);
   });
 
   test("a key carrying a LIKE pattern character is refused rather than widening a listing", async () => {

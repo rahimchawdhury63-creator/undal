@@ -1283,9 +1283,7 @@ by name when one is missing. What has *not* been measured is the number R10 gate
 `sql` backend. The binding hop is now real, so the next rung can take that measurement instead of estimating
 it.
 
-*Open:* `state_list` is capped at 500 rows, so a zone with more than 500 simultaneous sessions would be
-listed partially and silently. A per-zone counter or a cursor is the fix; neither belongs in the rung that
-first made the store exist.
+*Open:* closed by D92, which pages the listing by key instead of stopping at the first 500 rows.
 
 ## D91 — The two seconds include the database, so the largest grace is smaller than it was
 
@@ -1315,3 +1313,27 @@ rather than the one its two in-memory terms happen to produce.
 *Open:* the wall-clock version of this number — p95 across a thousand real losses against a deployed free
 path — is a load test, not a unit test, and is still not run. What this rung fixes is that the arithmetic the
 load test would be checked against now includes the thing it is measuring.
+
+## D92 — A listing of a zone finishes, or it says it did not
+
+D90 shipped `state_list` with a `LIMIT 500` and called the truncation open. It was worse than untidy: the
+listing is how a zone's presence is read, and a zone entering a busy Friday evening would have had its
+sessions listed up to five hundred and no further — a dispatch decision made on half the fleet, with nothing
+in the answer to say so.
+
+The fix is keyset pagination, and the choice between that and `OFFSET` is the whole decision. Rows are being
+written and deleted while the listing runs, so an offset counts rows that may have moved: a rider who
+reconnects between two pages shifts every later row by one and the listing either repeats a device or skips
+one. A keyset cursor is the last key returned, `state_key > ?` is immune to that, and `ORDER BY state_key` is
+already the table's primary key, so the page boundary is an index range rather than a sort.
+
+Paging stops at `MAX_STATE_PAGES = 20`, ten thousand rows. What happens there is the second decision: it
+throws. A caller that asked for a zone's sessions and got a partial list would act on half a fleet without
+knowing; a caller that gets a `RangeError` knows exactly what it has. Ten thousand sessions in one zone is
+far past anything this platform is designed for, so the ceiling is a bug detector rather than a capacity
+limit — and if a zone ever legitimately reaches it, the answer is a per-zone count or a role-filtered listing,
+not a longer read.
+
+`state_list`'s parameters therefore changed to `(prefix, after, now, limit)`; the `after` term is `''` on the
+first page, which sorts before every key this platform writes because no key starts with a control character.
+Nothing else about the store changed, which is the point of having kept the port.

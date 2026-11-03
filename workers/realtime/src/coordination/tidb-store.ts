@@ -28,6 +28,15 @@ import { sqlTime } from "./tidb.ts";
 export const MAX_STATE_KEY_LENGTH = 191;
 
 /**
+ * How many pages a listing may read before it gives up (D92).
+ *
+ * Each page is one statement, so a listing of a zone is normally one. The cap is what turns "this zone has more
+ * sessions than a listing was designed for" into an error a caller sees rather than a partial list nobody
+ * notices — a presence list that quietly stops at five hundred is a dispatch decision made on half the fleet.
+ */
+export const MAX_STATE_PAGES = 20;
+
+/**
  * What a key may contain: the ids, roles and kinds the coordinator composes.
  *
  * No `%` and no `_`. They are the two characters `LIKE` treats as patterns, and a key carrying one would
@@ -77,12 +86,23 @@ export function createTiDBStateStore(sql: SqlExecutor, clock: Clock = systemCloc
 
     async list<T>(prefix: string): Promise<readonly { readonly key: string; readonly value: T }[]> {
       assertStateKey(`${prefix}x`);
-      const rows = await sql.query<StateRow>(COORDINATION_STATEMENTS.state_list.sql, [
-        prefix,
-        sqlTime(clock.nowMs()),
-        MAX_STATEMENT_ROWS,
-      ]);
-      return rows.map((row) => ({ key: String(row.state_key), value: JSON.parse(String(row.state_value)) as T }));
+      const collected: { key: string; value: T }[] = [];
+      let after = "";
+      for (let page = 0; page < MAX_STATE_PAGES; page += 1) {
+        const rows = await sql.query<StateRow>(COORDINATION_STATEMENTS.state_list.sql, [
+          prefix,
+          after,
+          sqlTime(clock.nowMs()),
+          MAX_STATEMENT_ROWS,
+        ]);
+        for (const row of rows) {
+          collected.push({ key: String(row.state_key), value: JSON.parse(String(row.state_value)) as T });
+        }
+        if (rows.length < MAX_STATEMENT_ROWS) return collected;
+        after = String(rows[rows.length - 1]?.state_key ?? "");
+      }
+      // Not truncated and not silently short: a listing that did not finish says so.
+      throw new RangeError(`state listing for ${prefix} exceeded ${String(MAX_STATE_PAGES)} pages`);
     },
   };
 }

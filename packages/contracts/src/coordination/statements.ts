@@ -114,8 +114,10 @@ ON DUPLICATE KEY UPDATE state_value = VALUES(state_value), expires_at = VALUES(e
   state_list: {
     name: "state_list",
     kind: "read",
+    // Keyset pagination, not `OFFSET`: the listing is assembled while other rows are being written, and an
+    // offset would skip or repeat a device depending on what landed between two pages (D92).
     sql: `SELECT state_key, state_value FROM coordination_state
- WHERE state_key LIKE CONCAT(?, '%') AND (expires_at IS NULL OR expires_at > ?)
+ WHERE state_key LIKE CONCAT(?, '%') AND state_key > ? AND (expires_at IS NULL OR expires_at > ?)
  ORDER BY state_key ASC
  LIMIT ?`,
   },
