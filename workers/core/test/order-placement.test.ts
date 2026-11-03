@@ -70,8 +70,28 @@ const menuRow = (pricePaisa: number) => ({
   vendor_id: bytes(VENDOR_HEX),
 });
 
-function dbFor(options: { menu?: unknown[]; users?: unknown[]; zones?: unknown[] } = {}) {
+const OWNER_HEX = "0193f2a17c3e7890abcdef01234567aa";
+const ADDRESS_HEX = "0193f2a17c3e7890abcdef01234567bb";
+
+/**
+ * A database for one placement.
+ *
+ * `devices` is what the vendor's owner has registered: the ladder's ring resolves them through
+ * `vendors.owner_user_id` → `device_tokens` → `devices`, so a test that places an order now needs answers for
+ * those three reads as well as the ones the order itself needs (D94). They are matched before the generic
+ * `FROM vendors` handler, which returns the vendor row the placement reads for its open state.
+ */
+function dbFor(
+  options: { menu?: unknown[]; users?: unknown[]; zones?: unknown[]; devices?: string[] } = {},
+) {
   return stubDb([
+    { match: /owner_user_id/u, rows: [{ owner_user_id: bytes(OWNER_HEX) }] },
+    {
+      match: /FROM `device_tokens`/u,
+      rows: (options.devices ?? ["phone-token-1", "phone-token-2"]).map((fcm_token) => ({ fcm_token })),
+    },
+    { match: /delivery_address_id/u, rows: [{ delivery_address_id: bytes(ADDRESS_HEX) }] },
+    { match: /FROM `addresses`/u, rows: [{ area: "Mirpur" }] },
     { match: /FROM `vendors`/u, rows: [VENDOR_ROW] },
     { match: /FROM `menu_items`/u, rows: options.menu ?? [menuRow(12_000)] },
     { match: /FROM `modifiers`/u, rows: [] },
@@ -87,9 +107,23 @@ function dbFor(options: { menu?: unknown[]; users?: unknown[]; zones?: unknown[]
   ]);
 }
 
-function ctxFor(db: ReturnType<typeof stubDb>, principal: Principal | null): Ctx {
+/** The environment a deployment with a stream configured has: somewhere to send a ring. */
+const STREAM_ENV = testEnv({
+  REALTIME_BASE: "https://rt.undal.example",
+  INTERNAL_TOKEN: "internal-token",
+} as never);
+
+/** How a test builds the context one placement runs in. */
+interface CtxOptions {
+  /** The environment, when the test needs the stream configured. */
+  readonly env?: ReturnType<typeof testEnv>;
+  /** Every promise the route handed to `waitUntil`, so a test can wait for the ring it started. */
+  readonly pending?: Promise<unknown>[];
+}
+
+function ctxFor(db: ReturnType<typeof stubDb>, principal: Principal | null, options: CtxOptions = {}): Ctx {
   return {
-    env: testEnv(),
+    env: options.env ?? testEnv(),
     db,
     url: new URL("https://api.undal.test/v1/orders"),
     request: new Request("https://api.undal.test/v1/orders", { method: "POST" }),
@@ -100,7 +134,9 @@ function ctxFor(db: ReturnType<typeof stubDb>, principal: Principal | null): Ctx
     principal,
     locale: "en",
     startedAtMs: 0,
-    waitUntil: () => undefined,
+    waitUntil: (promise: Promise<unknown>) => {
+      options.pending?.push(promise);
+    },
   } as Ctx;
 }
 
@@ -122,10 +158,19 @@ async function quoteToken(db: ReturnType<typeof stubDb>): Promise<{ token: strin
   return { token: body.data.quoteToken, totalPaisa: body.data.totalPaisa };
 }
 
-const place = (db: ReturnType<typeof stubDb>, token: string, principal: Principal | null = CUSTOMER): Promise<Response> => {
+const place = (
+  db: ReturnType<typeof stubDb>,
+  token: string,
+  principal: Principal | null = CUSTOMER,
+  options: CtxOptions = {},
+): Promise<Response> => {
   const route = PLACEMENT_ROUTES[0];
   assert.ok(route !== undefined);
-  return route.run(ctxFor(db, principal), { params: {}, body: { quoteToken: token, deliveryPoint: { lat: 24.8981, lon: 91.8712 } }, reason: null });
+  return route.run(ctxFor(db, principal, options), {
+    params: {},
+    body: { quoteToken: token, deliveryPoint: { lat: 24.8981, lon: 91.8712 } },
+    reason: null,
+  });
 };
 
 describe("POST /v1/orders", () => {
@@ -197,5 +242,93 @@ describe("POST /v1/orders", () => {
     const { token } = await quoteToken(dbFor());
     const response = await place(dbFor(), token, null);
     assert.equal(response.status, 401);
+  });
+});
+
+/**
+ * The ring, from the route that starts it (D94).
+ *
+ * D93 wired `ringVendor` into the placement path and recorded that nothing would fail if the call were
+ * deleted. These tests are that missing coverage: they place a real order through the real route with a stream
+ * configured, wait for whatever the route handed to `waitUntil`, and assert that the vendor's phone was told to
+ * ring — or that the failure to tell it was written down.
+ */
+describe("the vendor's phone", () => {
+  /** A fetch stub that answers every call and records it. */
+  function stubFetch() {
+    const calls: { url: string; body: string }[] = [];
+    const transport = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as unknown as typeof fetch;
+    return { calls, transport };
+  }
+
+  /** Run a placement with the stub installed, and wait for the background work it started. */
+  async function placeWithRing(db: ReturnType<typeof stubDb>, pending: Promise<unknown>[], transport: typeof fetch) {
+    const original = globalThis.fetch;
+    globalThis.fetch = transport;
+    try {
+      const { token } = await quoteToken(db);
+      const response = await place(db, token, CUSTOMER, { env: STREAM_ENV, pending });
+      assert.equal(response.status, 201);
+      await Promise.all(pending);
+    } finally {
+      globalThis.fetch = original;
+    }
+  }
+
+  test("a placed order rings every device the vendor's owner registered", async () => {
+    const db = dbFor();
+    const { calls, transport } = stubFetch();
+    const pending: Promise<unknown>[] = [];
+    await placeWithRing(db, pending, transport);
+
+    assert.equal(pending.length > 0, true, "the ring is background work, not a blocking call");
+    const ring = calls.find((call) => call.url.endsWith("/internal/ladder/begin"));
+    assert.notEqual(ring, undefined, "the ladder was told to begin");
+    const body = JSON.parse(ring?.body ?? "{}") as {
+      orderCode: string;
+      zoneId: string;
+      devices: string[];
+      push: { severity: string; totalPaisa: number; customerArea: string; expiresAtMs: number; issuedAtMs: number };
+    };
+    assert.match(body.orderCode, /^UND-/u);
+    assert.equal(body.zoneId !== "", true);
+    assert.deepEqual(body.devices, ["phone-token-1", "phone-token-2"]);
+    assert.equal(body.push.severity, "CRITICAL");
+    assert.equal(body.push.customerArea, "Mirpur");
+    assert.equal(body.push.totalPaisa > 0, true);
+    assert.equal(body.push.expiresAtMs - body.push.issuedAtMs, 120_000, "the push expires with the ladder");
+  });
+
+  test("a vendor with no registered phone is written down instead of rung", async () => {
+    const db = dbFor({ devices: [] });
+    const { calls, transport } = stubFetch();
+    const pending: Promise<unknown>[] = [];
+    await placeWithRing(db, pending, transport);
+
+    assert.equal(calls.some((call) => call.url.endsWith("/internal/ladder/begin")), false, "nothing to ring");
+    const audit = db.calls.filter((call) => /INSERT INTO `audit_log`/u.test(call.sql));
+    const written = audit.map((call) => JSON.stringify(call.params)).join("\n");
+    assert.match(written, /ladder\.unrung/u);
+    assert.match(written, /no_device/u);
+  });
+
+  test("a deployment with no stream configured places the order and rings nothing", async () => {
+    const db = dbFor();
+    const { calls, transport } = stubFetch();
+    const original = globalThis.fetch;
+    globalThis.fetch = transport;
+    try {
+      const { token } = await quoteToken(db);
+      const pending: Promise<unknown>[] = [];
+      const response = await place(db, token, CUSTOMER, { pending });
+      assert.equal(response.status, 201);
+      await Promise.all(pending);
+    } finally {
+      globalThis.fetch = original;
+    }
+    assert.deepEqual(calls, []);
   });
 });

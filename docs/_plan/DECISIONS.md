@@ -1369,7 +1369,34 @@ the client formats it, the short code is the part a person reads out (`UND-7K2M9
 empty string when the customer pinned a map point and typed nothing: the field is always present so a client
 never has to handle absence, and an empty one is honest in a way a guess is not.
 
-*Open:* the call site itself is one line in `routes/place.ts` and no test would fail if it were removed — the
-ring, its body and both failure paths are tested, the wiring is not. The audit row is the mitigation: a ladder
-that stopped starting would fill the log with `ladder.unrung` rather than emptying the platform of alarms
-quietly.
+*Open:* closed by D94, which places a real order through the real route with a stream configured and asserts
+that the ring happened — and that it fails when the call site is deleted.
+
+## D94 — The call site has a test that fails when it is deleted
+
+D93 wired the ring into placement and recorded the one thing it could not claim honestly: the call was a
+single line, everything around it was tested, and no test would fail if someone removed that line. A mitigation
+was named — the `ladder.unrung` audit row — but a mitigation is not coverage. This rung is the coverage.
+
+The test places an order the way a client does: it asks the real quote endpoint for a token, places against it
+through the real placement route, with `REALTIME_BASE` and `INTERNAL_TOKEN` configured and a fetch stub in
+place of the network. The route hands its background work to `waitUntil`; the harness now collects those
+promises instead of discarding them, so the test waits for the ring the route actually started rather than for
+a sleep that hopes it did. It then asserts the begin went to `/internal/ladder/begin` with the order's code,
+the vendor's two registered tokens, `CRITICAL`, the customer's area from `addresses.area`, and an expiry
+exactly 120 s after the issue — the ladder's own window.
+
+Two more cases, both about the failure being visible rather than quiet. A vendor whose owner has registered no
+device produces **no** begin and an audit row containing `ladder.unrung` and `no_device`. A deployment with no
+stream configured places the order, hands nothing to `waitUntil`, and calls no transport at all — the same
+"unconfigured is not broken" rule the announcement follows, asserted rather than assumed.
+
+The harness needed one change to make any of this possible: the placement tests now answer the three reads the
+ring performs — `vendors.owner_user_id`, the owner's live `device_tokens`, and the order's
+`delivery_address_id` — which is what "teach the harness the recipient queries" turned out to mean. They are
+matched before the generic vendor handler, so the order's own vendor lookup still sees the vendor row it
+expects.
+
+And the claim was checked the only way that makes it a claim: commenting out the `ringVendor` call fails two
+of the three tests, re-enabling it passes all ten. A test that would not notice the feature's absence is a test
+that documents a hope.
