@@ -18,6 +18,8 @@ import { NO_ORDERS } from "./authority/order-viewer.ts";
 import { createCoreCanceller } from "./authority/core-cancel.ts";
 import { fcmFrom } from "./fcm/from-env.ts";
 import { handleInternal } from "./routes/internal.ts";
+import { handleLocationBatch } from "./routes/location.ts";
+import { d1Positions } from "./d1/store.ts";
 import { DurableObjectFrameStore } from "./sse/durable-store.ts";
 
 export { OrderRoom } from "./order-room.ts";
@@ -50,6 +52,11 @@ export interface RealtimeEnv {
   readonly ZONE_HUB?: DurableObjectNamespace;
   /** One room per order: the two-minute vendor ladder and its alarms (D84). */
   readonly VENDOR_ALARM?: DurableObjectNamespace;
+  /**
+   * The live-position database (`07`). D1 holds only what may be lost: a 120-slot ring per rider and one
+   * current row, both erased when the shift ends. Absent, the location route says `d1_not_configured`.
+   */
+  readonly RIDER_DB?: D1Database;
 }
 
 /** JSON with the request id, no caching. */
@@ -185,6 +192,38 @@ export default {
         zoneHub,
         principal: authenticated.value,
         requestId: id,
+      });
+    }
+
+    if (url.pathname === "/rt/location/batch") {
+      const secret = env.JWT_PUBLIC_KEY;
+      if (secret === undefined || secret.trim() === "") {
+        return refuse("NOT_IMPLEMENTED", id, { reason: "jwt_public_key_missing" });
+      }
+      let key: VerifyingKey;
+      try {
+        const { loadVerifyingKey } = await import("./auth/token.ts");
+        key = await loadVerifyingKey(secret);
+      } catch (error) {
+        return refuse("INTERNAL", id, { misconfigured: error instanceof Error ? error.message : String(error) });
+      }
+      const authenticated = await authenticate(request, [key], Date.now());
+      if (!authenticated.ok) {
+        return refuse(authenticated.error === "EXPIRED" ? "AUTH_SESSION_EXPIRED" : "AUTH_TOKEN_INVALID", id, {
+          reason: authenticated.error,
+        });
+      }
+      // A customer's token may watch a rider; it may not *be* one. The positions a batch writes are the
+      // rider's own, so the actor type is checked before the body is read (D97).
+      if (authenticated.value.actorType !== "RIDER") {
+        return refuse("AUTH_ROLE_MISMATCH", id, { reason: "not_a_rider", actorType: authenticated.value.actorType });
+      }
+      return handleLocationBatch(request, {
+        store: env.RIDER_DB === undefined ? undefined : d1Positions(env.RIDER_DB),
+        riderId: authenticated.value.actorId,
+        shiftId: null,
+        requestId: id,
+        nowMs: Date.now(),
       });
     }
 

@@ -43,6 +43,16 @@ new_classes = ["ZoneHub"]
 tag = "v5"
 new_classes = ["VendorAlarm"]
 
+# The live-position database (`07`). D1 is the only storage that holds a rider's breadcrumbs, and it holds
+# them only until the shift ends: `rider_positions` is a 120-slot ring and `rider_current` is one row per
+# online rider (D97). The schema lives in `db/d1/001_positions.sql`; `database_id` is filled in by the
+# deployment, because an id in the repository is an id nobody rotated.
+[[d1_databases]]
+binding = "RIDER_DB"
+database_name = "undal-rider"
+database_id = "REPLACE_AT_DEPLOY"
+migrations_dir = "../../db/d1"
+
 [vars]
 PUBLIC_API_BASE = "https://api.undal.app"
 CORE_BASE_URL = "https://api.undal.app"

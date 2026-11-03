@@ -1473,3 +1473,40 @@ output of code that could contradict it.
 *Open:* the profile is not yet pushed from the server — nothing builds `CadenceProfile` into the shift-start
 response or the SSE state change, so `cadenceFor` is called with constants today. The Kotlin port does not exist
 either; this module is the specification the port must match.
+
+## D97 — The route where the two halves of the edge contract meet, and the four things it refuses
+
+D95 judged batches that nothing sent; D96 chose fixes that nothing carried. `POST /rt/location/batch` is the
+caller: `d1/batch.ts` decodes the delta-encoded flush (`07 §4.2`), `d1/ingest.ts` judges it, `d1/store.ts`
+writes the survivors into the ring and the current row, and the response carries the next cadence — the push
+`§3.3` describes, delivered in the round trip that already happened.
+
+**The device owns `seq`, and the counter advances per position *offered*.** The ring is a modular counter
+(`§5`), and only the phone knows how many fixes it produced across a dead network. A refused fix still consumed
+a slot on the device, so the server advances the counter for every position in the batch and drops the ones it
+cannot store. The alternative — advancing only for accepted fixes — drifts the two counters apart for the rest
+of the shift, and a trail that reassembles by `recorded_at` hides the drift until the day it does not.
+
+**Four refusals, each with a different sentence.** A batch past 2 048 bytes or twelve positions is refused
+whole rather than truncated, because half a trail is a marker that jumps — worse than a client that learns its
+upload failed and retries. A malformed delta names the rule it broke. A rider with no current row is
+`SHIFT_NOT_OPEN`, not a 404: the phone has a shift, the server does not have it open. And a batch whose
+`shiftId` disagrees with the shift on file is refused, because a queue flushing after an ended shift must not
+write into the next one — the failure mode is one rider's breadcrumbs appearing under another rider's shift at
+6 a.m.
+
+**The response is where the cadence is pushed.** `phaseFor` + `cadenceFor` run against the rider's state after
+the batch, so a rider who has just started carrying food gets `CARRYING_FAR` back immediately. `stale_after` in
+`rider_current` is computed from the same profile (`receivedAt + 2 × ceiling`), which is what makes "the marker
+goes grey" a property of the current row rather than of a constant somewhere in a dashboard.
+
+**What this route does not do, stated because it matters.** It does not check the zone's bounding box: realtime
+can read a rider's zone *id* from D1 but not the zone's shape, so `IngestContext.zone` is now nullable and the
+route passes `null`. A position twenty kilometres outside the city is caught by nothing until `undal-core`
+puts the box on the shift. It does not audit: a breadcrumb is precisely what `§6` promises not to keep, so a
+suspension is answered to the device and recorded nowhere — the operator visibility that needs is a core
+exception, and that is the next rung's problem.
+
+*Open:* the zone box (above); the erasure path (`§6`: end shift, go offline, presence-declared offline) deletes
+rows nothing writes yet, so it is still unbuilt; `/rt/shift/end` and `/rt/shift/start` do not exist, which is
+why the route learns a rider's vehicle and zone from `rider_current` instead of from the shift request.

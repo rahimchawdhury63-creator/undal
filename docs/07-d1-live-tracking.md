@@ -232,7 +232,12 @@ Positions are not sent one HTTP request at a time. They are queued in Room and f
 - otherwise when the queue holds 3 positions or 25 seconds have passed, whichever comes first.
 
 A flush is one `POST /rt/location/batch` carrying up to 12 positions. Typical flush: 2 positions,
-~180 bytes of body after delta encoding.
+~180 bytes of body after delta encoding. The route is `workers/realtime/src/routes/location.ts` (D97): it
+authenticates a `RIDER` token, parses the flush (`d1/batch.ts`), judges it (`d1/ingest.ts`), writes the
+survivors with `d1/store.ts`, and returns the cadence the device should use for its next flush — the push
+`§3.3` describes, in the same round trip. A flush is refused whole when it is not a flush: a body past
+2 048 bytes, more than twelve positions, a delta that is not three finite integers. Half a trail is a
+marker that jumps, which is worse than a client that knows its upload failed.
 
 ### 4.2 Delta encoding
 

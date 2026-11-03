@@ -81,6 +81,13 @@ export interface Refusal {
 export interface Judgement {
   /** In the order the device recorded them, after refusals. */
   readonly accepted: readonly AcceptedFix[];
+  /**
+   * Where each accepted fix sat in the batch it came from.
+   *
+   * The caller needs this to find the ring slot a fix occupies: `accepted` is reordered by nothing, but the
+   * *batch* is what carries the device's counter, and a refused fix still consumed a slot on the device.
+   */
+  readonly acceptedIndexes: readonly number[];
   readonly refused: readonly Refusal[];
   /** One mock fix anywhere in the batch means the shift stops until a human looks (D95). */
   readonly suspendShift: boolean;
@@ -92,8 +99,13 @@ export interface Judgement {
 
 /** What the batch is judged against. */
 export interface IngestContext {
-  /** The zone's bounding box, inflated by `BBOX_INFLATE_M` here rather than by the caller. */
-  readonly zone: BboxE7;
+  /**
+   * The zone's bounding box, inflated by `BBOX_INFLATE_M` here rather than by the caller.
+   *
+   * `null` when the caller has no geometry: `undal-realtime` can read a rider's zone *id* from D1 but not the
+   * zone's shape, so the route passes `null` and the box check is skipped rather than guessed (D97).
+   */
+  readonly zone: BboxE7 | null;
   readonly vehicle: VehicleClass;
   /** The edge's clock when the upload arrived; the reference for a future timestamp. */
   readonly receivedAtMs: number;
@@ -140,6 +152,7 @@ export function judgeBatch(fixes: readonly PositionFix[], context: IngestContext
   if (fixes.some((fix) => fix.isMock)) {
     return {
       accepted: [],
+      acceptedIndexes: [],
       refused: fixes.map((fix) => ({ fix, reason: "mock_location" as const })),
       suspendShift: true,
       raiseException: false,
@@ -147,14 +160,15 @@ export function judgeBatch(fixes: readonly PositionFix[], context: IngestContext
     };
   }
 
-  const box = inflateBbox(context.zone, BBOX_INFLATE_M);
+  const box = context.zone === null ? null : inflateBbox(context.zone, BBOX_INFLATE_M);
   const accepted: AcceptedFix[] = [];
+  const acceptedIndexes: number[] = [];
   const refused: Refusal[] = [];
   let teleports = 0;
   let raiseException = false;
   let baseline: PositionFix | null = context.lastAccepted ?? null;
 
-  for (const fix of fixes) {
+  for (const [index, fix] of fixes.entries()) {
     const refusal = refuse(fix, context, box, baseline);
     if (refusal !== null) {
       refused.push({ fix, reason: refusal });
@@ -164,14 +178,20 @@ export function judgeBatch(fixes: readonly PositionFix[], context: IngestContext
       continue;
     }
     accepted.push({ ...fix, receivedAtMs: context.receivedAtMs });
+    acceptedIndexes.push(index);
     baseline = fix;
   }
 
-  return { accepted, refused, suspendShift: false, raiseException, teleports };
+  return { accepted, acceptedIndexes, refused, suspendShift: false, raiseException, teleports };
 }
 
 /** The first rule that refuses a fix, or `null` when it passes. */
-function refuse(fix: PositionFix, context: IngestContext, box: BboxE7, baseline: PositionFix | null): RefusalReason | null {
+function refuse(
+  fix: PositionFix,
+  context: IngestContext,
+  box: BboxE7 | null,
+  baseline: PositionFix | null,
+): RefusalReason | null {
   if (!Number.isFinite(fix.latE7) || !Number.isFinite(fix.lonE7) || !Number.isFinite(fix.recordedAtMs)) {
     return "out_of_order";
   }
@@ -184,6 +204,6 @@ function refuse(fix: PositionFix, context: IngestContext, box: BboxE7, baseline:
   if (baseline !== null && fix.recordedAtMs > baseline.recordedAtMs) {
     if (impliedSpeedMps(baseline, fix) > MAX_SPEED_MPS[context.vehicle]) return "implausible_speed";
   }
-  if (!inBbox({ latE7: fix.latE7, lonE7: fix.lonE7 }, box)) return "outside_zone";
+  if (box !== null && !inBbox({ latE7: fix.latE7, lonE7: fix.lonE7 }, box)) return "outside_zone";
   return null;
 }
