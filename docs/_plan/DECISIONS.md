@@ -1286,3 +1286,32 @@ it.
 *Open:* `state_list` is capped at 500 rows, so a zone with more than 500 simultaneous sessions would be
 listed partially and silently. A per-zone counter or a cursor is the fix; neither belongs in the rung that
 first made the store exist.
+
+## D91 — The two seconds include the database, so the largest grace is smaller than it was
+
+The two-second promise was arithmetic with two terms: 200 ms for the transport to notice a dead socket, and
+1 500 ms of reconnect grace. That was true while the absence lived in a Durable Object's memory — the room
+knew, immediately, and writing it down was someone else's problem. D90 made it false: on the free path a
+publication costs a row written through core and a row read back, each with a service binding in between,
+and a promise whose arithmetic does not mention its own database is a promise nobody is keeping.
+
+So the budget has three terms. `PRESENCE_STORE_OP_MS` is 50 — same colo, one indexed statement, one binding
+hop — and a publication costs two of them, 100 ms in total: the marking write, and the read that proves the
+device is gone from the list. The default grace stays 1 500 ms and the worst case becomes 1 800 ms, inside
+the two seconds with 200 ms spare.
+
+The consequence is in `MAX_PRESENCE_GRACE_MS`, which was 1 800 and is now 1 700, derived as
+`MAX_DETECTION_MS − TRANSPORT_CLOSE_BUDGET_MS − PRESENCE_STORE_BUDGET_MS`. An operator configuring the top of
+the range now gets a worst case of exactly 2 000 ms rather than one that quietly exceeds it by 100 ms. This
+is the whole reason the number is a constant and not a configuration default: a range limit that admits a
+grace the platform cannot afford is a range limit that documents a promise it does not keep.
+
+Two smaller things. `50 ms` is a *budget*, not a measurement, and it is stated as one — the honest claim is
+"two store operations may cost this much", not "we measured 50 ms", because the measurement needs a deployed
+`sql` coordinator and a real TiDB, neither of which a test suite has. And the thousand-loss latency test now
+adds the store's allowance to every measured loss, so the p95 it asserts is the one the platform promises
+rather than the one its two in-memory terms happen to produce.
+
+*Open:* the wall-clock version of this number — p95 across a thousand real losses against a deployed free
+path — is a load test, not a unit test, and is still not run. What this rung fixes is that the arithmetic the
+load test would be checked against now includes the thing it is measuring.

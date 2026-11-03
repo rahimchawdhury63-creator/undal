@@ -6,9 +6,10 @@
 /**
  * When a connection dies, what the platform records and how long it waits before saying so.
  *
- * The two-second promise is made of two numbers that multiply: the transport notices a dead socket in
- * under 200 ms, and an *involuntary* close waits 1 500 ms for the device to come back before it is
- * published. A deliberate close waits for nothing, because the user told us they were leaving.
+ * The two-second promise is made of three numbers: the transport notices a dead socket in under 200 ms, an
+ * *involuntary* close waits 1 500 ms for the device to come back, and the publication itself costs two store
+ * operations on the free path — the row that marks the device gone and the read that proves it (D91). A
+ * deliberate close waits for nothing, because the user told us they were leaving.
  *
  * Nothing in this file reads a clock. That is what lets the test that proves the promise run a
  * thousand losses in a millisecond instead of half an hour, and it is why the bound is arithmetic
@@ -41,14 +42,36 @@ export const CLOSE_HEARTBEAT_TIMEOUT = 4_408;
 /** The reconnect grace for an involuntary close. */
 export const PRESENCE_GRACE_MS = RECONNECT_GRACE_MS;
 
-/** The most grace an operator may configure. Beyond this the two-second promise is broken (`14 §2.2`). */
-export const MAX_PRESENCE_GRACE_MS = 1_800;
-
 /** What a transport close is assumed to cost before the grace even starts. */
 export const TRANSPORT_CLOSE_BUDGET_MS = 200;
 
+/**
+ * What one store operation is assumed to cost on the free path (D91).
+ *
+ * Same colo, one indexed statement and one service binding in between. It is a budget rather than a
+ * measurement, and deliberately so: it is the cost the two seconds are *allowed* to pay, so a store that
+ * turns out slower than this shows up as a latency regression against a stated allowance rather than as a
+ * promise nobody noticed was broken.
+ */
+export const PRESENCE_STORE_OP_MS = 50;
+
+/** The operations a publication costs before anyone else can see it: the marking write and the reader's read. */
+export const PRESENCE_STORE_OPS = 2;
+
+/** What the two seconds keep for the database. */
+export const PRESENCE_STORE_BUDGET_MS = PRESENCE_STORE_OP_MS * PRESENCE_STORE_OPS;
+
 /** The number the brief names, and the one the latency test asserts. */
 export const MAX_DETECTION_MS = 2_000;
+
+/**
+ * The most grace an operator may configure.
+ *
+ * Derived, not chosen: the two seconds minus the transport's estimate minus the database's allowance. It was
+ * 1 800 until D91, which was right while the absence lived in a Durable Object's memory and became wrong the
+ * moment the free path had to write a row and read it back.
+ */
+export const MAX_PRESENCE_GRACE_MS = MAX_DETECTION_MS - TRANSPORT_CLOSE_BUDGET_MS - PRESENCE_STORE_BUDGET_MS;
 
 /** Why a device stopped being present. The first two are published; the third is the user's choice. */
 export type AbsenceReason = "USER_OFFLINE" | "TRANSPORT_CLOSED" | "HEARTBEAT_TIMEOUT";
@@ -94,12 +117,14 @@ export function publishAtMs(closedAtMs: number, order: AbsenceOrder): number {
 }
 
 /**
- * The worst-case detection an operator's configuration can produce: the transport's 200 ms plus the
- * grace. At the default 1 500 ms that is 1 700 ms — inside the brief's 2 000 ms with 300 ms spare, and
- * this function is what a configuration guard calls before it accepts a larger grace.
+ * The worst-case detection an operator's configuration can produce.
+ *
+ * Three terms, not two: the transport's 200 ms, the grace, and the database's allowance. At the default
+ * 1 500 ms that is 1 800 ms — inside the brief's 2 000 ms with 200 ms spare — and at the maximum grace it is
+ * exactly 2 000 ms, which is what makes the maximum the maximum rather than a number somebody liked.
  */
 export function worstCaseDetectionMs(graceMs: number = PRESENCE_GRACE_MS): number {
-  return TRANSPORT_CLOSE_BUDGET_MS + clampGrace(graceMs);
+  return TRANSPORT_CLOSE_BUDGET_MS + clampGrace(graceMs) + PRESENCE_STORE_BUDGET_MS;
 }
 
 /** Whether the configuration still keeps the platform inside the brief's two seconds. */

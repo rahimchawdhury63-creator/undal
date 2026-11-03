@@ -22,6 +22,9 @@ import {
   HEARTBEAT_INTERVAL_MS,
   MAX_DETECTION_MS,
   MAX_PRESENCE_GRACE_MS,
+  PRESENCE_STORE_BUDGET_MS,
+  PRESENCE_STORE_OP_MS,
+  PRESENCE_STORE_OPS,
   MISSED_ACKS_BEFORE_TEARDOWN,
   MISSED_BEATS_TOLERATED,
   PRESENCE_GRACE_MS,
@@ -93,9 +96,22 @@ describe("transport close", () => {
     assert.throws(() => clampGrace(Number.NaN), RangeError);
   });
 
-  test("the worst case is the transport's 200 ms plus the grace", () => {
-    assert.equal(worstCaseDetectionMs(), TRANSPORT_CLOSE_BUDGET_MS + PRESENCE_GRACE_MS);
-    assert.equal(worstCaseDetectionMs(), 1_700);
+  test("the worst case is the transport, the grace and the database's allowance", () => {
+    assert.equal(worstCaseDetectionMs(), TRANSPORT_CLOSE_BUDGET_MS + PRESENCE_GRACE_MS + PRESENCE_STORE_BUDGET_MS);
+    assert.equal(worstCaseDetectionMs(), 1_800);
+  });
+
+  test("the database's allowance is spent, not assumed away", () => {
+    // The two store operations a publication costs — the marking write and the reader's read — come out of the
+    // same two seconds as the transport and the grace (D91). Without them the maximum grace would still be
+    // 1 800 and the free path would be promising a number its own store cannot keep.
+    assert.equal(PRESENCE_STORE_BUDGET_MS, PRESENCE_STORE_OP_MS * PRESENCE_STORE_OPS);
+    assert.equal(MAX_PRESENCE_GRACE_MS, 1_700);
+    assert.equal(worstCaseDetectionMs(MAX_PRESENCE_GRACE_MS), MAX_DETECTION_MS);
+    assert.equal(
+      TRANSPORT_CLOSE_BUDGET_MS + MAX_PRESENCE_GRACE_MS + PRESENCE_STORE_BUDGET_MS,
+      MAX_DETECTION_MS,
+    );
   });
 
   test("the default configuration fits the brief's two seconds", () => {
@@ -106,7 +122,10 @@ describe("transport close", () => {
   test("an operator cannot configure a grace that breaks the promise", () => {
     assert.equal(isWithinDetectionBudget(MAX_PRESENCE_GRACE_MS + 1), true, "clamped first");
     assert.equal(clampGrace(MAX_PRESENCE_GRACE_MS + 500), MAX_PRESENCE_GRACE_MS);
-    assert.equal(TRANSPORT_CLOSE_BUDGET_MS + MAX_PRESENCE_GRACE_MS <= MAX_DETECTION_MS, true);
+    assert.equal(
+      TRANSPORT_CLOSE_BUDGET_MS + MAX_PRESENCE_GRACE_MS + PRESENCE_STORE_BUDGET_MS <= MAX_DETECTION_MS,
+      true,
+    );
   });
 
   test("a device key distinguishes two phones belonging to one rider", () => {
@@ -395,7 +414,7 @@ describe("detection latency", () => {
         await coordinator.markAbsent("zone-1", "rider-a", deviceId, order.reason);
         const present = await coordinator.listPresence("zone-1", "RIDER");
         assert.equal(present.some((session) => session.deviceId === deviceId), false);
-        const detectedMs = clock.nowMs() - detectedAt + TRANSPORT_CLOSE_BUDGET_MS;
+        const detectedMs = clock.nowMs() - detectedAt + TRANSPORT_CLOSE_BUDGET_MS + PRESENCE_STORE_BUDGET_MS;
         latencies.push(detectedMs);
         assert.ok(detectedMs <= MAX_DETECTION_MS, `loss ${String(index)} took ${String(detectedMs)} ms`);
       }

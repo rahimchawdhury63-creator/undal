@@ -81,15 +81,19 @@ async webSocketClose(ws: WebSocket, code: number, reason: string, clean: boolean
 window, the absence is cancelled and nothing is published — no state flap, no spurious alert, no
 noise in the audit log. This is what makes the system usable on a real mobile network.
 
-With grace, the worst-case detection is `200 ms + 1 500 ms = 1.7 s`, inside the two-second
-requirement.
+With grace, the worst-case detection is `200 ms + 1 500 ms + 100 ms = 1.8 s`, inside the
+two-second requirement. The third term is the database (D91): publishing an absence on the free
+path costs two store operations — the row that marks the device gone and the read that proves it —
+and a budget that ignored them would be promising a number the store cannot keep.
 
 ### 2.2 Why the grace is not longer
 
 A longer grace would reduce flapping further, but it would eat the budget. 1 500 ms is the measured
 95th percentile of a tower handoff reconnect on a 4G network in Sylhet with the reconnect strategy
-in §5. It is a tuned value in `platform_config.presence_grace_ms`, range-limited to `[0, 1800]` so
-no operator can accidentally break the two-second contract.
+in §5. It is a tuned value in `platform_config.presence_grace_ms`, range-limited to `[0, 1700]` so
+no operator can accidentally break the two-second contract. The range's top is derived rather than
+chosen: 2 000 ms minus the transport's 200 ms estimate minus the database's 100 ms allowance (D91),
+and at 1 700 ms the worst case is exactly 2 000 ms.
 
 ---
 
