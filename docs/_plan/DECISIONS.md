@@ -1441,3 +1441,35 @@ it.
 *Open:* the cadence gate above this (`07 §3.2`, `shouldSend`) and the write budget (`07 §4.2`) are not built;
 this rung is the plausibility half of the edge contract, and the two halves share a caller that does not exist
 yet.
+
+## D96 — The device decides what is worth sending, and the budget is a test rather than a table
+
+`07 §3.2` gave six rules as Kotlin and `§8.1` gave a write budget as a table. D95 built the server's half of the
+edge contract; this is the device's half, in `workers/realtime/src/d1/cadence.ts`, with the budget checked by
+simulation instead of re-asserted.
+
+**The profile follows the situation, not the speedometer.** A rider carrying food a hundred metres from the door
+is judged by `CARRYING_NEAR` (60 m, 6 s, 25 s) even if they are stopped at a light, because the row is about
+what the customer is watching. That is why `phaseFor` takes what the *server* told the device — carrying, on
+break, distance to drop — and not the rider's own notion of "moving".
+
+**The battery multiplier lives inside `cadenceFor`.** A caller cannot ask for a profile and get the one belonging
+to a phone plugged into a charger: `cadenceFor(phase, batteryPct)` is the only way to get a profile, and 15% and
+8% widen every threshold by 1.5 and 2.5. A rider on break is `displacementM: null` rather than an enormous
+number, because "never on movement" and "somewhere past a hundred kilometres" are different statements and only
+one of them survives a multiplier.
+
+**A turn counts at walking pace.** `07 §3.2` sends on a 45° bearing change once the rider has moved 30 m, which
+is what stops a corner looking like a teleport at 1 Hz. Bearing deltas are the shortest way round the compass —
+350° to 10° is 20°, not 340° — which is the kind of arithmetic that is invisible until a rider turns left at a
+roundabout and the marker spins.
+
+**The budget is now a test.** §8.1 claims 54 writes for a 3.8 km delivery; the suite drives a synthetic rider
+along those legs at the documented speeds, offering a fix every second, and the gate allows **53** — one opening
+fix, 40 by displacement, 12 by ceiling. A five-minute idle street draws **two** (the opening fix and one
+heartbeat), and 6% battery draws fewer on the same leg than 80% does. The number in the document is now an
+output of code that could contradict it.
+
+*Open:* the profile is not yet pushed from the server — nothing builds `CadenceProfile` into the shift-start
+response or the SSE state change, so `cadenceFor` is called with constants today. The Kotlin port does not exist
+either; this module is the specification the port must match.

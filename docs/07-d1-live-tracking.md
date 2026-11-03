@@ -205,6 +205,13 @@ customer who is watching the map.
 The cadence profile is pushed from the server in the shift-start response and updated via SSE when
 the order state changes, so tuning does not require an app release.
 
+The gate and the table above are implemented as a reference in `workers/realtime/src/d1/cadence.ts`
+(`cadenceFor`, `phaseFor`, `shouldSend`, D96), and the suite drives a synthetic rider along the legs of
+§8.1 to check the budget rather than re-derive it: at 1 Hz fixes the documented delivery costs **53**
+writes, a five-minute idle street costs **two**, and a phone at 6% battery costs fewer than the same leg
+at 80%. The Kotlin app port must match this module rule for rule, including the battery multipliers
+being applied inside `cadenceFor` rather than by its callers.
+
 ### 3.4 Why the last kilometre gets a tighter gate
 
 The budget arithmetic in §8 shows that tightening to 40 m within 200 m of the drop costs
