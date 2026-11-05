@@ -13,7 +13,14 @@ import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
 import { applyTransition } from "../domain/order/lifecycle.ts";
 import { findOrderByCode, moveState, nextEventSeq } from "../repositories/orders.ts";
-import { countRejectionOnShift, findOffer, insertAssignment, respondToOffer, withdrawSiblingOffers } from "../repositories/offers.ts";
+import {
+  countRejectionOnShift,
+  findOffer,
+  insertAssignment,
+  liveOffersFor,
+  respondToOffer,
+  withdrawSiblingOffers,
+} from "../repositories/offers.ts";
 import { findRiderByUserId } from "../repositories/riders.ts";
 
 /**
@@ -350,6 +357,53 @@ async function rejectOffer(ctx: Ctx, orderCode: string, offerId: string, body: u
 }
 
 /**
+ * The rider's pending offers: `GET /v1/rider/offers` (`08 §8`, D115).
+ *
+ * The FCM payload is authoritative and this is the reconciliation the doc names — called when a notification was
+ * missed, a screen was backgrounded, or a rider wants to be sure nothing is ringing. It deliberately does **not**
+ * include history: an offer that has been answered or has expired is not a pending decision, and a rider looking
+ * at a list of dead deliveries cannot take any of them.
+ *
+ * The answer carries `secondsRemaining` per offer. The client could subtract from `expiresAt`, and it would be
+ * wrong on a phone whose clock is a minute out — which is exactly the phone that needs this endpoint. The
+ * server's own clock travels with the answer instead.
+ */
+async function listOffers(ctx: Ctx): Promise<Response> {
+  const principal = ctx.principal;
+  if (principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+
+  let userBytes: Uint8Array;
+  try {
+    userBytes = uuidBytes(principal.userId);
+  } catch {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+  const rider = await findRiderByUserId(ctx.db, userBytes);
+  if (rider === null) {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+
+  const nowMs = Date.now();
+  const offers = await liveOffersFor(ctx.db, rider.id, nowMs);
+  return successResponse(
+    {
+      serverTimeMs: nowMs,
+      offers: offers.map((offer) => ({
+        offerId: offer.offerId,
+        orderId: offer.orderId,
+        orderCode: offer.orderCode,
+        wave: offer.wave,
+        payoutPaisa: offer.payoutPaisa,
+        expiresAt: new Date(offer.expiresAtMs).toISOString(),
+        secondsRemaining: Math.max(0, Math.round((offer.expiresAtMs - nowMs) / 1_000)),
+      })),
+    },
+    ctx.locale,
+    ctx.requestId,
+  );
+}
+
+/**
  * The offer routes.
  *
  * `order.deliver` is the key rather than a new `order.offer.accept`: accepting is the first act of delivering,
@@ -366,6 +420,15 @@ export const OFFER_ROUTES: readonly RouteDefinition[] = [
     group: "ORDER_WRITE",
     maxBodyBytes: 512,
     run: async (ctx, input) => acceptOffer(ctx, input.params["code"] ?? "", input.params["offerId"] ?? ""),
+  },
+  {
+    method: "GET",
+    path: "/v1/rider/offers",
+    // A rider reading their own offers: the handler queries by the rider the token resolves to, so the key is
+    // the read half of the delivery surface rather than a new key per noun.
+    permission: "order.read",
+    group: "ORDER_WRITE",
+    run: async (ctx) => listOffers(ctx),
   },
   {
     method: "POST",

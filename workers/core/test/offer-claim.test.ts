@@ -85,6 +85,7 @@ function dbFor(
     order?: Record<string, unknown> | null;
     rider?: Record<string, unknown> | null;
     moved?: number;
+    liveOffers?: readonly Record<string, unknown>[];
   } = {},
 ): ReturnType<typeof stubDb> {
   const order = options.order === undefined ? ORDER_ROW : options.order;
@@ -100,6 +101,7 @@ function dbFor(
     { match: /UPDATE `order_offers` SET/u, affectedRows: 1 },
     { match: /INSERT INTO `order_assignments`/u, affectedRows: 1 },
     { match: /UPDATE `rider_shifts` SET `orders_rejected`/u, affectedRows: 1 },
+    { match: /JOIN `orders` ord ON/u, rows: options.liveOffers === undefined ? [] : [...options.liveOffers] },
     { match: /INSERT INTO `order_state_events`/u, affectedRows: 1 },
     { match: /FROM `audit_log`/u, rows: [] },
     { match: /INSERT INTO `audit_log`/u, affectedRows: 1 },
@@ -135,8 +137,8 @@ function ctxFor(db: Db, waitUntil: (promise: Promise<unknown>) => void = () => u
   } as Ctx;
 }
 
-const route = (kind: "accept" | "reject" = "accept") => {
-  const path = `/v1/orders/{code}/offer/{offerId}/${kind}`;
+const route = (kind: "accept" | "reject" | string = "accept") => {
+  const path = kind.startsWith("/") ? kind : `/v1/orders/{code}/offer/{offerId}/${kind}`;
   const found = OFFER_ROUTES.find((candidate) => candidate.path === path);
   if (found === undefined) throw new Error(`no ${kind} route`);
   return found;
@@ -358,5 +360,58 @@ describe("POST /v1/orders/{code}/offer/{offerId}/reject", () => {
     assert.equal(response.status, 409);
     const parsed = (await response.json()) as { error: { code: string } };
     assert.equal(parsed.error.code, "OFFER_REJECT_NOT_ALLOWED");
+  });
+});
+
+describe("GET /v1/rider/offers", () => {
+  const expiresIn = (seconds: number): string =>
+    new Date(Date.now() + seconds * 1_000).toISOString().replace("T", " ").replace("Z", "");
+
+  const live = (seconds: number) => ({
+    id: bytes(OFFER_HEX),
+    order_id: bytes(ORDER_HEX),
+    wave: 2,
+    expires_at: expiresIn(seconds),
+    payout_paisa: 8_370,
+    code: ORDER_CODE,
+  });
+
+  const list = (db: Db) =>
+    route("/v1/rider/offers").run(ctxFor(db), { params: {}, body: null, reason: null });
+
+  test("an unanswered offer inside its TTL is listed with the server's own clock", async () => {
+    const response = await list(dbFor({ liveOffers: [live(18)] }));
+    assert.equal(response.status, 200);
+    const parsed = (await response.json()) as {
+      data: { serverTimeMs: number; offers: { offerId: string; orderCode: string; wave: number; secondsRemaining: number; payoutPaisa: number }[] };
+    };
+    assert.equal(parsed.data.offers.length, 1);
+    assert.equal(parsed.data.offers[0]?.offerId, OFFER_HEX);
+    assert.equal(parsed.data.offers[0]?.orderCode, ORDER_CODE);
+    assert.equal(parsed.data.offers[0]?.wave, 2);
+    assert.equal(parsed.data.offers[0]?.payoutPaisa, 8_370);
+    assert.ok((parsed.data.offers[0]?.secondsRemaining ?? 0) >= 17);
+    assert.ok(parsed.data.serverTimeMs <= Date.now() + 1_000, "the clock the client should use is in the answer");
+  });
+
+  test("the query asks only for what is still answerable", async () => {
+    const db = dbFor({ liveOffers: [] });
+    const response = await list(db);
+    assert.equal(response.status, 200);
+    const parsed = (await response.json()) as { data: { offers: unknown[] } };
+    assert.deepEqual(parsed.data.offers, []);
+    const query = db.calls.find((call) => call.sql.includes("JOIN `orders` ord ON"));
+    assert.match(query?.sql ?? "", /`response` IS NULL AND o\.`expires_at` > \?/u);
+    assert.equal(query?.params[0] === undefined, false, "the rider row id is the first parameter");
+  });
+
+  test("a rider with nothing pending is an empty list, not an error", async () => {
+    const parsed = (await (await list(dbFor({ liveOffers: [] }))).json()) as { data: { offers: unknown[] } };
+    assert.deepEqual(parsed.data.offers, []);
+  });
+
+  test("a token with no rider row behind it is refused", async () => {
+    const response = await list(dbFor({ rider: null }));
+    assert.equal(response.status, 403);
   });
 });

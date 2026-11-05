@@ -16,6 +16,7 @@
  */
 
 import type { Db } from "../db/client.ts";
+import { parseDatetime, sqlDatetime } from "../db/time.ts";
 
 /** One offer, with everything the claim decision needs. */
 export interface OfferRow {
@@ -121,4 +122,39 @@ export async function countRejectionOnShift(db: Db, riderId: Uint8Array): Promis
     [riderId],
   );
   return result.affectedRows;
+}
+
+/** An offer as the rider's reconciliation screen sees it. */
+export interface LiveOffer {
+  readonly offerId: string;
+  readonly orderCode: string;
+  readonly orderId: string;
+  readonly wave: number;
+  readonly expiresAtMs: number;
+  readonly payoutPaisa: number;
+}
+
+/**
+ * The offers a rider still has to answer (`08 §8`, D115).
+ *
+ * The push is authoritative and this is reconciliation — the app calls it when a notification was missed or a
+ * screen was backgrounded — so the predicate is the same one the claim route enforces: unanswered and inside its
+ * TTL. An expired offer is not a pending one; it is excluded here even before the sweep writes `EXPIRED` on it,
+ * because the rider's screen must never show a delivery they can no longer take.
+ */
+export async function liveOffersFor(db: Db, riderId: Uint8Array, nowMs: number): Promise<readonly LiveOffer[]> {
+  const rows = await db.query<Record<string, unknown>>(
+    "SELECT o.`id`, o.`order_id`, o.`wave`, o.`expires_at`, o.`payout_paisa`, ord.`code` FROM `order_offers` o " +
+      "JOIN `orders` ord ON ord.`id` = o.`order_id` " +
+      "WHERE o.`rider_id` = ? AND o.`response` IS NULL AND o.`expires_at` > ? ORDER BY o.`expires_at` ASC LIMIT 20",
+    [riderId, sqlDatetime(new Date(nowMs))],
+  );
+  return rows.map((row) => ({
+    offerId: new Uint8Array(row["id"] as Uint8Array).reduce((hex, byte) => hex + byte.toString(16).padStart(2, "0"), ""),
+    orderId: new Uint8Array(row["order_id"] as Uint8Array).reduce((hex, byte) => hex + byte.toString(16).padStart(2, "0"), ""),
+    orderCode: String(row["code"]),
+    wave: Number(row["wave"]),
+    expiresAtMs: parseDatetime(String(row["expires_at"]))?.getTime() ?? 0,
+    payoutPaisa: Number(row["payout_paisa"] ?? 0),
+  }));
 }

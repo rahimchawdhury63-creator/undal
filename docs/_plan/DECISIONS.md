@@ -2142,3 +2142,38 @@ another rider won, a decline after the TTL, another rider's offer, and an order 
 against rows a test writes. The `VENDOR_SLOW` cooldown, the `AREA_UNSAFE` exclusion, the `TAKING_BREAK`
 auto-break and the `VEHICLE_ISSUE` auto-offline are four dispatch behaviours this route creates the evidence for
 and does not perform.
+
+## D115 — The reconciliation read, and the clock the client must not trust
+
+`GET /v1/rider/offers` — the third and last of the rider's offer routes. `08 §8` calls it *reconciliation* and
+says the FCM payload is authoritative; this is what the app asks when a notification was missed, a screen was
+backgrounded, or a rider wants to be certain nothing is ringing.
+
+**The predicate is the claim's predicate, not a second one.** Unanswered (`response IS NULL`) and inside its TTL
+(`expires_at > now`), in one statement over `order_offers` joined to `orders` for the code. An offer whose TTL
+has passed is excluded here *even before the sweep writes `EXPIRED` on it*, because the rider's screen must never
+show a delivery they can no longer take — and the claim route would refuse it with `OFFER_EXPIRED` anyway. Two
+answers to "is this offer live" would eventually disagree; there is one.
+
+**`secondsRemaining` is computed by the server and travels with `serverTimeMs`.** The obvious client would
+subtract `expiresAt` from its own clock, and the phone that most needs this endpoint is the one whose clock is a
+minute out — a rider with eighteen seconds left would see zero and let it go. The countdown is therefore the
+API's arithmetic, and the client's only job is to tick.
+
+**No history.** Answered and expired offers are not returned at all, and the limit is twenty: a list of dead
+deliveries is not a decision surface, and a rider scrolling history while a wave is ringing is a rider losing
+the delivery.
+
+**The key is `order.read`, not a new one.** The handler queries by the rider the token resolves to, so this is
+the read half of the delivery surface the RIDER actor already holds. That keeps the register at 415 and avoids a
+fourth addition for a noun.
+
+Tests: four more in `offer-claim.test.ts` — a live offer with its code, wave, payout and countdown plus the
+server clock; the query's own predicate and its rider parameter; an empty list being a `200`; and a token with no
+rider row.
+
+*Open:* the same hole as D113/D114, stated once more because it is the one that matters: **nothing writes
+`order_offers` rows.** The three rider routes now describe the whole life of an offer — listed, claimed,
+declined — and the engine that creates them, scores the candidates (`domain/order/assignment.ts` has the pure
+planner and the numbered filters), rings the phones and schedules the waves is still unbuilt. Until it lands,
+every one of these routes is proven against rows a test writes.

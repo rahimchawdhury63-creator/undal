@@ -486,7 +486,7 @@ completely transparent about how position is earned, and that transparency is it
 | `POST` | `/v1/rider/shift/break` | Enter/leave break. Implemented (D111) |
 | `GET` | `/v1/rider/shift/current` | Current shift state and totals. Implemented (D111) |
 | `POST` | `/v1/rider/presence/heartbeat` | Presence ping |
-| `GET` | `/v1/rider/offers` | Pending offers (the FCM payload is authoritative; this is reconciliation) |
+| `GET` | `/v1/rider/offers` | Pending offers (the FCM payload is authoritative; this is reconciliation). Implemented (D115) |
 | `GET` | `/v1/rider/orders/active` | Active order(s), batched if applicable |
 | `GET` | `/v1/rider/earnings` | Today / week / custom window with per-order breakdown |
 | `GET` | `/v1/rider/invoices` | Weekly invoices |
