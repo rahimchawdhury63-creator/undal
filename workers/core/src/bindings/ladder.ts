@@ -58,6 +58,14 @@ export interface RingRequest {
   readonly itemCount: number;
   readonly totalPaisa: number;
   readonly publishedAtMs: number;
+  /**
+   * The vendor owner's user id, hex, when the caller has already resolved it (D104).
+   *
+   * The ring needs it to find the vendor's devices, and the announcement needs it to reach the vendor's own
+   * channel. Passing it in means placement resolves it once instead of twice; omitting it leaves the ring to
+   * look it up as before, so the binding still works for a caller with nothing else to say.
+   */
+  readonly ownerUserId?: string;
 }
 
 /** What the push says, in the shape realtime's `BeginInput.push` expects. */
@@ -174,7 +182,7 @@ export async function ringVendor(ctx: Ctx, request: RingRequest): Promise<void> 
   if (base === undefined || base === "" || token === undefined || token === "") return;
 
   const vendorId = uuidBytes(request.vendorId);
-  const owner = await vendorOwnerUserId(ctx.db, vendorId);
+  const owner = request.ownerUserId === undefined ? await vendorOwnerUserId(ctx.db, vendorId) : uuidBytes(request.ownerUserId);
   const tokens = owner === null ? [] : await tokensForUser(ctx.db, owner);
   if (tokens.length === 0) {
     await recordUnrung(ctx, request, "no_device");

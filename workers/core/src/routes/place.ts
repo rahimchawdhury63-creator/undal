@@ -11,6 +11,8 @@ import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { buildOrderItems, type CatalogueEntry } from "../domain/order/items.ts";
 import { announce } from "../bindings/announce.ts";
 import { ringVendor } from "../bindings/ladder.ts";
+import { vendorOwnerUserId } from "../repositories/recipients.ts";
+import { uuidBytes } from "../middleware/auth.ts";
 import { buildStateEvent } from "../domain/order/state-events.ts";
 import { planPlacement, PlacementRefused, type PlacementContext } from "../domain/order/placement.ts";
 import { verifyQuoteToken, type QuoteSnapshot } from "../domain/order/quote.ts";
@@ -204,13 +206,24 @@ async function place(ctx: Ctx, body: unknown): Promise<Response> {
 
   // The order exists; the vendor's screen and the zone's map hear about it before the customer's receipt is
   // parsed. A failed broadcast degrades to a poll, never to a lost order (D85).
-  announce(ctx, {
-    zoneId: plan.order.zoneId,
-    orderId: plan.order.code,
-    event: plan.event.event,
-    payload: { orderId: plan.order.code, state: plan.order.state, seq: plan.event.seq, vendorId: plan.order.vendorId },
-    seq: plan.event.seq,
-  });
+  // The vendor's own devices hear about it too, which needs the vendor *owner's* user id — the identity a
+  // vendor's stream resolves `vendor:self` to (D104). One query serves both this announcement and the ring
+  // below, and the promise is created here but awaited only inside `waitUntil`, so a placement's latency does
+  // not include a query that only the notification needs.
+  const vendorOwner = vendorOwnerUserId(ctx.db, uuidBytes(plan.order.vendorId));
+  ctx.waitUntil(
+    (async () => {
+      const owner = await vendorOwner;
+      announce(ctx, {
+        zoneId: plan.order.zoneId,
+        orderId: plan.order.code,
+        event: plan.event.event,
+        payload: { orderId: plan.order.code, state: plan.order.state, seq: plan.event.seq, vendorId: plan.order.vendorId },
+        seq: plan.event.seq,
+        ...(owner === null ? {} : { audience: { vendorUserId: toHexId(owner) } }),
+      });
+    })(),
+  );
 
   // The order is placed, so the vendor's phone starts ringing — 120 s, three rungs, and a cancellation nobody
   // chose at the end of it. Handed to `waitUntil` because the ring is not a precondition of the order, and
@@ -218,15 +231,20 @@ async function place(ctx: Ctx, body: unknown): Promise<Response> {
   // nothing (D93).
   const publishedAtMs = nowMs;
   ctx.waitUntil(
-    ringVendor(ctx, {
-      orderId: plan.order.id,
-      orderCode: plan.order.code,
-      zoneId: plan.order.zoneId,
-      vendorId: plan.order.vendorId,
-      itemCount: items.length,
-      totalPaisa: plan.order.totals.totalPaisa,
-      publishedAtMs,
-    }),
+    (async () => {
+      const owner = await vendorOwner;
+      await ringVendor(ctx, {
+        orderId: plan.order.id,
+        orderCode: plan.order.code,
+        zoneId: plan.order.zoneId,
+        vendorId: plan.order.vendorId,
+        itemCount: items.length,
+        totalPaisa: plan.order.totals.totalPaisa,
+        publishedAtMs,
+        // The owner the announcement above already resolved. No owner is the ring's own `no_device` story.
+        ...(owner === null ? {} : { ownerUserId: toHexId(owner) }),
+      });
+    })(),
   );
 
   // `201 Created`, built through the same envelope as every other response: a placement that reused

@@ -315,6 +315,35 @@ describe("the vendor's phone", () => {
     assert.match(written, /no_device/u);
   });
 
+  test("the vendor's own stream hears about the order, by the owner's user id (D104)", async () => {
+    const db = dbFor();
+    const { calls, transport } = stubFetch();
+    const pending: Promise<unknown>[] = [];
+    await placeWithRing(db, pending, transport);
+
+    const broadcast = calls.find((call) => call.url.endsWith("/internal/broadcast"));
+    assert.notEqual(broadcast, undefined, "the vendor's channel is fed by the announcement, not by luck");
+    const body = JSON.parse(broadcast?.body ?? "{}") as {
+      orderId: string;
+      event: string;
+      seq: number;
+      audience?: { vendorUserId?: string };
+    };
+    assert.match(body.orderId, /^UND-/u);
+    assert.equal(body.seq, 1);
+    // The identity `vendor:self` resolves to: the owner's user id in hex, not the vendor's row id.
+    assert.equal(body.audience?.vendorUserId, OWNER_HEX);
+  });
+
+  test("the owner is looked up once, for the announcement and the ring together", async () => {
+    const db = dbFor();
+    const { transport } = stubFetch();
+    const pending: Promise<unknown>[] = [];
+    await placeWithRing(db, pending, transport);
+    const ownerLookups = db.calls.filter((call) => /`owner_user_id`/u.test(call.sql));
+    assert.equal(ownerLookups.length, 1, `expected one lookup, saw ${String(ownerLookups.length)}`);
+  });
+
   test("a deployment with no stream configured places the order and rings nothing", async () => {
     const db = dbFor();
     const { calls, transport } = stubFetch();

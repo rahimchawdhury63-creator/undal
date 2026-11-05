@@ -26,6 +26,14 @@ export interface RealtimeClient {
     readonly payload: unknown;
     /** The order's log sequence, when the caller has it; the stream ids the frame otherwise. */
     readonly seq?: number;
+    /**
+     * Who else is watching, by the identity their own stream resolves `self` to (D104).
+     *
+     * These are **user** ids in hex — the `sub` a token carries — because `vendor:self` resolves to the
+     * caller's user id. A broadcast without an audience still reaches the order and the zone; it reaches no
+     * vendor's or rider's own channel, and that is the honest limit of what core told it.
+     */
+    readonly audience?: { readonly vendorUserId?: string; readonly riderUserId?: string };
   }): Promise<Result<true>>;
   /** Whether a rider is currently present in a zone. Presence is per zone, so the zone is required. */
   presenceOf(input: {

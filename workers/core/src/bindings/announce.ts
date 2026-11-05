@@ -39,6 +39,14 @@ export interface Announcement {
   readonly payload: Record<string, unknown>;
   /** The order's log sequence, so a resumed stream and a live one agree on order. */
   readonly seq?: number;
+  /**
+   * The users watching besides the customer and the zone (D104), by the id their own stream resolves `self` to.
+   *
+   * Omitted, the broadcast reaches the order channel and the zone channel only. That is not a silent default:
+   * `channelsFor` publishes to exactly the channels the audience names, so a call site that wants the vendor's
+   * other devices to see an acceptance has to say whose they are.
+   */
+  readonly audience?: { readonly vendorUserId?: string; readonly riderUserId?: string };
 }
 
 /**
@@ -59,6 +67,7 @@ export function announce(ctx: Ctx, announcement: Announcement): void {
     event: announcement.event,
     payload: announcement.payload,
     ...(announcement.seq === undefined ? {} : { seq: announcement.seq }),
+    ...(announcement.audience === undefined ? {} : { audience: announcement.audience }),
   });
   // `void` is deliberate: the `Result` is the client's business, the order is this Worker's.
   ctx.waitUntil(sent);

@@ -86,6 +86,31 @@ describe("the announcer", () => {
     assert.equal((stub.calls[0]?.init.headers as Record<string, string>).authorization, "Bearer internal");
   });
 
+  test("carries the audience it was given, by user id (D104)", async () => {
+    const stub = stubFetch(async () => Response.json({ ok: true, data: { recorded: 3 } }));
+    const { ctx, pending } = ctxWith();
+    announce(ctx, {
+      zoneId: "sylhet",
+      orderId: "UND-7K2M9QX4",
+      event: "order.placed",
+      payload: {},
+      seq: 1,
+      audience: { vendorUserId: "0a1b2c3d4e5f60718293a4b5c6d7e8f9" },
+    });
+    await Promise.all(pending);
+    const body = JSON.parse(String(stub.calls[0]?.init.body)) as Record<string, unknown>;
+    assert.deepEqual(body["audience"], { vendorUserId: "0a1b2c3d4e5f60718293a4b5c6d7e8f9" });
+  });
+
+  test("sends no audience field when it has none, rather than an empty one", async () => {
+    const stub = stubFetch(async () => Response.json({ ok: true, data: { recorded: 2 } }));
+    const { ctx, pending } = ctxWith();
+    announce(ctx, { zoneId: "sylhet", orderId: "UND-7K2M9QX4", event: "order.accepted", payload: {} });
+    await Promise.all(pending);
+    const body = JSON.parse(String(stub.calls[0]?.init.body)) as Record<string, unknown>;
+    assert.equal("audience" in body, false);
+  });
+
   test("does nothing when the stream is not configured", async () => {
     const stub = stubFetch(async () => Response.json({ ok: true }));
     const { ctx, pending } = ctxWith(testEnv({ INTERNAL_TOKEN: "internal" }));

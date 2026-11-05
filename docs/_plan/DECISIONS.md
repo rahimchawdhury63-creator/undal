@@ -1702,3 +1702,43 @@ cursors, keepalives when nothing is written, the no-tail path, and cancellation 
 alternative, and it needs the sockets to live in the room rather than in a request's stream; that is a different
 architecture, not a smaller interval. The load this adds is one ring read per channel per second per open stream,
 which is why the ring is preferred over the order log where a room is bound.
+
+## D104 — The fan-out reaches the vendor, because a subscription nobody feeds is a lie in a channel's clothes
+
+`fanout.ts` has always said "one broadcast becomes up to four channel records", and `channels.ts` has always let
+a vendor subscribe `vendor:self` and a rider subscribe `rider:self`. `channelsFor` returned **two**: the order and
+the zone. So a vendor app could hold a healthy 200 stream on its own channel and never receive a frame — the same
+class of bug the channels module's own comment warns about ("an ignored channel is a client that believes it is
+subscribed and is not"), one layer down where no refusal could catch it.
+
+**The fix needed a contract change, not a loop.** Reaching a vendor means knowing *whose* vendor, and the only
+worker that can turn an order into "the user who owns this vendor" is the one that owns the row. So the broadcast
+now carries an optional `audience: {vendorUserId?, riderUserId?}` — core's `announce()`, the typed client and the
+internal route all pass it through — and `channelsFor` publishes to exactly the channels the audience names.
+Without an audience the broadcast reaches the order and the zone, and that is the honest limit of what core said.
+
+**The id is a user id, in hex.** `vendor:self` resolves to the caller's `actorId`, which is the token's `sub`,
+which core mints as `userIdHex`. Publishing to the vendor's *row* id would produce a frame in a room nobody can
+join, with no error anywhere — the failure mode is silent by construction, so the type comment says it in the one
+place a call site will read it. `usableId` refuses anything the stream grammar could not carry, for the same
+reason: an id nobody can subscribe to is not an id to publish to.
+
+**The audience channels are numbered by their own rings.** D101's rule holds unchanged: only `order:` channels
+take the order's log sequence. A vendor's channel carries many orders, so copying the sequence there would be the
+same collision D101 removed from the zone — the new test asserts it does not come back.
+
+**Placement is wired end to end, and the lookup is not paid twice.** Placement resolves the vendor's owner once
+and hands the hex id to both the announcement and `ringVendor` (which previously looked it up itself). The lookup
+is created before the response but awaited only inside `waitUntil`, so placement latency does not include a query
+the notification needs; a test counts the `owner_user_id` statements to prove there is exactly one.
+
+Tests: three realtime fan-out cases (a named vendor gets fed; a vendor and a rider reach four channels; an
+unusable id is skipped; an audience channel does not inherit the order's sequence), two internal-route cases (three
+recorded with an audience, two without), two announce cases (the field travels; absent means absent), and two
+placement cases (the body carries the owner's hex id; one lookup).
+
+*Open:* only placement supplies an audience. Accept, reject and the dispatch transitions still broadcast to the
+order and the zone, because those routes have to resolve a rider's *user* id from `orders.rider_id` — the same
+mapping problem `vendorOwnerUserId` solved for vendors, and a lookup per transition that deserves its own rung.
+Until then a vendor's other devices learn about an acceptance when the customer's page does, which is correct but
+not what the four-channel promise implies.

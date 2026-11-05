@@ -67,3 +67,45 @@ describe("the zone channel", () => {
     assert.equal(replay.complete, true);
   });
 });
+
+describe("the audience (D104)", () => {
+  test("a vendor the broadcast names gets its own channel", async () => {
+    const store = new MemoryFrameStore(new StreamHub());
+    const input = { ...frame(), seq: 1, audience: { vendorUserId: "vendor-user-1" } } as never;
+    const result = await broadcast(store, input);
+    assert.deepEqual(result.recorded.map((entry) => entry.id), [1, 1, 1]);
+    const replay = await store.replay({ kind: "vendor", id: "vendor-user-1" }, 0, T0);
+    assert.deepEqual(replay.frames.map((entry) => entry.event), ["order.accepted"]);
+  });
+
+  test("a vendor and a rider both named reach four channels, which is what the docs promise", async () => {
+    const store = new MemoryFrameStore(new StreamHub());
+    await broadcast(store, { ...frame(), audience: { vendorUserId: "v1", riderUserId: "r1" } } as never);
+    const counts = await Promise.all(
+      [
+        orderChannel("UND-7K2M9QX4"),
+        zoneChannel("zone-1"),
+        { kind: "vendor" as const, id: "v1" },
+        { kind: "rider" as const, id: "r1" },
+      ].map(async (channel) => (await store.replay(channel, 0, T0)).frames.length),
+    );
+    assert.deepEqual(counts, [1, 1, 1, 1]);
+  });
+
+  test("an id the stream grammar could not carry is not published to", async () => {
+    const store = new MemoryFrameStore(new StreamHub());
+    const result = await broadcast(store, {
+      ...frame(),
+      audience: { vendorUserId: "not a channel id", riderUserId: "r".repeat(65) },
+    } as never);
+    assert.equal(result.recorded.length, 2, "order and zone only: nobody could ever subscribe to those ids");
+  });
+
+  test("an audience channel is numbered by its own ring, never by the order's sequence", async () => {
+    const store = new MemoryFrameStore(new StreamHub());
+    await broadcast(store, { ...frame(), seq: 9, audience: { vendorUserId: "v1" } } as never);
+    await broadcast(store, { ...frame({ orderId: "UND-OTHER999" }), seq: 9, audience: { vendorUserId: "v1" } } as never);
+    const replay = await store.replay({ kind: "vendor", id: "v1" }, 0, T0);
+    assert.deepEqual(replay.frames.map((entry) => entry.id), [1, 2]);
+  });
+});

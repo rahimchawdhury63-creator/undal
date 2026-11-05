@@ -50,6 +50,36 @@ function post(path: string, body: unknown, token: string | null = TOKEN): Reques
 
 for (const backend of BACKENDS) {
   describe(`internal routes/${backend.name}`, () => {
+    test("a broadcast that names its audience reaches three channels (D104)", async () => {
+      const context = contextFor(backend.make());
+      const response = await handleInternal(
+        post("/internal/broadcast", {
+          zoneId: "zone-1",
+          orderId: "UND-7K2M9QX4",
+          event: "order.placed",
+          payload: {},
+          seq: 1,
+          audience: { vendorUserId: "vendor-user-1" },
+        }),
+        context,
+      );
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { data: { recorded: number } };
+      assert.equal(body.data.recorded, 3, "order, zone and the vendor's own channel");
+      const vendor = await context.store?.replay({ kind: "vendor", id: "vendor-user-1" }, 0, T0);
+      assert.equal(vendor?.frames.length, 1);
+    });
+
+    test("a broadcast with no audience reaches two, and does not invent a third", async () => {
+      const context = contextFor(backend.make());
+      const response = await handleInternal(
+        post("/internal/broadcast", { zoneId: "zone-1", orderId: "UND-7K2M9QX4", event: "order.placed", payload: {} }),
+        context,
+      );
+      const body = (await response.json()) as { data: { recorded: number } };
+      assert.equal(body.data.recorded, 2);
+    });
+
     test("a call with no configured secret is refused, not accepted", async () => {
       const context = contextFor(backend.make(), null);
       const response = await handleInternal(post("/internal/broadcast", { zoneId: "z", orderId: "o", event: "order.placed" }), context);

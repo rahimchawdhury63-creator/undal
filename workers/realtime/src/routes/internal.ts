@@ -60,6 +60,16 @@ function readBroadcast(raw: unknown): BroadcastInput | null {
   if (typeof zoneId !== "string" || zoneId === "") return null;
   if (typeof orderId !== "string" || orderId === "") return null;
   if (typeof event !== "string" || event === "") return null;
+  // The audience is optional and is *not* validated here beyond its type: `channelsFor` refuses an id the
+  // stream grammar could not carry, because the grammar lives there and a second copy of it here would be a
+  // second answer to the same question (D104).
+  const audience: { vendorUserId?: string; riderUserId?: string } = {};
+  const rawAudience = body.audience;
+  if (typeof rawAudience === "object" && rawAudience !== null) {
+    const record = rawAudience as Record<string, unknown>;
+    if (typeof record.vendorUserId === "string") audience.vendorUserId = record.vendorUserId;
+    if (typeof record.riderUserId === "string") audience.riderUserId = record.riderUserId;
+  }
   return {
     zoneId,
     orderId,
@@ -67,6 +77,7 @@ function readBroadcast(raw: unknown): BroadcastInput | null {
     payload: body.payload ?? {},
     atMs: typeof body.atMs === "number" ? body.atMs : 0,
     ...(typeof body.seq === "number" ? { seq: body.seq } : {}),
+    ...(audience.vendorUserId === undefined && audience.riderUserId === undefined ? {} : { audience }),
   };
 }
 
