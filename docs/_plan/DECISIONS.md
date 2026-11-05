@@ -2222,3 +2222,40 @@ rows.** `domain/order/assignment.ts` has the numbered filters and the wave plann
 that only realtime holds. That is a design question before it is a coding one: either the wave writer asks
 realtime for freshness per candidate, or realtime publishes a candidate feed. D116 leaves it stated rather than
 guessed.
+
+## D117 — The one question core cannot answer, asked once per zone
+
+D116 left the dispatch hole stated in structural terms: a `RiderSnapshot` needs four fields that live only in
+realtime's D1. This is the answer to *how*, and the choice is between one call per zone and one call per rider.
+
+**Once per zone, and it returns rows rather than a verdict.** `POST /internal/candidates { zoneId }` reads
+`rider_current` for that zone — one statement over `idx_current_zone`, state-filtered to the three states a
+dispatchable rider can be in, capped at 200 — and returns every field a snapshot needs from this side:
+`riderId`, `vehicle`, `state`, the position, accuracy, battery, `updatedAtMs` and `staleAfterMs`. Per-rider calls
+were the alternative and they are the wrong shape: a wave of eight out of a zone of sixty would be sixty round
+trips to answer one question that one statement answers, and the ranking only needs the top of the list anyway.
+
+**It does not decide who is fresh.** The row carries its own deadline and the route passes it through untouched;
+`POSITION_FRESH` (filter 4) is dispatch's rule, evaluated by the module that also numbers the reason a rider was
+refused. A store that pre-filtered would be a second opinion about freshness, and this session has already spent
+two rungs removing a second opinion about what an offer is.
+
+**The identity, again.** `riderId` here is the same identity every other D1 row is keyed by — the token's `sub` —
+which is what the wave writer will need when it joins these rows to TiDB's `riders` by `user_id`, not by `id`.
+That is the trap D110 fixed on the write side; naming it here is what stops it recurring on the read side.
+
+**Two smaller things this route got wrong first and now does not.** The body is read once: a `Request`'s body can
+be consumed once, and the first draft called `safeJson` twice, which would have validated `undefined` and answered
+`422` for every request that carried a zone. And an absent D1 binding answers `501 live_positions_not_configured`
+rather than an empty list, because "no candidates in this zone" and "no database" must not look the same to a
+dispatcher deciding whether to fall back.
+
+Tests: three in `internal.test.ts` (a zone's row passed through with its deadline, a body with no zone refused
+rather than answered for every zone, and the 501) and two in `d1-store.test.ts` (the statement, its state filter
+and the mapping including a null battery; an empty zone being an empty list).
+
+*Open:* the wave writer that consumes this feed — TiDB riders joined to these rows by `user_id`, the numbered
+filters, `planWaves`, the `order_offers` insert — and the three fields that even this feed cannot supply
+(`distanceToZoneEdgeM` needs the zone polygon core holds, `routedDistanceToVendorM` needs routing that is not
+built, `notificationsAllowed` needs the device table). Those are core's to fill, and stating which side owns each
+is the point of this rung.

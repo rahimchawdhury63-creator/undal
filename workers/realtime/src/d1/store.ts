@@ -75,6 +75,22 @@ export interface OpenShiftInput {
   readonly nowMs: number;
 }
 
+/** A rider the dispatch engine could offer an order to, as D1 knows them (D117). */
+export interface CandidateRow {
+  /** The identity every D1 row is keyed by — the token's `sub`, not a `riders` row id. */
+  readonly riderId: string;
+  readonly zoneId: string;
+  readonly vehicle: string;
+  /** `ONLINE`, `ON_ORDER` or `BREAK`. */
+  readonly state: string;
+  readonly latE7: number;
+  readonly lonE7: number;
+  readonly accuracyM: number;
+  readonly batteryPct: number | null;
+  readonly updatedAtMs: number;
+  readonly staleAfterMs: number;
+}
+
 /** What the route needs from a position store. */
 export interface PositionStore {
   /** The rider's shift context, or `null` when there is no current row: the shift has not started. */
@@ -112,6 +128,18 @@ export interface PositionStore {
    * teleporter on their own doorstep. One batch, three statements, and the order in it is the decision.
    */
   open(input: OpenShiftInput): Promise<void>;
+  /**
+   * The riders in a zone whose live row exists, for the wave writer to score (D117).
+   *
+   * This is the one question core cannot answer for itself: four of the fields a dispatch candidate is judged on
+   * — the age of the fix against its own deadline, and the position the distance to the vendor is measured from —
+   * live only here. Asking once per zone is what keeps the crossing to one call instead of one per rider.
+   *
+   * Rows are returned in the order D1 has them and carry their own `staleAfterMs` rather than a verdict: deciding
+   * that an expired row is not a candidate is dispatch's filter to apply (`POSITION_FRESH`, filter 4), not this
+   * store's opinion.
+   */
+  candidatesInZone(zoneId: string): Promise<readonly CandidateRow[]>;
 }
 
 /** What a sweep removed. Zero is the normal answer; the counts make the abnormal one visible. */
@@ -159,6 +187,11 @@ const SWEEP_CURRENT = "DELETE FROM rider_current WHERE stale_after < ?";
 const INSERT_OPEN = `INSERT OR REPLACE INTO rider_current
   (rider_id, shift_id, zone_id, vehicle, lat, lon, bearing_deg, speed_mps, accuracy_m, state, active_order_id, batch_size, battery_pct, updated_at, stale_after)
   VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, 0, NULL, ?, ?)`;
+
+/** Every live row in a zone. One statement, one index (`idx_current_zone` covers zone and state). */
+const SELECT_CANDIDATES = `SELECT rider_id, zone_id, vehicle, state, lat, lon, accuracy_m, battery_pct, updated_at, stale_after
+  FROM rider_current WHERE zone_id = ? AND state IN ('ONLINE', 'ON_ORDER', 'BREAK')
+  ORDER BY updated_at DESC LIMIT 200`;
 
 /** The newest stored fix, for the next batch's speed and ordering checks. */
 const SELECT_NEWEST = `SELECT lat, lon, accuracy_m, bearing_deg, recorded_at, received_at
@@ -273,6 +306,24 @@ export function d1Positions(db: D1Like): PositionStore {
             input.staleAfterMs,
           ),
       ]);
+    },
+
+    async candidatesInZone(zoneId: string): Promise<readonly CandidateRow[]> {
+      const result = (await db.prepare(SELECT_CANDIDATES).bind(zoneId).run()) as
+        | { results?: readonly Record<string, unknown>[] }
+        | undefined;
+      return (result?.results ?? []).map((row) => ({
+        riderId: String(row["rider_id"]),
+        zoneId: String(row["zone_id"]),
+        vehicle: String(row["vehicle"]),
+        state: String(row["state"]),
+        latE7: Math.round(Number(row["lat"]) * 1e7),
+        lonE7: Math.round(Number(row["lon"]) * 1e7),
+        accuracyM: Number(row["accuracy_m"]),
+        batteryPct: row["battery_pct"] === null || row["battery_pct"] === undefined ? null : Number(row["battery_pct"]),
+        updatedAtMs: Number(row["updated_at"]),
+        staleAfterMs: Number(row["stale_after"]),
+      }));
     },
 
     async sweepStale(cutoffMs: number): Promise<Swept> {

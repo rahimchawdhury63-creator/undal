@@ -204,6 +204,25 @@ export async function handleInternal(request: Request, context: InternalContext)
     return json(success({ opened: true, shiftId: open.shiftId, staleAfterMs }, { requestId }), 200, requestId);
   }
 
+  if (url.pathname === "/internal/candidates") {
+    if (request.method !== "POST") return refuse("NOT_IMPLEMENTED", requestId, { method: request.method });
+    if (context.positions === undefined) {
+      return refuse("NOT_IMPLEMENTED", requestId, { reason: "live_positions_not_configured" });
+    }
+    // One read of the body: a `Request` body can be consumed once, and asking twice is how a route silently
+    // starts validating `undefined`.
+    const raw = await safeJson(request);
+    const shaped = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+    const zoneId = typeof shaped.zoneId === "string" ? shaped.zoneId.trim() : "";
+    if (zoneId === "" || zoneId.length > 64) return refuse("VALIDATION_FAILED", requestId, { fields: ["zoneId"] });
+    const candidates = await context.positions.candidatesInZone(zoneId);
+    return json(
+      success({ zoneId, atMs: clock.nowMs(), candidates }, { requestId }),
+      200,
+      requestId,
+    );
+  }
+
   if (url.pathname === "/internal/presence") {
     if (request.method !== "POST") return refuse("NOT_IMPLEMENTED", requestId, { method: request.method });
     const body = await safeJson(request);

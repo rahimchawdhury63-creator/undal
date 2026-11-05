@@ -273,6 +273,9 @@ describe("opening a shift's first row (D108)", () => {
       async sweepStale() {
         return { riders: 0, positions: 0 };
       },
+      async candidatesInZone() {
+        return [];
+      },
     };
   }
 
@@ -319,5 +322,72 @@ describe("opening a shift's first row (D108)", () => {
     );
     assert.equal(response.status, 422);
     assert.deepEqual(opened, []);
+  });
+});
+
+describe("the candidate feed a wave writer reads (D117)", () => {
+  /** A store that answers with one rider, to prove the route passes D1's rows through unharmed. */
+  function positions(): NonNullable<InternalContext["positions"]> {
+    return {
+      async candidatesInZone(zoneId: string) {
+        return [
+          {
+            riderId: "rider-a",
+            zoneId,
+            vehicle: "MOTORBIKE",
+            state: "ONLINE",
+            latE7: 248_942_150,
+            lonE7: 918_689_120,
+            accuracyM: 12,
+            batteryPct: 68,
+            updatedAtMs: 1_700_000_000_000,
+            staleAfterMs: 1_700_000_120_000,
+          },
+        ];
+      },
+      async open() {
+        /* not exercised */
+      },
+      async context() {
+        return null;
+      },
+      async newest() {
+        return null;
+      },
+      async write() {
+        /* not exercised */
+      },
+      async erase() {
+        return { positions: 0, current: 0 };
+      },
+      async sweepStale() {
+        return { riders: 0, positions: 0 };
+      },
+    };
+  }
+
+  test("a zone's live riders come back with the deadline their own row carries", async () => {
+    const context = { ...contextFor(BACKENDS[0]!.make()), positions: positions() };
+    const response = await handleInternal(post("/internal/candidates", { zoneId: "zone-1" }), context);
+    assert.equal(response.status, 200);
+    const parsed = (await response.json()) as {
+      data: { zoneId: string; atMs: number; candidates: { riderId: string; staleAfterMs: number; state: string }[] };
+    };
+    assert.equal(parsed.data.zoneId, "zone-1");
+    assert.equal(parsed.data.candidates.length, 1);
+    assert.equal(parsed.data.candidates[0]?.riderId, "rider-a");
+    assert.equal(parsed.data.candidates[0]?.state, "ONLINE");
+    assert.equal(parsed.data.candidates[0]?.staleAfterMs, 1_700_000_120_000, "the store's verdict is not invented here");
+  });
+
+  test("a request with no zone is refused rather than answered for every zone", async () => {
+    const context = { ...contextFor(BACKENDS[0]!.make()), positions: positions() };
+    const response = await handleInternal(post("/internal/candidates", {}), context);
+    assert.equal(response.status, 422);
+  });
+
+  test("without a live-position database the feed says so", async () => {
+    const response = await handleInternal(post("/internal/candidates", { zoneId: "zone-1" }), contextFor(BACKENDS[0]!.make()));
+    assert.equal(response.status, 501);
   });
 });

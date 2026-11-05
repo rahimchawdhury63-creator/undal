@@ -252,3 +252,44 @@ describe("the sweep's two statements (D107)", () => {
     assert.deepEqual(await d1Positions(fakeD1([], [0, 0]).db).sweepStale(940_000), { riders: 0, positions: 0 });
   });
 });
+
+describe("the candidate feed (D117)", () => {
+  test("one statement over the zone index, with the rows mapped and nothing filtered", async () => {
+    const fake = fakeD1([
+      {
+        rider_id: "rider-a",
+        zone_id: "zone-1",
+        vehicle: "BICYCLE",
+        state: "ON_ORDER",
+        lat: 24.894215,
+        lon: 91.868912,
+        accuracy_m: 9,
+        battery_pct: null,
+        updated_at: 1_700_000_000_000,
+        stale_after: 1_700_000_060_000,
+      },
+    ]);
+    const candidates = await d1Positions(fake.db).candidatesInZone("zone-1");
+    assert.deepEqual(fake.captured.map((entry) => entry.values), [["zone-1"]]);
+    assert.match(fake.captured[0]!.sql, /FROM rider_current WHERE zone_id = \?/u);
+    assert.match(fake.captured[0]!.sql, /state IN \('ONLINE', 'ON_ORDER', 'BREAK'\)/u, "an offline row is not a candidate");
+    assert.deepEqual(candidates, [
+      {
+        riderId: "rider-a",
+        zoneId: "zone-1",
+        vehicle: "BICYCLE",
+        state: "ON_ORDER",
+        latE7: 248_942_150,
+        lonE7: 918_689_120,
+        accuracyM: 9,
+        batteryPct: null,
+        updatedAtMs: 1_700_000_000_000,
+        staleAfterMs: 1_700_000_060_000,
+      },
+    ]);
+  });
+
+  test("a zone with nobody in it is an empty list, not an error", async () => {
+    assert.deepEqual(await d1Positions(fakeD1([]).db).candidatesInZone("zone-9"), []);
+  });
+});

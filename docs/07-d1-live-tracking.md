@@ -250,6 +250,14 @@ never receives a flush goes grey like anything else. Opening a shift clears the 
 the same batch: a new shift's trail is that shift's, and a first fix judged against the last fix of the
 previous shift would make every rider a teleporter on their own doorstep.
 
+**The map's own question reaches dispatch through one call (D117).** A candidate for an offer is judged on four
+things that only exist here: the age of a rider's fix against its own deadline, and the position the distance to
+the vendor is measured from. `POST /internal/candidates { zoneId }` answers with every live `rider_current` row in
+that zone — `riderId`, state, position, accuracy, battery, `updatedAtMs`, `staleAfterMs` — and nothing else. It
+does not filter or rank: deciding that an expired row is not a candidate is dispatch's filter 4 to apply, and a
+store that answered "these are the good ones" would be a second opinion about freshness, which this document has
+been careful to keep single.
+
 ### 4.2 Delta encoding
 
 The first position in a batch is absolute. The rest are deltas in units of 1e-6 degrees (~0.11 m)
