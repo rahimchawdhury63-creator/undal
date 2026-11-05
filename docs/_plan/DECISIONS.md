@@ -2026,3 +2026,27 @@ writing nothing, and a non-boolean body refused before any read.
 the exact figure needs D91's presence ledger and is the same gap D110 recorded on the end. The break does not
 touch the D1 row directly — a rider who takes a break and then stops sending keeps their last `ONLINE` state
 until the seed's deadline passes, which is a deliberate consequence of letting the device own the flag.
+
+## D112 — The quadratic lookup that was really an unstated invariant
+
+`routes/location.ts` built its ring writes with `judgement.accepted[judgement.acceptedIndexes.indexOf(index)]`:
+a search through up to twelve entries, inside a map over up to twelve entries. Small, and wrong in a way that
+matters more than the arithmetic.
+
+**What it actually said.** `indexOf` expresses the relationship between the two arrays as a search, so it reads as
+*"find the accepted fix whose index this is"* — as though the arrays were independent and the correspondence had
+to be discovered. They are not independent: `judgeBatch` pushes to both inside one loop iteration, so
+`accepted[position]` is the fix at `acceptedIndexes[position]` by construction. The lookup was O(n²) for a batch
+capped at twelve, which nobody would notice, and the *expression* was the defect: a future change that sorted
+`acceptedIndexes` (a reasonable-looking tidy-up) would have written the right slots with the wrong fixes — a trail
+where every position is real and every position is in the wrong place.
+
+**The fix is the invariant, written where the invariant is used**: a positional read with a comment that names the
+construction it depends on. `d1-ingest.test.ts` now asserts the alignment directly, with a batch whose middle fix
+is refused — the case where a reordering shows up — and checks that `accepted[position].recordedAtMs` is the
+timestamp of the fix at `acceptedIndexes[position]`. Verified by reversion: replacing `push` with `unshift` in
+`judgeBatch` fails the new test and nothing else, which is the point — the array's order is now load-bearing and
+the suite knows it.
+
+This closes the wart D97 recorded. There is no behaviour change: every existing location-route test passes
+unchanged, because the same elements are read in the same order. The change is to what the code claims.

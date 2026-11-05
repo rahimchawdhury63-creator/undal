@@ -122,9 +122,13 @@ export async function handleLocationBatch(request: Request, context: LocationCon
   });
 
   const slots = ringSlots(batch.batch.seqStart, batch.batch.fixes.length);
-  const positions: StoredPosition[] = judgement.acceptedIndexes.map((index) => ({
+  // `accepted` holds one fix per accepted index, in the same order: `judgeBatch` pushes both inside one loop
+  // iteration. `indexOf` here was quadratic in a batch that is capped at twelve and, worse, expressed the
+  // alignment as a search rather than as a fact — a reordering of one array would have written the right slots
+  // with the wrong fixes. The positional read is the invariant, and `d1-ingest.test.ts` asserts it (D112).
+  const positions: StoredPosition[] = judgement.acceptedIndexes.map((index, position) => ({
     seq: slots[index] ?? 0,
-    fix: judgement.accepted[judgement.acceptedIndexes.indexOf(index)]!,
+    fix: judgement.accepted[position]!,
   }));
 
   const lastStored = judgement.accepted[judgement.accepted.length - 1];

@@ -157,3 +157,22 @@ describe("geometry helpers", () => {
     assert.equal(speed > 24 && speed < 26, true, `saw ${String(speed)} m/s`);
   });
 });
+
+describe("the returned indexes and fixes stay aligned (D112)", () => {
+  test("a refused fix in the middle leaves position i holding the fix at index i", async () => {
+    // The route reads `accepted[position]` for the slot named by `acceptedIndexes[position]`. That is only
+    // correct while the two arrays are pushed together, so a batch with a hole in it is the case worth pinning.
+    const highway = fix({ accuracyM: MAX_ACCURACY_M + 50, recordedAtMs: T0 + 1_000 });
+    const judgement = judgeBatch(
+      [fix(), highway, fix({ recordedAtMs: T0 + 2_000 }), fix({ recordedAtMs: T0 + 3_000 })],
+      context(),
+    );
+    assert.deepEqual(judgement.acceptedIndexes, [0, 2, 3], "the bad fix consumes an index and no position");
+    judgement.acceptedIndexes.forEach((index, position) => {
+      const stored = judgement.accepted[position];
+      assert.notEqual(stored, undefined);
+      assert.equal(stored?.recordedAtMs, T0 + index * 1_000, `position ${position} must be the fix at index ${index}`);
+    });
+    assert.equal(judgement.accepted.length, judgement.acceptedIndexes.length);
+  });
+});
