@@ -62,6 +62,8 @@ const route = () => {
 function cancelDb(state = "PLACED", affectedRows = 1) {
   return stubDb([
     { match: /FROM `orders` WHERE `code`/u, rows: [{ ...ORDER_ROW, state }] },
+    // The audience resolves the vendor's owner before the announcement goes out (D106).
+    { match: /owner_user_id/u, rows: [{ owner_user_id: new Uint8Array(16).fill(9) }] },
     { match: /UPDATE `orders` SET/u, affectedRows },
     { match: /MAX\(`seq`\)/u, rows: [{ last: 0 }] },
     { match: /INSERT INTO `order_state_events`/u, affectedRows: 1 },
@@ -101,6 +103,36 @@ async function ask(db: ReturnType<typeof stubDb>, body: unknown, token: string |
   const parsed = (await response.json()) as { data?: { cancelled: boolean; reason: string; state: string | null } };
   return { status: response.status, data: parsed.data };
 }
+
+describe("who hears about a cancellation (D106)", () => {
+  test("the vendor's own channel hears the ending their silence caused", async () => {
+    const db = cancelDb();
+    const calls: { url: string; body: string }[] = [];
+    const pending: Promise<unknown>[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response(JSON.stringify({ ok: true, data: { recorded: 3 } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const ctx = {
+        ...ctxFor(db, TOKEN, testEnv({ REALTIME_BASE: "https://rt.undal.test" })),
+        waitUntil: (promise: Promise<unknown>) => pending.push(promise),
+      };
+      const response = await route().run(ctx, { params: {}, body: { orderCode: CODE, elapsedSeconds: 120 }, reason: null });
+      assert.equal(response.status, 200);
+      await Promise.all(pending);
+    } finally {
+      globalThis.fetch = original;
+    }
+    const broadcast = calls.find((call) => call.url.endsWith("/internal/broadcast"));
+    assert.notEqual(broadcast, undefined);
+    const body = JSON.parse(broadcast?.body ?? "{}") as { event: string; audience?: { vendorUserId?: string; riderUserId?: string } };
+    assert.equal(body.event, "order.cancelled");
+    assert.equal(body.audience?.vendorUserId, "09090909090909090909090909090909");
+    assert.equal(body.audience?.riderUserId, undefined, "nobody was assigned, so no rider is named");
+  });
+});
 
 describe("the internal token", () => {
   test("no token is a refusal, and nothing is read", async () => {

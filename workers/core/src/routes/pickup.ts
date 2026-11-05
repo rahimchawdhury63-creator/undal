@@ -5,6 +5,7 @@
 
 import * as audit from "../audit/write.ts";
 import { announce } from "../bindings/announce.ts";
+import { audienceForOrder } from "../bindings/audience.ts";
 import { newId, toHexId } from "../lib/ids.ts";
 import { sqlDatetime } from "../db/time.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
@@ -159,14 +160,22 @@ async function pickup(ctx: Ctx, orderId: string, body: unknown): Promise<Respons
     nowMs,
   );
 
-  // A pickup is the transition a customer watches for most closely: the meal is on the road.
-  announce(ctx, {
-    zoneId: toHexId(row.zone_id),
-    orderId: row.code,
-    event: outcome.event.event,
-    payload: { orderId: row.code, state: "PICKED_UP", seq },
-    seq,
-  });
+  // A pickup is the transition a customer watches for most closely: the meal is on the road. The vendor's own
+  // devices and the rider's hear it too (D106) — the vendor so its screen stops saying "waiting for pickup",
+  // the rider so a second device shows the order it is carrying. The audience is resolved behind `waitUntil`
+  // because a notification's lookup must not be in front of the response.
+  ctx.waitUntil(
+    (async () => {
+      announce(ctx, {
+        zoneId: toHexId(row.zone_id),
+        orderId: row.code,
+        event: outcome.event.event,
+        payload: { orderId: row.code, state: "PICKED_UP", seq },
+        seq,
+        audience: await audienceForOrder(ctx, { vendorId: row.vendor_id, riderUserIdHex: toHexId(row.rider_id as Uint8Array) }),
+      });
+    })(),
+  );
 
   return successResponse(
     {

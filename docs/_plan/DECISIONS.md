@@ -1772,7 +1772,43 @@ next poll. Verified by removing the one line and watching the route test fail.
 Tests: three in `catalogue-coverage.test.ts` (the exhaustive check, the three corrected names, the stored-kind
 mapping) and one in `order-routes.test.ts` (the broadcast body carries `audience.vendorUserId` = the owner).
 
-*Open:* `pickup.ts` is the same free win — the rider is the actor, so `audience.riderUserId` is
-`principal.userId` — and I left it out to keep this rung to the claim I could verify. Auto-cancel and dispatch
-still need a vendor-owner lookup per transition; rider's `rider_id` on the order turns out to be a *user* id
-(`pickup.ts` compares it to `principal.userId`), so those are cheap when someone writes them.
+*Open:* closed by D106 for pickup and auto-cancel; dispatch still has no route to name an audience from.
+
+## D106 — The two transitions with the most at stake name their audiences, and one helper does the naming
+
+D105's open was two free wins and one lookup. Both are done, and the duplication the third case would have
+created is the module that carries them.
+
+**`bindings/audience.ts` is the only place a row becomes an identity.** `announce` reaches the order and the
+zone with the ids it is given; reaching a vendor's or a rider's own channel needs `vendor:self`'s identity, which
+is the vendor owner's *user* id, and `rider:self`'s, which is the rider's. `audienceForOrder(ctx, {vendorId,
+riderUserIdHex})` resolves both: the rider for free, because `orders.rider_id` is already a user id; the vendor
+through `vendorOwnerUserId`, the same helper D93 added for the ring. Three routes now call one function instead
+of each inventing the mapping — and the mapping is the kind of thing that is silently wrong (a vendor *row* id
+produces a frame in a room nobody can join).
+
+**A failed lookup is an order with no audience, not a failed transition.** `audienceForOrder` never throws: if
+the vendor lookup fails, the announcement still reaches the order channel and the zone, which is the whole of
+what D85 promised. Refusing to announce because one more audience could not be named would invert the rule that
+a notification never degrades a state machine.
+
+**Pickup and auto-cancel were chosen because they are where a missing frame is felt.** A pickup that only the
+customer hears leaves the vendor's screen saying "waiting for pickup" about a meal that left the counter, and
+the rider's second device showing nothing it is carrying. An auto-cancel that only the zone hears is the worst
+of all: the vendor's silence is what caused it, and their screen is the one that must stop showing the order.
+The vendor is therefore named in an auto-cancel announcement even though they are the reason for it.
+
+**Both audience resolutions run behind `waitUntil`.** The lookup is part of the notification, not of the
+response, so a pickup's latency is a pickup's; the announcement is deferred by a task that awaits the audience
+and then calls `announce`, which defers again. Nesting `waitUntil` is deliberate and cheap: the outer one only
+waits for a `SELECT` and a `fetch` that would otherwise be in front of the rider's screen.
+
+**Verified by deletion.** Removing the `audience` argument from either route fails that route's new test — the
+pickup case and the auto-cancel case — and restoring them passes both.
+
+Tests: one in `order-pickup.test.ts` (vendor owner plus the rider's hex id both travel, and the announcement
+still happens) and one in `auto-cancel.test.ts` (the vendor is named; no rider is named when none was assigned).
+
+*Open:* the dispatch transitions (`RIDER_SEARCH` → `RIDER_ASSIGNED` → `RIDER_ASSIGNED` reassignment) have no
+route in this Worker yet, so there is no call site to name an audience from. When one is written, both ids are
+already on the row and the helper already accepts them.

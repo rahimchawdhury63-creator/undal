@@ -26,6 +26,7 @@
 
 import * as audit from "../audit/write.ts";
 import { announce } from "../bindings/announce.ts";
+import { audienceForOrder } from "../bindings/audience.ts";
 import { toHexId, newId } from "../lib/ids.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import { ANONYMOUS } from "../middleware/auth.ts";
@@ -144,13 +145,23 @@ async function autoCancel(ctx: Ctx, body: unknown): Promise<Response> {
 
   // The cancellation is a transition like any other, so it is announced from the Worker that wrote it
   // rather than from the room that asked for it (D84, D85).
-  announce(ctx, {
-    zoneId: toHexId(row.zone_id),
-    orderId: row.code,
-    event: "order.cancelled",
-    payload: { orderId: row.code, state: "AUTO_CANCELLED", seq: moved.seq, cancelledBy: "SYSTEM", reason: AUTO_CANCEL_REASON },
-    seq: moved.seq,
-  });
+  // The vendor is the party a two-minute silence is about, so their own channel has to hear the ending even
+  // though they are the reason for it (D106). A rider is named only when one had been assigned.
+  ctx.waitUntil(
+    (async () => {
+      announce(ctx, {
+        zoneId: toHexId(row.zone_id),
+        orderId: row.code,
+        event: "order.cancelled",
+        payload: { orderId: row.code, state: "AUTO_CANCELLED", seq: moved.seq, cancelledBy: "SYSTEM", reason: AUTO_CANCEL_REASON },
+        seq: moved.seq,
+        audience: await audienceForOrder(ctx, {
+          vendorId: row.vendor_id,
+          riderUserIdHex: row.rider_id === null ? null : toHexId(row.rider_id),
+        }),
+      });
+    })(),
+  );
 
   return successResponse({ cancelled: true, reason: "cancelled", state: "AUTO_CANCELLED" } satisfies CancelAnswer, ctx.locale, ctx.requestId);
 }

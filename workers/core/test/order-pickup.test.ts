@@ -84,6 +84,8 @@ const ORDER_ROW = {
 function pickupDb(state = "RIDER_ASSIGNED") {
   return stubDb([
     { match: /FROM `orders` WHERE `id`/u, rows: [{ ...ORDER_ROW, state }] },
+    // The audience resolves the vendor's owner before the announcement goes out (D106).
+    { match: /owner_user_id/u, rows: [{ owner_user_id: bytes(OWNER_HEX) }] },
     { match: /MAX\(`seq`\)/u, rows: [{ last: 2 }] },
     { match: /UPDATE `orders` SET/u, affectedRows: 1 },
     { match: /INSERT INTO `order_state_events`/u, affectedRows: 1 },
@@ -112,6 +114,8 @@ function ctxFor(db: ReturnType<typeof stubDb>, principal: Principal | null, path
 }
 
 const AT_THE_COUNTER = { lat: 24.8982, lon: 91.8713 };
+/** The user who owns the vendor: the identity `vendor:self` resolves to. */
+const OWNER_HEX = "0193f2a17c3e7890abcdef01234567aa";
 const DOWN_THE_ROAD = { lat: 24.9021, lon: 91.8744 };
 
 async function scanFor(nowMs: number): Promise<string> {
@@ -134,6 +138,36 @@ describe("POST /v1/orders/{id}/pickup", () => {
     assert.equal(body.data.seq, 3);
     assert.ok(db.calls.some((call) => call.sql.startsWith("INSERT INTO `order_proofs`")));
     assert.ok(db.calls.some((call) => call.sql.startsWith("INSERT INTO `audit_log`")));
+  });
+
+  test("the pickup reaches the vendor's and the rider's own channels (D106)", async () => {
+    const db = pickupDb();
+    const calls: { url: string; body: string }[] = [];
+    const pending: Promise<unknown>[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response(JSON.stringify({ ok: true, data: { recorded: 4 } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const route = PICKUP_ROUTES[0];
+      assert.ok(route !== undefined);
+      const ctx = {
+        ...ctxFor(db, RIDER),
+        env: testEnv({ REALTIME_BASE: "https://rt.undal.test" }),
+        waitUntil: (promise: Promise<unknown>) => pending.push(promise),
+      };
+      const response = await route.run(ctx, { params: { id: ORDER_ID }, body: { code: await scanFor(Date.now()), point: AT_THE_COUNTER }, reason: null });
+      assert.equal(response.status, 200);
+      await Promise.all(pending);
+    } finally {
+      globalThis.fetch = original;
+    }
+    const broadcast = calls.find((call) => call.url.endsWith("/internal/broadcast"));
+    assert.notEqual(broadcast, undefined, "the announcement still happens");
+    const body = JSON.parse(broadcast?.body ?? "{}") as { audience?: { vendorUserId?: string; riderUserId?: string } };
+    assert.equal(body.audience?.vendorUserId, OWNER_HEX, "the vendor's screen stops saying waiting for pickup");
+    assert.equal(body.audience?.riderUserId, RIDER_HEX, "the rider's other device shows what it carries");
   });
 
   test("a scan from down the road cannot claim a meal has left the kitchen", async () => {
