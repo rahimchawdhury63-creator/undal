@@ -43,6 +43,9 @@ function storeOf(counts: { positions?: number; current?: number } = {}): Recorde
         current: first ? (counts.current ?? 1) : 0,
       };
     },
+    async sweepStale(): Promise<{ riders: number; positions: number }> {
+      return { riders: 0, positions: 0 };
+    },
   };
 }
 

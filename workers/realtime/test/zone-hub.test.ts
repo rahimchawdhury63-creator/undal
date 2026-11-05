@@ -184,6 +184,26 @@ describe("the heartbeat frame", () => {
   });
 });
 
+/** A D1 binding that records every statement and answers zero changes, for the sweep wiring. */
+function sweepableD1(): { db: NonNullable<ZoneHubEnv["RIDER_DB"]>; captured: { sql: string; values: readonly unknown[] }[] } {
+  const captured: { sql: string; values: readonly unknown[] }[] = [];
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(...values: unknown[]) {
+          captured.push({ sql, values });
+          return { async run() { return { results: [] }; } };
+        },
+      };
+    },
+    async batch(statements: readonly { run(): Promise<unknown> }[]) {
+      for (const statement of statements) await statement.run();
+      return statements.map(() => ({ meta: { changes: 0 } }));
+    },
+  };
+  return { db: db as unknown as NonNullable<ZoneHubEnv["RIDER_DB"]>, captured };
+}
+
 describe("the close and the alarm", () => {
   test("an unclean close schedules an absence one grace away and publishes nothing yet", async () => {
     const { hub, server, clock } = room();
@@ -235,6 +255,31 @@ describe("the close and the alarm", () => {
     await hub.alarm();
     assert.equal((await hub.presence()).length, 1);
     assert.equal(server.closes.length, 0);
+  });
+
+  test("the alarm also sweeps the live rows whose deadline passed a minute ago (D107)", async () => {
+    const state = fakeState();
+    const server = new FakeWebSocket();
+    const client = new FakeWebSocket();
+    const clock = new FixedClock(T0);
+    const pair: () => SocketPair = () => ({
+      client: client as unknown as WebSocket,
+      server: server as unknown as WebSocket,
+    });
+    const { db, captured } = sweepableD1();
+    const hub = new ZoneHub(state, { ...environment(clock), RIDER_DB: db }, { clock, pair, receipts: null });
+    await hub.upgrade(upgrade());
+    // Long enough that the connected device is timed out too: presence still goes first, and the two
+    // erasures answer to different statements.
+    clock.advance(90_000);
+    await hub.alarm();
+    const sweeps = captured.filter((call) => /stale_after/u.test(call.sql));
+    assert.equal(sweeps.length, 2, "positions first, then current");
+    assert.match(sweeps[0]!.sql, /rider_id IN \(SELECT rider_id FROM rider_current WHERE stale_after < \?\)/u);
+    assert.deepEqual(sweeps.map((call) => call.values), [
+      [clock.nowMs() - 60_000],
+      [clock.nowMs() - 60_000],
+    ]);
   });
 
   test("an alarm on a room that never connected is quiet", async () => {
@@ -438,8 +483,8 @@ describe("an absence erases the live channel (D99)", () => {
     clock.advance(2_001);
     await hub.alarm();
     assert.deepEqual(await hub.presence(), [], "the absence was published");
-    assert.equal(statements.filter((sql) => sql.includes("DELETE FROM rider_positions")).length, 1);
-    assert.equal(statements.filter((sql) => sql.includes("DELETE FROM rider_current")).length, 1);
+    assert.equal(statements.filter((sql) => sql.includes("DELETE FROM rider_positions WHERE rider_id = ?")).length, 1);
+    assert.equal(statements.filter((sql) => sql.includes("DELETE FROM rider_current WHERE rider_id = ?")).length, 1);
     assert.deepEqual(server.closes, [{ code: CLOSE_HEARTBEAT_TIMEOUT, reason: "heartbeat timeout" }]);
   });
 
@@ -449,7 +494,7 @@ describe("an absence erases the live channel (D99)", () => {
     await hub.upgrade(upgrade());
     await hub.webSocketClose(server as unknown as WebSocket, CLOSE_GOING_OFFLINE, "offline", true);
     await hub.alarm();
-    assert.equal(statements.filter((sql) => sql.includes("DELETE FROM rider_positions")).length, 1);
+    assert.equal(statements.filter((sql) => sql.includes("DELETE FROM rider_positions WHERE rider_id = ?")).length, 1);
   });
 
   test("a room that never connected erases nothing, because nobody was absent", async () => {

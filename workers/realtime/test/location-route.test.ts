@@ -50,6 +50,9 @@ function storeOf(options: {
     async erase() {
       return { positions: 0, current: 0 };
     },
+    async sweepStale(): Promise<{ riders: number; positions: number }> {
+      return { riders: 0, positions: 0 };
+    },
   };
 }
 

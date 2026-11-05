@@ -74,6 +74,21 @@ export interface PositionStore {
    * a 404 that leaves a caller thinking the trail is still there.
    */
   erase(riderId: string): Promise<Erasure>;
+  /**
+   * Erase every rider whose current row expired before `cutoffMs` (`07 §6.1`, the 60 s sweep).
+   *
+   * This is the fifth erasure trigger and the only one with no actor: a device that was uninstalled, whose
+   * token was revoked, or that died in a way presence never proved. Nothing asks for it, so something has to
+   * notice — and what it notices is the one fact the platform already stores: a `rider_current` row whose
+   * `stale_after` is in the past is a row no device is refreshing.
+   */
+  sweepStale(cutoffMs: number): Promise<Swept>;
+}
+
+/** What a sweep removed. Zero is the normal answer; the counts make the abnormal one visible. */
+export interface Swept {
+  readonly riders: number;
+  readonly positions: number;
 }
 
 /** The subset of D1 this module uses, so a test can be a plain object. */
@@ -102,6 +117,14 @@ const SELECT_CONTEXT = `SELECT zone_id, vehicle, state, active_order_id, battery
 /** `07 §6`: both statements, one batch, no history kept. */
 const DELETE_POSITIONS = "DELETE FROM rider_positions WHERE rider_id = ?";
 const DELETE_CURRENT = "DELETE FROM rider_current WHERE rider_id = ?";
+
+/**
+ * The sweep's two statements (`07 §6.1`). Positions first: the second statement deletes the rows the first one
+ * selects, so running it first would leave orphaned trail rows behind for a rider the platform has forgotten.
+ */
+const SWEEP_POSITIONS = `DELETE FROM rider_positions
+  WHERE rider_id IN (SELECT rider_id FROM rider_current WHERE stale_after < ?)`;
+const SWEEP_CURRENT = "DELETE FROM rider_current WHERE stale_after < ?";
 
 /** The newest stored fix, for the next batch's speed and ordering checks. */
 const SELECT_NEWEST = `SELECT lat, lon, accuracy_m, bearing_deg, recorded_at, received_at
@@ -194,6 +217,17 @@ export function d1Positions(db: D1Like): PositionStore {
       return {
         positions: results?.[0]?.meta?.changes ?? 0,
         current: results?.[1]?.meta?.changes ?? 0,
+      };
+    },
+
+    async sweepStale(cutoffMs: number): Promise<Swept> {
+      const results = (await db.batch([
+        db.prepare(SWEEP_POSITIONS).bind(cutoffMs),
+        db.prepare(SWEEP_CURRENT).bind(cutoffMs),
+      ])) as readonly { meta?: { changes?: number } }[] | undefined;
+      return {
+        positions: results?.[0]?.meta?.changes ?? 0,
+        riders: results?.[1]?.meta?.changes ?? 0,
       };
     },
   };

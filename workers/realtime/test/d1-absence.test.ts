@@ -49,6 +49,9 @@ function storeOf(options: { fail?: boolean } = {}): Recorder {
       erased.push(riderId);
       return { positions: 12, current: 1 };
     },
+    async sweepStale(): Promise<{ riders: number; positions: number }> {
+      return { riders: 0, positions: 0 };
+    },
   };
 }
 

@@ -24,6 +24,7 @@ import { coordinatorFrom } from "../coordination/from-env.ts";
 import { createCoreReceiptRecorder } from "../authority/core-receipts.ts";
 import { absenceEraser } from "../d1/on-absence.ts";
 import { d1Positions } from "../d1/store.ts";
+import { runZoneAlarm } from "../d1/sweep.ts";
 import type { ReceiptRecorder } from "../authority/core-receipts.ts";
 import type { CoordinatorEnv } from "../coordination/from-env.ts";
 import type { PresenceRole } from "../coordination/coordinator.ts";
@@ -249,11 +250,36 @@ export class ZoneHub {
     }
   }
 
-  /** The deadline sweep: publish what has expired, close what has gone silent, re-arm. */
+  /**
+   * The deadline sweep: publish what has expired, close what has gone silent, re-arm — and then the fifth
+   * erasure trigger, the one nobody can ask for (`07 §6.1`, D107).
+   *
+   * Presence goes first, always: an absence published by this tick erases its own rider through `onPublished`,
+   * and the sweep that follows must find nothing left of them rather than report a departure the room already
+   * explained. The room is the only thing in the system that runs while riders are connected, which is exactly
+   * the window in which a zombie `rider_current` row exists to be found.
+   */
   async alarm(): Promise<void> {
     const hub = await this.maybeHub();
     if (hub === null) return;
-    await hub.alarm(this.clock.nowMs());
+    const nowMs = this.clock.nowMs();
+    const store = this.env.RIDER_DB === undefined ? null : d1Positions(this.env.RIDER_DB);
+    await runZoneAlarm(
+      {
+        presence: (at) => hub.alarm(at),
+        sweep: store === null ? null : (cutoffMs) => store.sweepStale(cutoffMs),
+        report: (swept, cutoffMs) => {
+          // A phone that never came back: worth a line, because it is the one erasure with no user behind it.
+          console.warn(
+            `sweep: erased ${String(swept.riders)} rider(s), ${String(swept.positions)} position(s) whose deadline passed before ${String(cutoffMs)}`,
+          );
+        },
+        reportError: (error) => {
+          console.error(`sweep: erasure failed, the next alarm retries: ${String(error)}`);
+        },
+      },
+      nowMs,
+    );
   }
 
   /** The room's view of who is connected, for the admin map and for a test. */

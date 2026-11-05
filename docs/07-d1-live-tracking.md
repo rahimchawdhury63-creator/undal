@@ -386,7 +386,18 @@ when the rider goes offline or ends their shift.
 The presence-declared row is implemented (D99): `PresenceHub` publishes an absence at its alarm, and the room
 turns that publication into a deletion through `absenceEraser` (`workers/realtime/src/d1/on-absence.ts`) wired
 in `hubs/zone-hub.ts`. The erasure happens **at the instant of publication**, so the five seconds are D91's
-detection budget (2 000 ms at the top) plus the alarm's own latency — not a second job's. A failed erasure is
+detection budget (2 000 ms at the top) plus the alarm's own latency — not a second job's.
+
+The trigger with no actor is implemented too (D107). *App uninstalled / token invalid* is the one erasure
+nobody can request: an uninstalled app sends no end-shift, and a revoked token cannot authenticate one. So the
+room's alarm does two things in order — the presence sweep first, then `sweepStale(cutoff)` from
+`d1/sweep.ts`, which deletes every `rider_current` row whose own `stale_after` passed more than a minute ago.
+`stale_after` is already `updated_at + 2 × ceiling` and it is recomputed on every flush, so the sweep is D1
+answering "who is not live" rather than a second liveness engine disagreeing with the first. The grace minute
+is four retries at D91's ceiling: a sweep at `stale_after` exactly would race a flush that is in flight. A
+sweep that matches nothing is a silent tick; one that removes riders logs both counts; one that fails is
+logged and retried by the next alarm, because the same tick has presence promises with a five-second budget
+and this rider has already been gone a minute. A failed erasure is
 reported and swallowed: the absence is already published and the rest of the alarm still has work, and a stale
 trail is a wrong answer to "where is my rider", not a permanent one.
 

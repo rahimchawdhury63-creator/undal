@@ -197,3 +197,20 @@ describe("erasing a rider", () => {
     assert.deepEqual(await d1Positions(fakeD1([], [0, 0]).db).erase("rider-1"), { positions: 0, current: 0 });
   });
 });
+
+describe("the sweep's two statements (D107)", () => {
+  test("positions go first, selected from the current rows the cutoff is about", async () => {
+    const fake = fakeD1([], [412, 3]);
+    const swept = await d1Positions(fake.db).sweepStale(940_000);
+    assert.deepEqual(swept, { riders: 3, positions: 412 });
+    assert.equal(fake.batched, 2, "one batch, one commit");
+    assert.match(fake.captured[0]!.sql, /^DELETE FROM rider_positions/u);
+    assert.match(fake.captured[0]!.sql, /rider_id IN \(SELECT rider_id FROM rider_current WHERE stale_after < \?\)/u);
+    assert.match(fake.captured[1]!.sql, /^DELETE FROM rider_current WHERE stale_after < \?$/u);
+    assert.deepEqual(fake.captured.map((entry) => entry.values), [[940_000], [940_000]]);
+  });
+
+  test("a sweep that matches nothing is the normal answer, not a miss", async () => {
+    assert.deepEqual(await d1Positions(fakeD1([], [0, 0]).db).sweepStale(940_000), { riders: 0, positions: 0 });
+  });
+});

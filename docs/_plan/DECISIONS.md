@@ -1812,3 +1812,47 @@ still happens) and one in `auto-cancel.test.ts` (the vendor is named; no rider i
 *Open:* the dispatch transitions (`RIDER_SEARCH` → `RIDER_ASSIGNED` → `RIDER_ASSIGNED` reassignment) have no
 route in this Worker yet, so there is no call site to name an audience from. When one is written, both ids are
 already on the row and the helper already accepts them.
+
+## D107 — The fifth erasure trigger is the one nobody can ask for, so the room asks
+
+`§6.1` lists five erasures and four existed. *App uninstalled / token invalid, next zone sweep, under 60 s* had
+no implementation, and it is the only row in that table whose caller can never arrive: an uninstalled app sends
+no end-shift request, and a revoked token cannot authenticate one. What it leaves behind is a `rider_current`
+row nothing refreshes — the largest thing the platform would otherwise keep that no user asked it to keep.
+
+**The sweep reads time, not people.** `rider_current.stale_after` is `updated_at + 2 × ceiling`, recomputed on
+every flush, so "expired more than a minute ago" is the platform's own answer to "this marker is not live".
+`d1Positions(...).sweepStale(cutoffMs)` is two statements in one batch: positions first, selected through
+`rider_id IN (SELECT rider_id FROM rider_current WHERE stale_after < ?)`, then the current rows. The order is
+not cosmetic — deleting the current rows first would leave orphaned trail rows for a rider the platform has
+already forgotten.
+
+**Presence goes first, and that is what `runZoneAlarm` exists for.** An absence published by this tick erases
+its own rider through `onPublished` (D99). A sweep that ran first would report a departure the room was about to
+explain — an operator line about a phone that was merely slow. The orchestration is a function over two
+callbacks rather than three lines inside the Durable Object, so the ordering is testable without a Workers
+runtime: presence, then sweep, then report.
+
+**The grace minute is the design.** A sweep at `stale_after` exactly would race the flush in flight, and a phone
+on a bad connection looks stale between retries. One minute is four retries at D91's ceiling, and `§6.1`
+promises under 60 s *from the next sweep*, not from the moment the phone died.
+
+**A failed sweep does not fail the alarm.** The same tick publishes absences with a five-second budget; a D1
+error here is logged and retried by the next alarm, while this rider has already been gone a minute. The
+inverse — a presence failure — does propagate: an absence that cannot be published is a live problem, and
+hiding it behind a tolerated deletion would be exactly backwards.
+
+**Three D99 tests had to change, and that is the interesting part.** They counted statements containing
+`DELETE FROM rider_positions`, which the sweep's subquery form also matches, so the count went from one to two.
+Their intent was "this rider was erased once", so they now count the per-rider form
+(`WHERE rider_id = ?`) — the sweep's statement is asserted separately, in the test that is actually about it.
+
+Tests: seven in `sweep.test.ts` (ordering, cutoff, quiet zero, reported removal, swallowed failure, no database,
+and a presence failure that propagates), two in `d1-store.test.ts` (statement order and parameters; zero is
+success), one in `zone-hub.test.ts` (the alarm reaches the sweep with `now − 60 000`, verified by setting the
+sweep to `null` and watching it fail).
+
+*Open:* the sweep only runs in a zone room that is armed, and a room with no sockets clears its alarm (D91). A
+zone that empties completely is therefore swept by the next connection, not by a timer. That is the same
+trade-off D91 made deliberately — no alarm with no members — and the residual case it leaves (one rider alone
+in a zone, socket closed without a presence absence) is the case the presence path already covers.
