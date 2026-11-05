@@ -52,6 +52,12 @@ export interface RiderContext {
   readonly batteryPct: number | null;
 }
 
+/** What an erasure removed. Counts are what the caller reports; zero is a success, not a miss. */
+export interface Erasure {
+  readonly positions: number;
+  readonly current: number;
+}
+
 /** What the route needs from a position store. */
 export interface PositionStore {
   /** The rider's shift context, or `null` when there is no current row: the shift has not started. */
@@ -60,6 +66,14 @@ export interface PositionStore {
   newest(riderId: string): Promise<AcceptedFix | null>;
   /** Write a judged batch: every accepted fix, then one current row. */
   write(input: WriteInput): Promise<void>;
+  /**
+   * Remove a rider from the live channel (`07 §6`).
+   *
+   * Idempotent by design: a shift end, a presence timeout and an admin force-end can all fire for the same
+   * rider within a second of each other, and the second one to arrive must be a success with zeros rather than
+   * a 404 that leaves a caller thinking the trail is still there.
+   */
+  erase(riderId: string): Promise<Erasure>;
 }
 
 /** The subset of D1 this module uses, so a test can be a plain object. */
@@ -67,6 +81,7 @@ export interface D1Like {
   prepare(sql: string): {
     bind(...values: unknown[]): { run(): Promise<unknown> };
   };
+  /** `run()` reports changed rows in `meta.changes`, which is how an erasure is counted. */
   batch(statements: readonly { run(): Promise<unknown> }[]): Promise<unknown>;
 }
 
@@ -83,6 +98,10 @@ const UPSERT_CURRENT = `INSERT OR REPLACE INTO rider_current
 /** The rider's current row: the zone, vehicle and state a batch is judged against. */
 const SELECT_CONTEXT = `SELECT zone_id, vehicle, state, active_order_id, battery_pct
   FROM rider_current WHERE rider_id = ?`;
+
+/** `07 §6`: both statements, one batch, no history kept. */
+const DELETE_POSITIONS = "DELETE FROM rider_positions WHERE rider_id = ?";
+const DELETE_CURRENT = "DELETE FROM rider_current WHERE rider_id = ?";
 
 /** The newest stored fix, for the next batch's speed and ordering checks. */
 const SELECT_NEWEST = `SELECT lat, lon, accuracy_m, bearing_deg, recorded_at, received_at
@@ -165,6 +184,17 @@ export function d1Positions(db: D1Like): PositionStore {
       // One D1 batch is one round trip and one atomic commit; a shift's trail and its current row cannot
       // disagree about where the rider is because both are in it.
       await db.batch(statements);
+    },
+
+    async erase(riderId: string): Promise<Erasure> {
+      const results = (await db.batch([
+        db.prepare(DELETE_POSITIONS).bind(riderId),
+        db.prepare(DELETE_CURRENT).bind(riderId),
+      ])) as readonly { meta?: { changes?: number } }[] | undefined;
+      return {
+        positions: results?.[0]?.meta?.changes ?? 0,
+        current: results?.[1]?.meta?.changes ?? 0,
+      };
     },
   };
 }

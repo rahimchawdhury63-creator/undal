@@ -23,7 +23,10 @@ interface Captured {
   readonly values: readonly unknown[];
 }
 
-function fakeD1(rows: readonly Record<string, unknown>[] = []): { db: D1Like; captured: Captured[]; batched: number } {
+function fakeD1(
+  rows: readonly Record<string, unknown>[] = [],
+  changes: readonly number[] = [],
+): { db: D1Like; captured: Captured[]; batched: number } {
   const captured: Captured[] = [];
   const state = { batched: 0 };
   const db: D1Like = {
@@ -42,7 +45,8 @@ function fakeD1(rows: readonly Record<string, unknown>[] = []): { db: D1Like; ca
     async batch(statements: readonly { run(): Promise<unknown> }[]) {
       state.batched += statements.length;
       for (const statement of statements) await statement.run();
-      return [];
+      // D1 reports the rows a statement changed in `meta.changes`; an erasure is counted from those.
+      return statements.map((_, index) => ({ meta: { changes: changes[index] ?? 0 } }));
     },
   };
   return {
@@ -175,5 +179,21 @@ describe("reading what was there", () => {
       activeOrderId: null,
       batteryPct: 22,
     });
+  });
+});
+
+describe("erasing a rider", () => {
+  test("both statements run in one batch, and the counts are the delete's own report", async () => {
+    const fake = fakeD1([], [37, 1]);
+    const erased = await d1Positions(fake.db).erase("rider-1");
+    assert.deepEqual(erased, { positions: 37, current: 1 });
+    assert.equal(fake.captured.length, 2);
+    assert.match(fake.captured[0]!.sql, /DELETE FROM rider_positions WHERE rider_id = \?/u);
+    assert.match(fake.captured[1]!.sql, /DELETE FROM rider_current WHERE rider_id = \?/u);
+    assert.deepEqual(fake.captured.map((entry) => entry.values), [["rider-1"], ["rider-1"]]);
+  });
+
+  test("a rider with nothing to erase reports zeros rather than failing", async () => {
+    assert.deepEqual(await d1Positions(fakeD1([], [0, 0]).db).erase("rider-1"), { positions: 0, current: 0 });
   });
 });

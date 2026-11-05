@@ -47,6 +47,9 @@ function storeOf(options: {
     async write(input: WriteInput): Promise<void> {
       writes.push(input);
     },
+    async erase() {
+      return { positions: 0, current: 0 };
+    },
   };
 }
 

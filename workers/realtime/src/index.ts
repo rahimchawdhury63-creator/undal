@@ -19,6 +19,7 @@ import { createCoreCanceller } from "./authority/core-cancel.ts";
 import { fcmFrom } from "./fcm/from-env.ts";
 import { handleInternal } from "./routes/internal.ts";
 import { handleLocationBatch } from "./routes/location.ts";
+import { handleEraseInternal, handleEraseSelf } from "./routes/erase.ts";
 import { d1Positions } from "./d1/store.ts";
 import { DurableObjectFrameStore } from "./sse/durable-store.ts";
 
@@ -222,6 +223,44 @@ export default {
         store: env.RIDER_DB === undefined ? undefined : d1Positions(env.RIDER_DB),
         riderId: authenticated.value.actorId,
         shiftId: null,
+        requestId: id,
+        nowMs: Date.now(),
+      });
+    }
+
+    if (url.pathname === "/rt/location/erase") {
+      const secret = env.JWT_PUBLIC_KEY;
+      if (secret === undefined || secret.trim() === "") {
+        return refuse("NOT_IMPLEMENTED", id, { reason: "jwt_public_key_missing" });
+      }
+      let key: VerifyingKey;
+      try {
+        const { loadVerifyingKey } = await import("./auth/token.ts");
+        key = await loadVerifyingKey(secret);
+      } catch (error) {
+        return refuse("INTERNAL", id, { misconfigured: error instanceof Error ? error.message : String(error) });
+      }
+      const authenticated = await authenticate(request, [key], Date.now());
+      if (!authenticated.ok) {
+        return refuse(authenticated.error === "EXPIRED" ? "AUTH_SESSION_EXPIRED" : "AUTH_TOKEN_INVALID", id, {
+          reason: authenticated.error,
+        });
+      }
+      if (authenticated.value.actorType !== "RIDER") {
+        return refuse("AUTH_ROLE_MISMATCH", id, { reason: "not_a_rider", actorType: authenticated.value.actorType });
+      }
+      // The rider is the token's `sub`, never a body field: an app must not be able to erase a colleague.
+      return handleEraseSelf(authenticated.value.actorId, {
+        store: env.RIDER_DB === undefined ? undefined : d1Positions(env.RIDER_DB),
+        requestId: id,
+        nowMs: Date.now(),
+      });
+    }
+
+    if (url.pathname === "/internal/erase") {
+      return handleEraseInternal(request, {
+        store: env.RIDER_DB === undefined ? undefined : d1Positions(env.RIDER_DB),
+        internalToken: env.INTERNAL_TOKEN,
         requestId: id,
         nowMs: Date.now(),
       });

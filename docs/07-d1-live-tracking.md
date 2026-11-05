@@ -389,6 +389,14 @@ DELETE FROM rider_positions WHERE rider_id = ?1;
 DELETE FROM rider_current   WHERE rider_id = ?1;
 ```
 
+Both are implemented in `workers/realtime/src/d1/store.ts` (`erase`, D98) and reached through two doors in
+`routes/erase.ts`: `POST /rt/location/erase`, authenticated by the rider's own token and erasing the token's
+`sub` and nothing else, and `POST /internal/erase`, behind the shared internal token, for an admin force-end
+or a sweep. Erasure is **idempotent** — a shift end, a presence timeout and a force-end can all fire within a
+second of each other, and the second caller gets `200` with zero counts rather than a `404` claiming the trail
+is still there. The route answers with counts (`{positions: 37, current: 1}`), because that is a claim an
+operator can check against the ring's bound.
+
 ### 6.2 What survives, and where
 
 Erasure removes the **live channel**, not the business record. What is retained in TiDB:

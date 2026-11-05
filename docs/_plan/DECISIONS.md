@@ -1510,3 +1510,39 @@ exception, and that is the next rung's problem.
 *Open:* the zone box (above); the erasure path (`§6`: end shift, go offline, presence-declared offline) deletes
 rows nothing writes yet, so it is still unbuilt; `/rt/shift/end` and `/rt/shift/start` do not exist, which is
 why the route learns a rider's vehicle and zone from `rider_current` instead of from the shift request.
+
+## D98 — Erasure got a caller, and the doors are different doors
+
+`07 §6` promised immediate deletion and had two SQL statements with nothing to run them. D97 made a rider's
+breadcrumbs exist; this makes them disappear.
+
+**Two doors, because there are two kinds of caller.** `POST /rt/location/erase` is authenticated by the rider's
+own token and erases that token's `sub` — there is no rider id in the body, so an app cannot erase a colleague
+by guessing one. It is deliberately not named `/rt/shift/end`: ending a shift is core's business, and a route
+here with that name would imply realtime owns the shift record. It says "my live location, now".
+`POST /internal/erase` is core's, naming the rider, for an admin force-end or a sweep that noticed a device
+stopped existing.
+
+**Erasure is idempotent, and that is a privacy property rather than a convenience.** A shift end, a presence
+timeout and an admin force-end can all fire within a second of each other. The second caller gets `200` with
+zeros. A `404` would tell a caller the trail is still there when it is not — and a client that believes that is
+a client that retries, or worse, a client that gives up.
+
+**It answers with counts.** `{positions: 37, current: 1}` is a claim an operator can check against the ring's
+bound of 120; `{ok: true}` is a claim that cannot be audited. The counts come from D1's own `meta.changes` per
+statement, not from a preceding `SELECT`.
+
+**The bug the tests found was mine, and it was the worst kind.** `checkInternalToken` is asynchronous and
+answers a result object; I wrote `if (!authorised)` on the promise, which is a permanent `true` — an internal
+erasure endpoint open to anybody who could reach it, with a test suite that would have passed had I not written
+the "no internal token configured" case. It now awaits and checks `.ok`, and the route carries a comment saying
+why the bare form must never come back.
+
+**What it does not do yet.** Nothing in the platform calls either door on the presence path, which is the trigger
+with the five-second promise: `presence/socket` knows when a rider's last socket dies and `markAbsent` exists on
+the coordinator, but neither holds a D1 binding, so the sweep that erases an abruptly-dead device is still
+unbuilt. Presence-declared erasure is the next rung and it is the one that matters most operationally — the
+other two triggers are a rider pressing a button or an operator pressing one.
+
+*Open:* the presence-declared trigger above; and `/rt/location/batch` still learns a rider's zone and vehicle
+from `rider_current` because no shift-start route exists to tell it.
