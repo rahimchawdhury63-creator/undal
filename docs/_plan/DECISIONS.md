@@ -1579,3 +1579,36 @@ that never connected erases nothing, and a deployment without a binding still pu
 *Open:* `/rt/location/batch` still learns a rider's zone and vehicle from `rider_current` because no
 shift-start route exists to tell it; and the 60-second housekeeping sweep (`§6.1`'s last row) still needs a
 listener that notices a token is invalid.
+
+## D100 — The replay window cannot say "you missed nothing" about history it does not have
+
+`EventRing` had two holes, both in the one part of the SSE surface a customer can feel: the resumption after a
+dropped connection.
+
+**A cursor the ring has never reached was answered `complete: true`.** `since(150)` on a fresh ring returned no
+events and "nothing was missed". That happens for three ordinary reasons — a new isolate, an evicted room, a
+missing snapshot — and all three mean the frames the client is quoting went somewhere this channel cannot see.
+The client then showed a stale order as if it were live, which is exactly the failure the ring's own doc comment
+says must never happen. A fresh ring now answers `complete: false` for any cursor above its `highestId`; a
+cursor at zero is still complete, because nothing was promised. `EventRing.restore(undefined)` inherits the
+same rule, which is the case the `restore` doc comment was already worried about.
+
+**A frame could arrive after a higher-numbered one.** Two requests for the same order can be in flight at once,
+and the one carrying the later sequence can reach the room first. `push` appended it, which broke the two
+invariants every reader relies on: `since` returns events in id order, and `trim` evicts oldest-id first. A late
+frame is now inserted where its id belongs, and `trim` filters by age rather than shifting the front, so a late
+event carrying an old timestamp does not linger until the front overtakes it on a quiet channel. The live socket
+that already received the higher id cannot be repaired after the fact — that is the broadcaster's ordering
+problem, not the ring's — but the replay window can, and the replay window is what a reconnecting client
+depends on.
+
+**One existing expectation changed and it was wrong.** `store.test.ts` asserted that a resume at cursor 5 of a
+channel that never spoke is `complete: true`. That test encoded the bug. It now asserts `false` for cursor 5 and
+`true` for cursor 0, with the reason written beside it.
+
+Tests: `sse-ring-order.test.ts` (11 cases: unseen cursors, restore with and without a snapshot, late ids,
+duplicate ids, oldest-id eviction, age trimming of a late event, evicted cursors) plus the amended store cases.
+
+*Open:* the live broadcast path still has no ordering guarantee across isolates — a socket can receive frames
+out of sequence even though its reconnect will be exact. Fixing that needs the broadcaster to sequence per
+order, which is core's `announce()` and a separate decision.

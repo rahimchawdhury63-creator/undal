@@ -63,7 +63,16 @@ export class EventRing {
     this.windowMs = windowMs;
   }
 
-  /** Record an event. Events must arrive in id order; a duplicate id replaces the earlier copy. */
+  /**
+   * Record an event. A duplicate id replaces the earlier copy.
+   *
+   * Arrival order is not id order and the ring does not pretend otherwise (D100): two requests for the same
+   * order can be in flight at once, and the one carrying the higher sequence can be recorded first. Appending
+   * such an event would break the two things every reader relies on — that `since` returns events in id order,
+   * and that `trim` evicts oldest-id first — so a late event is **inserted where it belongs**. The live socket
+   * that already received the higher id cannot be repaired after the fact; the replay window can, and it is the
+   * one a client resuming from `Last-Event-ID` actually depends on.
+   */
   push(event: RingEvent): void {
     const existing = this.events.findIndex((held) => held.id === event.id);
     if (existing >= 0) {
@@ -73,22 +82,38 @@ export class EventRing {
     if (event.id <= this.evictedThrough) {
       throw new RangeError(`event ${String(event.id)} is older than what the ring still holds`);
     }
-    this.events.push(event);
+    const after = this.events.findIndex((held) => held.id > event.id);
+    if (after < 0) this.events.push(event);
+    else this.events.splice(after, 0, event);
     this.highestId = Math.max(this.highestId, event.id);
     this.trim(event.atMs);
   }
 
-  /** Drop everything that has aged out of the window. */
+  /**
+   * Drop everything that has aged out of the window, then everything past the size.
+   *
+   * Trimming filters rather than shifting the front, because a late event can carry an older timestamp than
+   * the one before it in id order; a front-only loop would leave that event in place until the front overtook
+   * it, which for a quiet channel is never.
+   */
   trim(atMs: number): void {
     const cutoff = atMs - this.windowMs;
-    while (this.events.length > 0 && (this.events[0] as RingEvent).atMs < cutoff) {
-      const dropped = this.events.shift() as RingEvent;
-      this.evictedThrough = Math.max(this.evictedThrough, dropped.id);
-    }
+    this.retain((event) => event.atMs >= cutoff);
     while (this.events.length > this.size) {
       const dropped = this.events.shift() as RingEvent;
       this.evictedThrough = Math.max(this.evictedThrough, dropped.id);
     }
+  }
+
+  /** Keep the events a predicate accepts, remembering the highest id dropped. */
+  private retain(keep: (event: RingEvent) => boolean): void {
+    if (this.events.every(keep)) return;
+    const kept: RingEvent[] = [];
+    for (const event of this.events) {
+      if (keep(event)) kept.push(event);
+      else this.evictedThrough = Math.max(this.evictedThrough, event.id);
+    }
+    this.events = kept;
   }
 
   /**
@@ -103,6 +128,11 @@ export class EventRing {
       throw new RangeError(`not an event id: ${String(lastEventId)}`);
     }
     this.trim(atMs);
+    // A cursor ahead of anything this ring has ever recorded is not a cursor this ring can answer. A fresh
+    // isolate, an evicted room and a lost snapshot all look the same from here, and each of them means the
+    // client's history went somewhere this channel cannot see. Saying `complete` would turn a lost stream
+    // into a silence the customer reads as "nothing happened" (D100).
+    if (lastEventId > this.highestId) return { events: [], complete: false };
     const events = this.events.filter((event) => event.id > lastEventId);
     const oldestHeld = this.events.length > 0 ? (this.events[0] as RingEvent).id : this.highestId + 1;
     const complete = lastEventId + 1 >= Math.min(oldestHeld, this.evictedThrough + 1);
@@ -141,6 +171,8 @@ export class EventRing {
   }
 
   private highestAtMs(): number {
-    return this.events.length === 0 ? 0 : (this.events[this.events.length - 1] as RingEvent).atMs;
+    let highest = 0;
+    for (const event of this.events) highest = Math.max(highest, event.atMs);
+    return highest;
   }
 }

@@ -527,6 +527,13 @@ A `: keepalive` comment every 20 seconds keeps intermediaries from closing the c
 client reconnects with `Last-Event-ID` and the hub replays from its in-memory ring (last 200
 events, 5-minute window); beyond that the client does a full reconciling fetch.
 
+Two rules make that replay honest (`sse/ring.ts`, D100). A frame whose id arrives **after** a higher id
+— two requests for one order can be in flight at once — is recorded where its id belongs rather than
+appended, so `Last-Event-ID` replay stays in the order a client can apply. And a cursor the ring has
+never reached answers `complete: false` rather than "nothing was missed": a fresh isolate, an evicted
+room and a lost snapshot are indistinguishable from a channel that never spoke, so the client is told to
+reconcile instead of being shown a silence it will read as "nothing happened".
+
 ### 9.1 Event catalogue (46 events)
 
 | Group | Events |

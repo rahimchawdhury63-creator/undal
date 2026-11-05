@@ -164,9 +164,16 @@ for (const fixture of STORES) {
       assert.equal(replay.complete, false);
     });
 
-    test("a resume of a channel that never spoke is complete and empty", async () => {
+    test("a resume of a channel that never spoke is empty, and only complete from a cursor it has seen", async () => {
       const { store, clock } = fixture.make();
+      // Cursor 5 on a channel that has recorded nothing is not "you missed nothing": a fresh isolate, an
+      // evicted room and a lost snapshot look exactly like a channel that never spoke, and each means the
+      // frames the client is asking about are somewhere this store cannot see (D100).
       assert.deepEqual(await store.replay({ kind: "zone", id: "nowhere" }, 5, clock.nowMs()), {
+        frames: [],
+        complete: false,
+      });
+      assert.deepEqual(await store.replay({ kind: "zone", id: "nowhere" }, 0, clock.nowMs()), {
         frames: [],
         complete: true,
       });
