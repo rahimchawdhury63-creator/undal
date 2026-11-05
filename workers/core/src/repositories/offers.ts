@@ -158,3 +158,35 @@ export async function liveOffersFor(db: Db, riderId: Uint8Array, nowMs: number):
     payoutPaisa: Number(row["payout_paisa"] ?? 0),
   }));
 }
+
+/** What an expiry sweep changed. */
+export interface ExpiredOffers {
+  readonly expired: number;
+  /** The waves those offers belonged to, so a caller can tell a whole wave timing out from one rider being slow. */
+  readonly waves: readonly number[];
+}
+
+/**
+ * Mark every unanswered offer whose TTL has passed as expired (`11 §9.3`, D116).
+ *
+ * This is the statement that makes the TTL real. Without it an offer that nobody answered stays `response IS
+ * NULL` for ever: the rider's list excludes it by time, the claim route refuses it by time, and the row still
+ * says the delivery is pending — three answers to one question, two of them computed. `11 §9.3` then counts an
+ * expiry against the rider's acceptance at half the weight of a refusal, and it cannot count what is not written.
+ *
+ * `LIMIT` is absent on purpose: an unexpired offer is the *majority* of the table during a lunch rush, and the
+ * predicate is on an indexed column (`idx_offers_rider` covers `rider_id`, not `expires_at`; the wave sweep is
+ * small enough that a scan of the pending rows is cheaper than a second index nobody else needs).
+ */
+export async function expireOffers(db: Db, nowMs: number): Promise<ExpiredOffers> {
+  const now = sqlDatetime(new Date(nowMs));
+  const waves = await db.query<{ wave: number | string }>(
+    "SELECT DISTINCT `wave` FROM `order_offers` WHERE `response` IS NULL AND `expires_at` <= ?",
+    [now],
+  );
+  const result = await db.execute(
+    "UPDATE `order_offers` SET `response` = 'EXPIRED', `responded_at` = ? WHERE `response` IS NULL AND `expires_at` <= ?",
+    [now, now],
+  );
+  return { expired: result.affectedRows, waves: waves.map((row) => Number(row.wave)) };
+}

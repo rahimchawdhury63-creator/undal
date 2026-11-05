@@ -2177,3 +2177,48 @@ rider row.
 declined — and the engine that creates them, scores the candidates (`domain/order/assignment.ts` has the pure
 planner and the numbered filters), rings the phones and schedules the waves is still unbuilt. Until it lands,
 every one of these routes is proven against rows a test writes.
+
+## D116 — The TTL becomes a row, not three separate opinions
+
+`POST /internal/offers/expire` — the sweep that writes `EXPIRED` on offers nobody answered.
+
+**Three routes already agreed an expired offer is not live, and none of them wrote it down.** The rider's list
+excludes it by comparing `expires_at` with now; the claim route refuses it with `OFFER_EXPIRED` and writes the
+expiry *on that path*; the reject route does the same. Those are answers about the moment of asking. The row is
+the answer about what happened — and `11 §9.3` needs it, because an expiry counts against a rider's acceptance at
+**half the weight of a refusal** and the acceptance factor is computed from rows. A sweep that never ran would
+leave dispatch statistics quietly optimistic: every abandoned offer invisible, every rider looking more reliable
+than they are. That is the kind of wrong that never surfaces as a bug report, only as an order offered to the same
+rider who ignored the last four.
+
+**One instant, applied twice.** The sweep reads its `now` once and uses it for both the `SELECT DISTINCT wave`
+and the `UPDATE … WHERE response IS NULL AND expires_at <= ?`, so a wave can never be reported as timing out in a
+statement that excludes it. Both statements carry the same bound, which the test asserts by comparing the two
+parameters.
+
+**It reports the waves.** `{expired: 3, waves: [2]}` is a different signal from "three riders were slow": a whole
+wave timing out is a zone with too few riders, one rider timing out is a rider. `11 §7`'s wave model is the whole
+reason the distinction exists, and it costs one `SELECT DISTINCT` on the same predicate.
+
+**No audit row.** An expiry is the absence of a decision; the audit chain is about people, and a ledger of things
+that did not happen is a ledger nobody reads. The `order_offers` rows are the record, the count is logged, and an
+operator can compute the same number from the table.
+
+**Internal, behind the shared token, checked in the handler.** The route is declared anonymous so the pipeline
+does not demand a session from a Worker, and its first act is `requireInternalToken` — a route that forgot the
+check would otherwise be served to anybody who found the path, and an absent token is a refusal rather than a
+wildcard (D82). Tested by calling it with no token and asserting the statement list is empty.
+
+Tests: three more in `offer-claim.test.ts` — the expiry with its single instant and named wave, a quiet zero with
+no audit row, and the refusal without the token.
+
+*Open:* **the caller.** The sweep needs a periodic trigger, and the natural one is the zone room's alarm, which is
+the only thing in the system that runs while riders are connected (D107 uses it for the erasure of zombies). That
+wiring crosses the Worker boundary — realtime calling core, as it already does for the auto-cancel ladder — and it
+is the next rung. Also still open, and now the largest hole in the repository: **nothing writes `order_offers`
+rows.** `domain/order/assignment.ts` has the numbered filters and the wave planner; what is missing is a
+`RiderSnapshot` per candidate, and core cannot build one because four of its fields (`positionAgeS`,
+`positionStaleAfterS`, `distanceToZoneEdgeM` from the live fix, `routedDistanceToVendorM`) describe a position
+that only realtime holds. That is a design question before it is a coding one: either the wave writer asks
+realtime for freshness per candidate, or realtime publishes a candidate feed. D116 leaves it stated rather than
+guessed.

@@ -11,10 +11,12 @@ import { parseDatetime, sqlDatetime } from "../db/time.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
+import { requireInternalToken } from "../middleware/internal-token.ts";
 import { applyTransition } from "../domain/order/lifecycle.ts";
 import { findOrderByCode, moveState, nextEventSeq } from "../repositories/orders.ts";
 import {
   countRejectionOnShift,
+  expireOffers,
   findOffer,
   insertAssignment,
   liveOffersFor,
@@ -404,6 +406,38 @@ async function listOffers(ctx: Ctx): Promise<Response> {
 }
 
 /**
+ * Expire the offers whose time ran out: `POST /internal/offers/expire` (`11 §9.3`, D116).
+ *
+ * Internal, behind the shared token, because the caller is the platform and not a person: the zone's alarm is
+ * the only thing in the system that runs while riders are connected, and it already reaches core this way for
+ * the auto-cancel ladder. A rider endpoint would be a rider sweeping other riders' offers.
+ *
+ * **Why a sweep at all, when time is already checked twice.** The rider's list excludes a past-TTL offer and the
+ * claim route refuses one, both by comparing `expires_at` with now. Those are answers about *the moment of
+ * asking*. The row is the answer about what happened, and `11 §9.3` needs it: an expiry counts against a rider's
+ * acceptance at half the weight of a refusal, and the acceptance factor is computed from rows. A sweep that never
+ * runs would leave the dispatch statistics quietly optimistic — every abandoned offer invisible.
+ *
+ * **It reports the waves, not just a count.** `{ expired: 3, waves: [2] }` tells a caller that a whole wave timed
+ * out (a signal about the zone) rather than that three riders were slow (a signal about three riders). The
+ * distinction is the whole of `11 §7`'s wave model and it costs one extra `SELECT DISTINCT`.
+ */
+async function expireDueOffers(ctx: Ctx): Promise<Response> {
+  // The route is declared anonymous so the pipeline does not demand a session from a Worker; its first act is
+  // the shared token, and an absent token is a refusal rather than a wildcard (D82).
+  const refused = requireInternalToken(ctx);
+  if (refused !== null) return refused;
+  const nowMs = Date.now();
+  const swept = await expireOffers(ctx.db, nowMs);
+  if (swept.expired > 0) {
+    // Not an audit row: an expiry is the absence of a decision, and a ledger of things that did not happen is a
+    // ledger nobody reads. The `order_offers` rows are the record, and the audit chain stays about people.
+    console.warn(`offers: expired ${String(swept.expired)} offer(s) in wave(s) ${swept.waves.join(",")}`);
+  }
+  return successResponse({ expired: swept.expired, waves: swept.waves, atMs: nowMs }, ctx.locale, ctx.requestId);
+}
+
+/**
  * The offer routes.
  *
  * `order.deliver` is the key rather than a new `order.offer.accept`: accepting is the first act of delivering,
@@ -429,6 +463,16 @@ export const OFFER_ROUTES: readonly RouteDefinition[] = [
     permission: "order.read",
     group: "ORDER_WRITE",
     run: async (ctx) => listOffers(ctx),
+  },
+  {
+    method: "POST",
+    path: "/internal/offers/expire",
+    // The internal routes carry the shared token rather than a user's permission, exactly as `auto-cancel` does;
+    // `INTERNAL` is the rate-limit group that exists for them.
+    permission: "*",
+    group: "INTERNAL",
+    maxBodyBytes: 512,
+    run: async (ctx) => expireDueOffers(ctx),
   },
   {
     method: "POST",

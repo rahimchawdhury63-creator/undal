@@ -86,6 +86,8 @@ function dbFor(
     rider?: Record<string, unknown> | null;
     moved?: number;
     liveOffers?: readonly Record<string, unknown>[];
+    expired?: number;
+    expiringWaves?: readonly Record<string, unknown>[];
   } = {},
 ): ReturnType<typeof stubDb> {
   const order = options.order === undefined ? ORDER_ROW : options.order;
@@ -98,9 +100,11 @@ function dbFor(
     { match: /MAX\(`seq`\)/u, rows: [{ last: 6 }] },
     { match: /UPDATE `orders` SET/u, affectedRows: options.moved ?? 1 },
     { match: /UPDATE `order_offers` SET `response` = 'WITHDRAWN'/u, affectedRows: 4 },
-    { match: /UPDATE `order_offers` SET/u, affectedRows: 1 },
+    { match: /UPDATE `order_offers` SET `response` = \?/u, affectedRows: 1 },
     { match: /INSERT INTO `order_assignments`/u, affectedRows: 1 },
     { match: /UPDATE `rider_shifts` SET `orders_rejected`/u, affectedRows: 1 },
+    { match: /DISTINCT `wave` FROM `order_offers`/u, rows: options.expiringWaves === undefined ? [] : [...options.expiringWaves] },
+    { match: /UPDATE `order_offers` SET `response` = 'EXPIRED'/u, affectedRows: options.expired ?? 0 },
     { match: /JOIN `orders` ord ON/u, rows: options.liveOffers === undefined ? [] : [...options.liveOffers] },
     { match: /INSERT INTO `order_state_events`/u, affectedRows: 1 },
     { match: /FROM `audit_log`/u, rows: [] },
@@ -134,6 +138,19 @@ function ctxFor(db: Db, waitUntil: (promise: Promise<unknown>) => void = () => u
     locale: "en",
     startedAtMs: 0,
     waitUntil,
+  } as Ctx;
+}
+
+/** A context for the internal sweep: the shared token on the request, no principal. */
+function internalCtx(db: Db): Ctx {
+  return {
+    ...ctxFor(db),
+    env: testEnv({ INTERNAL_TOKEN: "internal-secret" }),
+    request: new Request("https://api.undal.test/internal/offers/expire", {
+      method: "POST",
+      headers: { authorization: "Bearer internal-secret" },
+    }),
+    principal: null,
   } as Ctx;
 }
 
@@ -413,5 +430,42 @@ describe("GET /v1/rider/offers", () => {
   test("a token with no rider row behind it is refused", async () => {
     const response = await list(dbFor({ rider: null }));
     assert.equal(response.status, 403);
+  });
+});
+
+describe("POST /internal/offers/expire", () => {
+  const sweep = (db: Db) =>
+    route("/internal/offers/expire").run(internalCtx(db), { params: {}, body: {}, reason: null });
+
+  test("an unanswered offer past its TTL is written as expired, and the wave is named", async () => {
+    const db = dbFor({ expired: 3, expiringWaves: [{ wave: 2 }] });
+    const response = await sweep(db);
+    assert.equal(response.status, 200);
+    const parsed = (await response.json()) as { data: { expired: number; waves: number[]; atMs: number } };
+    assert.equal(parsed.data.expired, 3);
+    assert.deepEqual(parsed.data.waves, [2], "a whole wave timing out is a different signal from three slow riders");
+    const update = db.calls.find((call) => call.sql.startsWith("UPDATE `order_offers` SET `response` = 'EXPIRED'"));
+    assert.match(update?.sql ?? "", /WHERE `response` IS NULL AND `expires_at` <= \?/u, "only unanswered offers, only past their time");
+    assert.equal(update?.params[0], update?.params[1], "the sweep's clock is one instant, not two");
+  });
+
+  test("a sweep with nothing due changes nothing and says so quietly", async () => {
+    const db = dbFor();
+    const response = await sweep(db);
+    assert.equal(response.status, 200);
+    const parsed = (await response.json()) as { data: { expired: number; waves: number[] } };
+    assert.equal(parsed.data.expired, 0);
+    assert.deepEqual(parsed.data.waves, []);
+    assert.ok(!db.calls.some((call) => call.sql.startsWith("INSERT INTO `audit_log`")), "an expiry is the absence of a decision, not a person's");
+  });
+
+  test("without the internal token the sweep is refused and touches nothing", async () => {
+    const db = dbFor();
+    const response = await route("/internal/offers/expire").run(
+      { ...ctxFor(db), principal: null } as Ctx,
+      { params: {}, body: {}, reason: null },
+    );
+    assert.equal(response.status, 401);
+    assert.deepEqual(db.calls, []);
   });
 });
