@@ -18,8 +18,12 @@
  */
 
 import type { Channel } from "./channels.ts";
+import { channelKey } from "./channels.ts";
 import type { ChannelReplay } from "./hub.ts";
 import { KEEPALIVE_INTERVAL_MS, formatComment, formatFrame, formatKeepalive, streamHeaders } from "./frame.ts";
+
+/** How often an open stream asks its source for new frames (D103). */
+export const TAIL_INTERVAL_MS = 1_000;
 
 /** What a stream needs to start. */
 export interface StreamOptions {
@@ -35,7 +39,19 @@ export interface StreamOptions {
    * replay first, then hands the response a value it can write synchronously.
    */
   readonly replays: readonly ChannelReplay[];
-  /** A scheduler for the keepalive; the default is a real interval. Returns the stop function. */
+  /**
+   * Where new frames come from while the connection is open (D103).
+   *
+   * Without it the stream is a replay followed by keepalives: a client that connects during an order's quiet
+   * minute never learns that it was accepted, because nothing pulls the events recorded after the response
+   * began. A tail is asked once per `tailEveryMs` per channel, with that channel's own cursor, and the ansate
+   * must be the same `ChannelReplay` a resume would get — which is what makes the ring's ordering (D100) and
+   * the channel's own numbering (D101) sufficient for live delivery too.
+   */
+  readonly tail?: (channel: Channel, cursor: number | null) => ChannelReplay | Promise<ChannelReplay>;
+  /** How often the tail is pulled. The keepalive is derived from it, so one timer does both. */
+  readonly tailEveryMs?: number;
+  /** A scheduler for the tick; the default is a real interval. Returns the stop function. */
   readonly schedule?: (emit: () => void) => () => void;
   readonly keepaliveMs?: number;
 }
@@ -88,7 +104,63 @@ export function streamResponse(options: StreamOptions): Response {
       // One flush, not one per frame: the replay is a single write, so a client that reconnects is
       // caught up in one round trip instead of one per missed event.
       if (opening.length > 0) push(opening.join(""));
-      stop = schedule(() => push(formatKeepalive()));
+
+      const tail = options.tail;
+      if (tail === undefined) {
+        stop = schedule(() => push(formatKeepalive()));
+        return;
+      }
+
+      // One cursor per channel: two channels of one stream number their frames independently (D101), so a
+      // single cursor would skip or repeat a frame on whichever channel moved second.
+      const cursors = new Map<string, number | null>();
+      for (const channel of options.channels) cursors.set(channelKey(channel), options.lastEventId);
+      // A gap is admitted once per episode. Repeating the comment on every tick would be a stream that shouts
+      // "reconcile" once a second until the client gives up and does what it was already told to do.
+      const admitted = new Set<string>();
+      const everyTick = options.tailEveryMs ?? TAIL_INTERVAL_MS;
+      const ticksPerKeepalive = Math.max(1, Math.round(intervalMs / everyTick));
+      let ticks = 0;
+      let pulling = false;
+
+      const pull = async (): Promise<void> => {
+        if (closed) return;
+        let wrote = false;
+        for (const channel of options.channels) {
+          const key = channelKey(channel);
+          const replay = await tail(channel, cursors.get(key) ?? null);
+          if (!replay.complete) {
+            if (!admitted.has(key)) {
+              push(formatComment(RECONCILE_COMMENT));
+              admitted.add(key);
+            }
+          } else {
+            admitted.delete(key);
+          }
+          for (const frame of replay.frames) {
+            push(formatFrame(frame));
+            cursors.set(key, frame.id);
+            wrote = true;
+          }
+        }
+        ticks += 1;
+        if (!wrote && ticks % ticksPerKeepalive === 0) push(formatKeepalive());
+      };
+
+      stop = schedule(() => {
+        // The tick is asynchronous and the scheduler is not, so overlapping pulls are prevented here rather
+        // than by the timer: a slow source must delay the next pull, not start a second one beside it.
+        if (pulling || closed) return;
+        pulling = true;
+        void pull()
+          .catch(() => {
+            // A failed pull is a missed tick, not a dead stream: the next tick asks again, and the client's
+            // cursor is unchanged, so nothing was skipped by the attempt that failed.
+          })
+          .finally(() => {
+            pulling = false;
+          });
+      });
     },
     cancel() {
       closed = true;

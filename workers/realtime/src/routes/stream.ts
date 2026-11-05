@@ -28,6 +28,7 @@ import { streamResponse } from "../sse/stream.ts";
 import { parseLastEventId } from "../sse/frame.ts";
 import type { FrameStore } from "../sse/store.ts";
 import type { ReplaySource } from "../sse/replay.ts";
+import type { ChannelReplay } from "../sse/hub.ts";
 import { collectReplay, orderLogReplay } from "../sse/replay.ts";
 
 /** Who is asking. Resolved by the caller from the session token. */
@@ -145,5 +146,15 @@ export async function handleStream(request: Request, context: StreamContext): Pr
   };
   const replays = await collectReplay(source, channels, cursor);
 
-  return streamResponse({ requestId, channels, lastEventId: cursor, replays });
+  // The live half (D103). The ring is preferred where it exists: it is written by the same broadcasts the
+  // stream is meant to carry, and reading it costs no round trip to core. The order log remains the fallback
+  // for a deployment whose stream rooms are not bound, which is also the case that gives a correct — if
+  // slower — opening replay.
+  const tail =
+    context.store === undefined
+      ? (channel: Channel, after: number | null): ChannelReplay | Promise<ChannelReplay> => source.replay(channel, after)
+      : (channel: Channel, after: number | null): Promise<ChannelReplay> =>
+          context.store?.replay(channel, after, clock.nowMs()) ?? Promise.resolve({ frames: [], complete: true });
+
+  return streamResponse({ requestId, channels, lastEventId: cursor, replays, tail });
 }

@@ -527,6 +527,13 @@ A `: keepalive` comment every 20 seconds keeps intermediaries from closing the c
 client reconnects with `Last-Event-ID` and the hub replays from its in-memory ring (last 200
 events, 5-minute window); beyond that the client does a full reconciling fetch.
 
+Between the opening replay and the keepalive, the response **tails** each of its channels (`sse/stream.ts`,
+D103): once a second the route asks the ring for frames after that channel's cursor and writes them. Without
+it the response was a replay followed by keepalives — a customer who connected during a quiet minute never
+learned the vendor had accepted, because nothing pulled the frames recorded after the response began. Each
+channel keeps its own cursor, since each numbers its own frames (D101), and a gap is admitted with one
+`: gap: reconcile` comment per episode rather than one per tick.
+
 Two rules make that replay honest (`sse/ring.ts`, D100). A frame whose id arrives **after** a higher id
 — two requests for one order can be in flight at once — is recorded where its id belongs rather than
 appended, so `Last-Event-ID` replay stays in the order a client can apply. And a cursor the ring has

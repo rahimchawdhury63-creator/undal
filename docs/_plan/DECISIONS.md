@@ -1668,3 +1668,37 @@ the honest remainder rather than quietly claimed.
 makes it correct rather than the allocation itself. A `SELECT … FOR UPDATE` on the order row, or a sequence column
 on `orders` incremented in the same `UPDATE`, would remove the retry — both change the schema or the lock profile
 of every transition, and neither is worth doing without the load numbers to justify it.
+
+## D103 — The stream tails its channels, because a replay and a keepalive are not a live feed
+
+D100–D102 made the ring's ids ordered, scoped and unique. All three only paid off at reconnect, because the
+stream had no live half: `streamResponse` wrote the opening replay, then one keepalive every twenty seconds,
+forever. A customer who opened the order page during a quiet minute and waited for the vendor to accept learned
+nothing until the page was reloaded — the frames were recorded, the ring held them, and nothing asked.
+
+**The fix is a tick, not a push.** Once a second (the keepalive interval is derived from it, so there is still
+one timer per connection) the stream asks the same source a resume would: frames after this channel's cursor.
+That is why the earlier rungs were the prerequisite — the tail is a resume that happens while connected, and it
+is only correct because the ring returns id order (D100) and each channel numbers its own frames (D101).
+
+**One cursor per channel.** A stream can watch an order and its zone at once, and the two number their frames
+independently: after D101 the order channel's ids are the order's log sequence while the zone's are ring-assigned.
+A single cursor for the connection would skip or repeat a frame on whichever channel moved second.
+
+**A gap is admitted once per episode.** `complete: false` means the client must reconcile; writing that comment
+on every tick would be a stream that shouts "reconcile" once a second until the client does what it was already
+told. The flag clears the next time the channel answers completely, so a second gap later is admitted again.
+
+**A failed pull is a missed tick, not a dead stream.** The cursor is not advanced, so the next tick asks for the
+same range; the alternative — closing the connection because the coordinator hiccuped — is worse than a second of
+silence. Overlapping ticks are prevented by a flag rather than by the timer, so a slow source delays the next pull
+instead of racing it.
+
+**Verification.** With the once-per-episode guard removed, the gap test fails (three comments in three ticks);
+restored, all eight pass. The other seven cover what the tail must not break: cursor advancement, per-channel
+cursors, keepalives when nothing is written, the no-tail path, and cancellation releasing the interval.
+
+*Open:* the tail polls, so a frame waits up to a second. A push path — the room waking its own sockets — is the
+alternative, and it needs the sockets to live in the room rather than in a request's stream; that is a different
+architecture, not a smaller interval. The load this adds is one ring read per channel per second per open stream,
+which is why the ring is preferred over the order log where a room is bound.
