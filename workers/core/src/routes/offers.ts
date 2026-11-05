@@ -13,7 +13,7 @@ import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
 import { applyTransition } from "../domain/order/lifecycle.ts";
 import { findOrderByCode, moveState, nextEventSeq } from "../repositories/orders.ts";
-import { findOffer, insertAssignment, respondToOffer, withdrawSiblingOffers } from "../repositories/offers.ts";
+import { countRejectionOnShift, findOffer, insertAssignment, respondToOffer, withdrawSiblingOffers } from "../repositories/offers.ts";
 import { findRiderByUserId } from "../repositories/riders.ts";
 
 /**
@@ -199,6 +199,156 @@ async function acceptOffer(ctx: Ctx, orderCode: string, offerId: string): Promis
   );
 }
 
+/** The reasons a rider may give (`11 §9.2`), in the order the sheet shows them. `NO_ALTERNATIVE_FORCED` is the
+ * system's own reason and is deliberately absent: a rider cannot claim the machine told them not to. */
+export const REJECT_REASONS: readonly string[] = [
+  "TOO_FAR",
+  "PAYOUT_LOW",
+  "VENDOR_SLOW",
+  "VEHICLE_ISSUE",
+  "TAKING_BREAK",
+  "AREA_UNSAFE",
+  "ORDER_TOO_LARGE",
+  "CASH_LIMIT",
+  "OTHER",
+];
+
+/** `OTHER` is the one reason that requires the free text, per `11 §9.2`. */
+const REASON_NEEDS_NOTE = "OTHER";
+/** `reject_note` is `VARCHAR(280)`; `reject_reason` is `VARCHAR(48)`. */
+export const MAX_REJECT_NOTE = 280;
+
+/**
+ * Declining a delivery offer: `POST /v1/orders/{code}/offer/{offerId}/reject` (`11 §9.2`, D114).
+ *
+ * The pair of the claim, and its opposite in every way that matters: the order does **not** move — it is still
+ * searching, and the next wave or the next rider will hear about it — so this route writes one row (the answer)
+ * and one counter (the shift's `orders_rejected`) and nothing else.
+ *
+ * **The reason is required, and `OTHER` is required to say something.** `11 §9.2` lists nine rider-facing
+ * reasons and a tenth the system uses; the refusal carries the list so the app can render the sheet from the API
+ * rather than from a copy that drifts. `OFFER_REASON_REQUIRED` is 422 and carries `{allowed}` — a client that
+ * sends a tenth reason of its own invention gets the list back, which is more useful than "invalid".
+ *
+ * **No reason carries a direct penalty**, and that is a design constraint on this route rather than a comment:
+ * it writes no suspension, no lock and no score. The consequence is the counter, and the counter is what
+ * `11 §9`'s acceptance factor reads. A route that punished a rider for `AREA_UNSAFE` would be the dark pattern
+ * `11 §9.1` explicitly refuses.
+ *
+ * **The effects of the interesting reasons are not written here.** `VENDOR_SLOW` implies a 45-minute cooldown for
+ * that vendor and `AREA_UNSAFE` a permanent per-cell exclusion; both are dispatch state that the engine owns, and
+ * inventing them in this route would put a policy where the data is. They are recorded on the offer (reason and
+ * note) for whoever builds that, and listed as open in D114.
+ */
+async function rejectOffer(ctx: Ctx, orderCode: string, offerId: string, body: unknown): Promise<Response> {
+  const principal = ctx.principal;
+  if (principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+
+  const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const reason = typeof fields["reason"] === "string" ? fields["reason"] : "";
+  const noteRaw = fields["note"];
+  if (noteRaw !== undefined && typeof noteRaw !== "string") {
+    return failureResponse({ code: "VALIDATION_FAILED", details: { field: "note" } }, ctx.locale, ctx.requestId);
+  }
+  const note = typeof noteRaw === "string" ? noteRaw.trim() : "";
+  if (note.length > MAX_REJECT_NOTE) {
+    return failureResponse({ code: "VALIDATION_FAILED", details: { field: "note" } }, ctx.locale, ctx.requestId);
+  }
+  if (!REJECT_REASONS.includes(reason) || (reason === REASON_NEEDS_NOTE && note === "")) {
+    return failureResponse({ code: "OFFER_REASON_REQUIRED", details: { allowed: REJECT_REASONS } }, ctx.locale, ctx.requestId);
+  }
+
+  let offerBytes: Uint8Array;
+  try {
+    offerBytes = uuidBytes(offerId);
+  } catch {
+    return failureResponse({ code: "OFFER_NOT_FOUND", details: { offer_id: offerId } }, ctx.locale, ctx.requestId);
+  }
+
+  const row = await findOrderByCode(ctx.db, orderCode);
+  if (row === null) return failureResponse({ code: "ORDER_NOT_FOUND" }, ctx.locale, ctx.requestId);
+
+  const offer = await findOffer(ctx.db, offerBytes);
+  if (offer === null || toHexId(offer.orderId) !== toHexId(row.id)) {
+    return failureResponse({ code: "OFFER_NOT_FOUND", details: { offer_id: offerId } }, ctx.locale, ctx.requestId);
+  }
+
+  let userBytes: Uint8Array;
+  try {
+    userBytes = uuidBytes(principal.userId);
+  } catch {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+  const rider = await findRiderByUserId(ctx.db, userBytes);
+  if (rider === null) {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+  if (toHexId(offer.riderId) !== toHexId(rider.id)) {
+    return failureResponse({ code: "OFFER_NOT_TARGETED" }, ctx.locale, ctx.requestId);
+  }
+
+  const nowMs = Date.now();
+  if (offer.response === "REJECTED") return failureResponse({ code: "OFFER_ALREADY_REJECTED" }, ctx.locale, ctx.requestId);
+  if (offer.response !== null) {
+    // Accepted, withdrawn or expired: the offer has an answer and a second one would rewrite somebody's decision.
+    const code = offer.response === "EXPIRED" ? "OFFER_EXPIRED" : "OFFER_REJECT_NOT_ALLOWED";
+    return failureResponse({ code, details: { state: row.state } }, ctx.locale, ctx.requestId);
+  }
+
+  const expiresAt = parseDatetime(offer.expiresAt);
+  if (expiresAt !== null && expiresAt.getTime() <= nowMs) {
+    await respondToOffer(ctx.db, { offerId: offer.id, response: "EXPIRED", respondedAt: sqlDatetime(new Date(nowMs)) });
+    return failureResponse({ code: "OFFER_EXPIRED", details: { expires_at: expiresAt.toISOString() } }, ctx.locale, ctx.requestId);
+  }
+  // The order may already have been claimed by another rider between the offer and this tap.
+  if (row.state !== CLAIMABLE_STATE) {
+    return failureResponse({ code: "OFFER_REJECT_NOT_ALLOWED", details: { state: row.state } }, ctx.locale, ctx.requestId);
+  }
+
+  const respondedAt = sqlDatetime(new Date(nowMs));
+  const answered = await respondToOffer(ctx.db, {
+    offerId: offer.id,
+    response: "REJECTED",
+    respondedAt,
+    rejectReason: reason,
+  });
+  // Someone answered first (two taps, or the TTL in another request): the loser is told the answer exists.
+  if (answered === 0) return failureResponse({ code: "OFFER_ALREADY_REJECTED" }, ctx.locale, ctx.requestId);
+
+  const counted = await countRejectionOnShift(ctx.db, rider.id);
+
+  await audit.appendAudit(ctx.db, {
+    actorId: principal.userId,
+    actorType: "RIDER",
+    actorRole: principal.role,
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+    requestId: ctx.requestId,
+    action: "order.offer.reject",
+    resourceType: "ORDER",
+    resourceId: toHexId(row.id),
+    subjectId: toHexId(rider.id),
+    before: { state: row.state, wave: offer.wave },
+    after: { response: "REJECTED", reason, note: note === "" ? null : note, countedIn: counted > 0 ? "shift" : "none" },
+    reason,
+    severity: "NOTICE",
+  }, nowMs);
+
+  return successResponse(
+    {
+      orderId: toHexId(row.id),
+      offerId: toHexId(offer.id),
+      response: "REJECTED",
+      reason,
+      // The order did not move, and saying so is the contract: the app must not close its own screen assuming
+      // the delivery is gone from the platform as well as from the phone.
+      state: row.state,
+    },
+    ctx.locale,
+    ctx.requestId,
+  );
+}
+
 /**
  * The offer routes.
  *
@@ -216,5 +366,15 @@ export const OFFER_ROUTES: readonly RouteDefinition[] = [
     group: "ORDER_WRITE",
     maxBodyBytes: 512,
     run: async (ctx, input) => acceptOffer(ctx, input.params["code"] ?? "", input.params["offerId"] ?? ""),
+  },
+  {
+    method: "POST",
+    path: "/v1/orders/{code}/offer/{offerId}/reject",
+    permission: "order.deliver",
+    write: true,
+    group: "ORDER_WRITE",
+    maxBodyBytes: 1_024,
+    run: async (ctx, input) =>
+      rejectOffer(ctx, input.params["code"] ?? "", input.params["offerId"] ?? "", input.body),
   },
 ];

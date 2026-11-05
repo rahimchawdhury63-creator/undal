@@ -2102,3 +2102,43 @@ vendor's owner.
 `reject_reason` is a `CHECK`ed column waiting for it. Also open: nothing creates offers yet — the dispatch engine
 that scores riders and writes `order_offers` rows is core's brain, not this route — so the claim path is proven
 against rows a test writes until that rung lands.
+
+## D114 — Declining is the claim's opposite: the order does not move, and nothing punishes the rider
+
+`POST /v1/orders/{code}/offer/{offerId}/reject` — the other half of the pair D113 opened, and the one `11 §9`
+is really about: a rider must be able to say no in a way that costs them nothing but a statistic.
+
+**The order does not move.** A decline answers one offer; the order is still `RIDER_SEARCH` and the next wave or
+the next rider hears about it. That is why the route writes two rows and no state change, and why the answer
+says `state: "RIDER_SEARCH"` — the app must not close its screen assuming the delivery is gone from the platform
+as well as from the phone. Tested by asserting no `UPDATE orders` statement is issued at all.
+
+**No reason carries a direct penalty, and that is enforced here rather than promised.** `11 §9.1` refuses the
+dark pattern of penalising a rider for a genuine inability; this route writes no suspension, no lock and no
+score. What it writes is `rider_shifts.orders_rejected = orders_rejected + 1`, which `11 §9`'s acceptance factor
+reads — a feedback loop, not a punishment. Verified by deletion: removing the counter fails the first reject test.
+
+**The reason set is the API's, not the app's.** `REJECT_REASONS` holds `11 §9.2`'s nine rider-facing codes in the
+order the sheet shows them, and `NO_ALTERNATIVE_FORCED` is deliberately absent — a rider cannot claim the machine
+told them not to. An unknown reason, or `OTHER` with blank text, is `422 OFFER_REASON_REQUIRED {allowed}`, so a
+client that invents a tenth reason receives the list instead of "invalid": a refusal a UI can act on.
+
+**The refusals are ordered by what the rider can still do.** Already declined (`OFFER_ALREADY_REJECTED`), already
+answered by someone or expired (`OFFER_REJECT_NOT_ALLOWED` with the order's state, or `OFFER_EXPIRED` 410 with
+the expiry *recorded* so the sweep and the screen agree), another rider's offer (`OFFER_NOT_TARGETED`), the order
+claimed while the sheet was open (`OFFER_REJECT_NOT_ALLOWED {state}`), and losing the write race to a second tap
+(`OFFER_ALREADY_REJECTED`). Every one of them names what happened; none of them leaves the offer unanswered.
+
+**The interesting reasons' effects are recorded, not invented.** `VENDOR_SLOW` implies a 45-minute cooldown for
+that vendor and `AREA_UNSAFE` a permanent per-cell exclusion (`11 §9.2`); both are dispatch state owned by the
+engine, and writing them here would put a policy where the data is. The reason and the free-text note are on the
+offer row for whoever builds that.
+
+Tests: nine more in `offer-claim.test.ts` — the recorded reason and the moved counter with no order change and no
+wave withdrawal, `OTHER` with blank text, an invented reason, `OTHER` with text, a second decline, an offer
+another rider won, a decline after the TTL, another rider's offer, and an order claimed while the sheet was open.
+
+*Open:* the same as D113 from the other side — nothing writes `order_offers` rows yet, so both halves are proven
+against rows a test writes. The `VENDOR_SLOW` cooldown, the `AREA_UNSAFE` exclusion, the `TAKING_BREAK`
+auto-break and the `VEHICLE_ISSUE` auto-offline are four dispatch behaviours this route creates the evidence for
+and does not perform.

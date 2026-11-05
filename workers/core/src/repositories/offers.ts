@@ -107,3 +107,18 @@ export async function insertAssignment(db: Db, assignment: AssignmentInsert): Pr
     [assignment.id, assignment.orderId, assignment.riderId, assignment.assignedAt],
   );
 }
+
+/**
+ * Count the rejection against the shift the rider is on (`06 §6`, `rider_shifts.orders_rejected`).
+ *
+ * `11 §9.2` says no reason carries a direct penalty and the consequence is statistical: a rider who rejects a
+ * lot has a lower acceptance factor. That statistic is the shift's counter, so it is incremented in the same call
+ * as the answer rather than derived later from a join nobody writes.
+ */
+export async function countRejectionOnShift(db: Db, riderId: Uint8Array): Promise<number> {
+  const result = await db.execute(
+    "UPDATE `rider_shifts` SET `orders_rejected` = `orders_rejected` + 1 WHERE `rider_id` = ? AND `ended_at` IS NULL",
+    [riderId],
+  );
+  return result.affectedRows;
+}

@@ -99,6 +99,7 @@ function dbFor(
     { match: /UPDATE `order_offers` SET `response` = 'WITHDRAWN'/u, affectedRows: 4 },
     { match: /UPDATE `order_offers` SET/u, affectedRows: 1 },
     { match: /INSERT INTO `order_assignments`/u, affectedRows: 1 },
+    { match: /UPDATE `rider_shifts` SET `orders_rejected`/u, affectedRows: 1 },
     { match: /INSERT INTO `order_state_events`/u, affectedRows: 1 },
     { match: /FROM `audit_log`/u, rows: [] },
     { match: /INSERT INTO `audit_log`/u, affectedRows: 1 },
@@ -134,9 +135,10 @@ function ctxFor(db: Db, waitUntil: (promise: Promise<unknown>) => void = () => u
   } as Ctx;
 }
 
-const route = () => {
-  const found = OFFER_ROUTES.find((candidate) => candidate.path === "/v1/orders/{code}/offer/{offerId}/accept");
-  if (found === undefined) throw new Error("no claim route");
+const route = (kind: "accept" | "reject" = "accept") => {
+  const path = `/v1/orders/{code}/offer/{offerId}/${kind}`;
+  const found = OFFER_ROUTES.find((candidate) => candidate.path === path);
+  if (found === undefined) throw new Error(`no ${kind} route`);
   return found;
 };
 
@@ -269,5 +271,92 @@ describe("POST /v1/orders/{code}/offer/{offerId}/accept", () => {
     assert.equal(body.event, "order.assigned");
     assert.equal(body.audience?.riderUserId, USER_HEX, "the rider hears it by the identity their own stream resolves");
     assert.equal(body.audience?.vendorUserId, OWNER_HEX);
+  });
+});
+
+describe("POST /v1/orders/{code}/offer/{offerId}/reject", () => {
+  const reject = (db: Db, body: unknown) =>
+    route("reject").run(ctxFor(db), { params: { code: ORDER_CODE, offerId: OFFER_HEX }, body, reason: null });
+
+  test("a reason is recorded, the shift's counter moves, and the order does not", async () => {
+    const db = dbFor();
+    const response = await reject(db, { reason: "TOO_FAR" });
+    assert.equal(response.status, 200);
+    const parsed = (await response.json()) as { data: { response: string; reason: string; state: string } };
+    assert.equal(parsed.data.response, "REJECTED");
+    assert.equal(parsed.data.reason, "TOO_FAR");
+    assert.equal(parsed.data.state, "RIDER_SEARCH", "the order is still searching: rejecting is not withdrawing it");
+
+    const answer = db.calls.find((call) => call.sql.startsWith("UPDATE `order_offers` SET `response` = ?"));
+    assert.deepEqual(answer?.params.slice(0, 3), ["REJECTED", answer?.params[1], "TOO_FAR"]);
+    assert.ok(db.calls.some((call) => call.sql.startsWith("UPDATE `rider_shifts` SET `orders_rejected`")));
+    assert.ok(!db.calls.some((call) => call.sql.startsWith("UPDATE `orders`")), "nothing about the order changes");
+    assert.ok(!db.calls.some((call) => call.sql.includes("'WITHDRAWN'")), "a decline does not end the wave for anyone else");
+    const audit = db.calls.find((call) => call.sql.startsWith("INSERT INTO `audit_log`"));
+    assert.match(audit?.params.join("|") ?? "", /order\.offer\.reject/u);
+  });
+
+  test("OTHER without free text is refused with the list of reasons", async () => {
+    const db = dbFor();
+    const response = await reject(db, { reason: "OTHER", note: "   " });
+    assert.equal(response.status, 422);
+    const parsed = (await response.json()) as { error: { code: string; details?: { allowed?: string[] } } };
+    assert.equal(parsed.error.code, "OFFER_REASON_REQUIRED");
+    assert.ok(parsed.error.details?.allowed?.includes("TOO_FAR"));
+    assert.ok(!parsed.error.details?.allowed?.includes("NO_ALTERNATIVE_FORCED"), "the system's reason is not the rider's to give");
+    assert.deepEqual(db.calls, []);
+  });
+
+  test("a reason the rider invented gets the list back rather than a bare rejection", async () => {
+    const response = await reject(dbFor(), { reason: "DONT_WANT_TO" });
+    assert.equal(response.status, 422);
+    const parsed = (await response.json()) as { error: { details?: { allowed?: string[] } } };
+    assert.equal(parsed.error.details?.allowed?.length, 9);
+  });
+
+  test("OTHER with text records both", async () => {
+    const db = dbFor();
+    const response = await reject(db, { reason: "OTHER", note: "gate code is wrong" });
+    assert.equal(response.status, 200);
+    const answer = db.calls.find((call) => call.sql.startsWith("UPDATE `order_offers` SET `response` = ?"));
+    assert.equal(answer?.params[2], "OTHER");
+  });
+
+  test("a rider who already declined is told so", async () => {
+    const response = await reject(dbFor({ offer: offerRow({ response: "REJECTED" }) }), { reason: "TOO_FAR" });
+    assert.equal(response.status, 409);
+    const parsed = (await response.json()) as { error: { code: string } };
+    assert.equal(parsed.error.code, "OFFER_ALREADY_REJECTED");
+  });
+
+  test("an offer another rider won cannot be declined after the fact", async () => {
+    const response = await reject(dbFor({ offer: offerRow({ response: "ACCEPTED" }) }), { reason: "TOO_FAR" });
+    assert.equal(response.status, 409);
+    const parsed = (await response.json()) as { error: { code: string; details?: { state?: string } } };
+    assert.equal(parsed.error.code, "OFFER_REJECT_NOT_ALLOWED");
+    assert.equal(parsed.error.details?.state, "RIDER_SEARCH");
+  });
+
+  test("a decline that arrives after the TTL is an expiry, and is recorded as one", async () => {
+    const db = dbFor({ offer: offerRow({ secondsFromNow: -1 }) });
+    const response = await reject(db, { reason: "TOO_FAR" });
+    assert.equal(response.status, 410);
+    const answer = db.calls.find((call) => call.sql.startsWith("UPDATE `order_offers` SET `response` = ?"));
+    assert.equal(answer?.params[0], "EXPIRED");
+    assert.ok(!db.calls.some((call) => call.sql.startsWith("UPDATE `rider_shifts` SET `orders_rejected`")));
+  });
+
+  test("an offer addressed to somebody else is refused", async () => {
+    const response = await reject(dbFor({ offer: offerRow({ rider: OTHER_RIDER_HEX }) }), { reason: "TOO_FAR" });
+    assert.equal(response.status, 403);
+    const parsed = (await response.json()) as { error: { code: string } };
+    assert.equal(parsed.error.code, "OFFER_NOT_TARGETED");
+  });
+
+  test("an order that was claimed while the sheet was open cannot be declined", async () => {
+    const response = await reject(dbFor({ order: { ...ORDER_ROW, state: "RIDER_ASSIGNED" } }), { reason: "TOO_FAR" });
+    assert.equal(response.status, 409);
+    const parsed = (await response.json()) as { error: { code: string } };
+    assert.equal(parsed.error.code, "OFFER_REJECT_NOT_ALLOWED");
   });
 });
