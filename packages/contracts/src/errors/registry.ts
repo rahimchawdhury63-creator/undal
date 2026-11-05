@@ -4,7 +4,7 @@
  */
 
 /**
- * The error registry: 184 codes, assembled from sixteen group files.
+ * The error registry: 185 codes, assembled from sixteen group files.
  *
  * Assembled rather than authored in one place so each group can be read against the
  * specification table beside it, and so the compile-time check for "all six fields" is
@@ -32,7 +32,7 @@ import { SYSTEM_ROWS } from "./rows/system.ts";
 
 /**
  * Every row, in specification order. Concatenated as a tuple so the code strings
- * survive as literal types and `ErrorCode` is a union of exactly these 184 values.
+ * survive as literal types and `ErrorCode` is a union of exactly these 185 values.
  */
 const ALL_ROWS = [
   ...AUTH_ROWS,
@@ -80,7 +80,7 @@ export const ERRORS: Readonly<Record<ErrorCode, ErrorDefinition>> = (() => {
 /**
  * The number of registered codes.
  *
- * Exported so the parity test can assert it equals the 184 the specification
+ * Exported so the parity test can assert it equals the 185 the specification
  * registers without hard-coding the number in two places and letting them drift.
  */
 export const ERROR_COUNT = ALL_ROWS.length;

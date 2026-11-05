@@ -1936,3 +1936,52 @@ Verified by deletion: removing the unwind block fails two of them.
 *Open:* the cash gate. `25 §2` has a `CASH_LOCKED` rider unable to start, and that state is produced by the
 shift *end* — which does not exist yet — so the gate is written when there is something that can set it. Also
 open: `GET /v1/rider/shift/current`, break toggling, and the sampled admin review that flips `selfie_verified`.
+
+## D110 — The shift's end, and the identity bug the start shipped with
+
+The end of a shift, and with it the correction of a bug D109 put in the start.
+
+**The seed was keyed by the wrong id.** D109 wrote `rider_current` with `riders.id` — the row id — while every
+flush is judged under the token's `sub`, which is a *user* id (`D97`). The two are 32 hex characters each and
+neither looks wrong in a log. The effect would have been a shift that opened, seeded, answered `200`, and then
+answered `SHIFT_NOT_OPEN` to every position for eight hours; the sweep of D107 would have eventually deleted the
+unread row, which would have looked like the erasure working. Found by writing the end route, which erases by
+identity, and noticing the two routes would have named different keys. `openShift` now carries the user id, the
+start route passes `principal.userId`, and the test that previously asserted the row id asserts both the
+identity and that it is not the row id. This is the session's recurring bug — a row id where an identity
+belongs — and it is now stated at the type in the realtime client's `eraseLiveLocation`.
+
+**Three writes and an erasure, in an order that is the design.** `closeShift` is an `UPDATE … WHERE id = ? AND
+ended_at IS NULL`; the zero it can return is the race between two ends, and the loser is told
+`SHIFT_ALREADY_CLOSED` rather than allowed to rewrite the moment the shift ended. The rider's state becomes
+`OFFLINE`, or `CASH_LOCKED` when a balance row says they still owe cash — the state is written here, by the
+route that knows the amount, because otherwise every reader would have to derive it. Then the live channel is
+erased through `POST /internal/erase`, synchronously, before the answer, because `§6.1` promises under a second
+for the button the rider actually presses.
+
+**An erasure that fails does not fail the end.** Trapping a rider online because realtime is cold is a worse bug
+than a trail that outlives its shift by a minute, and D107's sweep is exactly the fuse for that minute. The
+failure is logged and reported in the answer (`liveLocationErased: {positions: 0, current: 0}`) rather than
+swallowed into a claim that the promise was kept.
+
+**An open order refuses the end, and the registry had no code for it.** `25 §2` blocks the end while deliveries
+are live; the error table's twelve shift codes covered cash, zones, vehicles, KYC and a checklist, and nothing
+for "you are still carrying someone's dinner". `SHIFT_ORDERS_ACTIVE` (409, `{active_orders}`) is the addition,
+the register is now 185 codes, and the two docs that quote the count moved with it. Reassigning the order behind
+the rider is dispatch's business, not a side effect of a button.
+
+**The cash gate on the start arrived with the thing that sets it.** `SHIFT_CASH_OVERDUE` is `25 §2`'s block, and
+a rider can only be `CASH_LOCKED` because an end put them there, so the gate is two lines in the start route
+reading the balance only for a rider who is already locked. The registry's details for that code name
+`{outstanding, due_at}`; the schema stores no settlement deadline, so the answer carries `outstanding` and not a
+date the platform cannot ground. That is recorded as open rather than invented.
+
+Tests: seven in `shift-end.test.ts` (the no-cash end with its erasure and audit, the cash lock, the active order,
+no open shift, the racing end, a failed erasure that still ends the shift, and a malformed point writing nothing)
+and one more in `shift-start.test.ts` (the cash gate, and the seed's identity). Verified by reversion: seeding
+with the row id fails the start test, and removing the erasure call fails two of the end tests.
+
+*Open:* `due_at` on a cash lock (needs a deadline the schema does not store); `online_seconds` counts the wall
+clock between the two taps rather than the time the device was actually online, which is the number the summary
+wants and needs the presence ledger of D91 to be exact; and break toggling (`/v1/rider/shift/break`) plus
+`/v1/rider/shift/current` remain unwritten.

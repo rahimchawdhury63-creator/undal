@@ -9,8 +9,8 @@
 import type { ErrorRow } from "../types.ts";
 
 /**
- * 12 definitions. One row is one code: `[code, status, en, bn, retryable, details]`.
- * The tuple is short on purpose — six fields across 12 codes in an object literal would
+ * 13 definitions. One row is one code: `[code, status, en, bn, retryable, details]`.
+ * The tuple is short on purpose — six fields across 13 codes in an object literal would
  * push this file past the 700-line cap and bury the copy that translators edit.
  */
 export const SHIFT_ROWS = [
@@ -26,4 +26,5 @@ export const SHIFT_ROWS = [
   ["SHIFT_CLOSING_CHECKLIST_INCOMPLETE", 422, "Complete the cash handover checklist.", "নগদ হস্তান্তরের চেকলিস্ট সম্পূর্ণ করুন।", false, "{ missing: string[] }"],
   ["SHIFT_HANDOVER_PENDING", 409, "A cash handover is waiting for confirmation.", "একটি নগদ হস্তান্তর নিশ্চিত হওয়ার অপেক্ষায়।", true, "{ handover_id: string }"],
   ["SHIFT_ALREADY_CLOSED", 409, "This shift is already closed.", "এই শিফট আগেই বন্ধ হয়েছে।", false, "{ closed_at: string }"],
+  ["SHIFT_ORDERS_ACTIVE", 409, "Finish your deliveries before ending your shift.", "শিফট শেষ করার আগে ডেলিভারিগুলো শেষ করুন।", false, "{ active_orders: number }"],
 ] as const satisfies readonly ErrorRow[];

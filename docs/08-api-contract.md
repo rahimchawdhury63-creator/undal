@@ -482,7 +482,7 @@ completely transparent about how position is earned, and that transparency is it
 | --- | --- | --- |
 | `POST` | `/v1/rider/shift/start` | Begin a shift; requires a selfie. Implemented (D109) — see below |
 | `POST` | `/v1/rider/shift/selfie` | Upload the shift selfie (proxied to imgbb) |
-| `POST` | `/v1/rider/shift/end` | End a shift; triggers the cash lock if owing. **Not implemented** |
+| `POST` | `/v1/rider/shift/end` | End a shift; triggers the cash lock if owing. Implemented (D110) |
 | `POST` | `/v1/rider/shift/break` | Enter/leave break |
 | `GET` | `/v1/rider/shift/current` | Current shift state and totals |
 | `POST` | `/v1/rider/presence/heartbeat` | Presence ping |
@@ -508,7 +508,19 @@ zone needs a live `rider_zone_assignments` row. The refusals are each a screen i
 `SHIFT_ALREADY_OPEN` (409, with `shift_id`) for a second tap, `SHIFT_ZONE_NOT_ASSIGNED` (409) for a zone the
 rider does not hold, and `SHIFT_SELFIE_REQUIRED` (422) when the selfie is missing or not https.
 
-The answer is `{ shiftId, riderId, zoneId, vehicle, shiftState: "ONLINE", startedAt }`. Opening a shift writes
+`/v1/rider/shift/end` (D110) is its pair and closes the loop the brief cares about most. The body is
+`{ point?, reason? }` — both optional, because a rider who has lost location still gets to end their shift — and
+the answers are the shift's own totals: `{ shiftId, shiftState, endedAt, onlineSeconds, cashOutstandingPaisa,
+settlementRequired, liveLocationErased }`. Three refusals: `SHIFT_NOT_FOUND` (404) when nothing is open,
+`SHIFT_ORDERS_ACTIVE` (409, with `active_orders`) when food is still in the rider's hands, and
+`SHIFT_ALREADY_CLOSED` (409) when two ends race and this one lost. A rider who owes cash ends in
+`CASH_LOCKED`, which is the state that refuses their next shift with `SHIFT_CASH_OVERDUE`; one who does not ends
+in `OFFLINE`. The live channel is erased **before** the response (`07 §6.1`), and an erasure that fails does not
+fail the end: it is logged and reported as `{ positions: 0, current: 0 }`, with the zone sweep (D107) as the
+one-minute fuse. Trapping a rider online because realtime is cold is a worse bug than a trail that outlives its
+shift by a minute.
+
+The answer to a start is `{ shiftId, riderId, zoneId, vehicle, shiftState: "ONLINE", startedAt }`. Opening a shift writes
 `rider_shifts` **and** the rider's live D1 row, and the second write is synchronous: a shift that exists in TiDB
 but not in D1 is a rider dispatch can see and the map cannot, whose every flush is refused. If that write fails
 the shift is undone (`DELETE` the row, put `shift_state` back to `OFFLINE`) and the caller gets
@@ -602,8 +614,9 @@ Not internet-routable. Reachable only via service binding from Core and Realtime
 
 ## 11. Error code registry
 
-184 codes. The complete list lives in `packages/api-types/src/errors.ts` and is generated into both
-clients. The groups and representative members:
+185 codes. The complete list lives in `packages/api-types/src/errors.ts` and is generated into both
+clients. The groups and representative members (the count is 185 rather than 184 because `SHIFT_ORDERS_ACTIVE`
+was added by D110: `25 §2` blocks ending a shift with deliveries live and the table had no code for it):
 
 | Prefix | Count | Examples |
 | --- | --- | --- |
@@ -615,7 +628,7 @@ clients. The groups and representative members:
 | `ORDER_` | 31 | `ORDER_NOT_ACCEPTABLE` `ORDER_ALREADY_CANCELLED` `ORDER_PREP_TIME_OUT_OF_RANGE` `ORDER_NOT_YOURS` |
 | `OFFER_` | 11 | `OFFER_EXPIRED` `OFFER_CLAIMED` `OFFER_REJECT_NOT_ALLOWED` `OFFER_REASON_REQUIRED` |
 | `QR_` | 6 | `QR_INVALID` `QR_WRONG_ORDER` `QR_EXPIRED` `QR_TOO_FAR` `QR_WRONG_RIDER` |
-| `SHIFT_` | 12 | `SHIFT_SELFIE_REQUIRED` `SHIFT_CASH_OVERDUE` `SHIFT_ALREADY_OPEN` `SHIFT_ZONE_INACTIVE` |
+| `SHIFT_` | 13 | `SHIFT_SELFIE_REQUIRED` `SHIFT_CASH_OVERDUE` `SHIFT_ALREADY_OPEN` `SHIFT_ZONE_INACTIVE` `SHIFT_ORDERS_ACTIVE` |
 | `CASH_` | 9 | `CASH_TRXID_DUPLICATE` `CASH_AMOUNT_MISMATCH` `CASH_SELFIE_REQUIRED` |
 | `MONEY_` | 13 | `MONEY_INVOICE_UNBALANCED` `MONEY_PERIOD_CLOSED` `MONEY_ALREADY_PAID` |
 | `KYC_` | 10 | `KYC_DOCUMENT_REQUIRED` `KYC_ALREADY_SUBMITTED` `KYC_REJECTED` |

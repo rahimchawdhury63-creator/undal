@@ -49,6 +49,16 @@ export interface RealtimeClient {
     readonly vehicle: string;
     readonly point: { readonly lat: number; readonly lon: number };
   }): Promise<Result<{ opened: boolean; shiftId: string; staleAfterMs: number }>>;
+  /**
+   * Delete a rider's live row and trail (`07 §6`, D98).
+   *
+   * `riderId` is the **identity** the D1 rows are keyed by — the token's `sub`, which is a user id and not a
+   * `riders` row id. This is the one place the two ids are easy to swap, so it is stated at the type.
+   */
+  eraseLiveLocation(input: {
+    readonly riderId: string;
+    readonly reason: string;
+  }): Promise<Result<{ positions: number; current: number }>>;
   /** Whether a rider is currently present in a zone. Presence is per zone, so the zone is required. */
   presenceOf(input: {
     readonly zoneId: string;
@@ -104,6 +114,11 @@ export function createRealtimeClient(baseUrl: string, token: string): RealtimeCl
       const result = await call("/internal/shift/open", input);
       if (!result.ok) return result;
       return ok(result.value as { opened: boolean; shiftId: string; staleAfterMs: number });
+    },
+    async eraseLiveLocation(input) {
+      const result = await call("/internal/erase", input);
+      if (!result.ok) return result;
+      return ok(result.value as { positions: number; current: number });
     },
     async presenceOf(input) {
       const result = await call("/internal/presence", input);

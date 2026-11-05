@@ -148,7 +148,10 @@ describe("POST /v1/rider/shift/start", () => {
       vehicle: string;
       point: { lat: number };
     };
-    assert.equal(seeded.riderId, RIDER_HEX, "the seed names the rider row, which is what D1 keys on");
+    // The identity, not the row: D1's `rider_current.rider_id` is the token's `sub`, which is what every flush
+    // carries. D109 seeded this with `riders.id` and every flush still answered SHIFT_NOT_OPEN (D110).
+    assert.equal(seeded.riderId, USER_HEX, "the seed is keyed by the user id, which is what a flush carries");
+    assert.notEqual(seeded.riderId, RIDER_HEX, "a rider row id here writes a row nothing reads");
     assert.equal(seeded.zoneId, ZONE_HEX);
     assert.equal(seeded.vehicle, "MOTORBIKE");
     assert.equal(seeded.point.lat, 24.894215);
@@ -247,6 +250,21 @@ describe("POST /v1/rider/shift/start", () => {
     const restored = db.calls.filter((call) => call.sql.startsWith("UPDATE `riders` SET `shift_state`"));
     assert.deepEqual(restored.map((call) => call.params[0]), ["ONLINE", "OFFLINE"]);
     assert.ok(!db.calls.some((call) => call.sql.startsWith("INSERT INTO `audit_log`")), "a shift that did not open is not audited as opened");
+  });
+
+  test("a rider locked for cash is refused with the amount they owe", async () => {
+    const db = shiftDb({ rider: { ...RIDER_ROW, shift_state: "CASH_LOCKED" } });
+    // The balance row answers the amount; the db stub resolves the first matching statement.
+    const withCash = {
+      ...db,
+      first: async (sql: string, params: readonly unknown[] = []) =>
+        sql.includes("outstanding_paisa") ? { outstanding_paisa: 214_000 } : db.first(sql, params),
+    } as typeof db;
+    const response = await route().run(ctxFor(withCash), { params: {}, body: BODY, reason: null });
+    assert.equal(response.status, 409);
+    const parsed = (await response.json()) as { error: { code: string; details?: { outstanding?: number } } };
+    assert.equal(parsed.error.code, "SHIFT_CASH_OVERDUE");
+    assert.equal(parsed.error.details?.outstanding, 214_000);
   });
 
   test("a deployment with no realtime configured cannot claim a shift is trackable", async () => {

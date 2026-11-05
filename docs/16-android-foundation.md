@@ -474,7 +474,7 @@ sealed interface UndalError {
 
 Every error reaching a screen must produce: **what happened**, **why**, and **what to do next** —
 in the user's language, from the server's localised message where one exists and from a local
-table otherwise. The 184 server error codes ([`08`](08-api-contract.md)) each have a Bengali and
+table otherwise. The 185 server error codes ([`08`](08-api-contract.md)) each have a Bengali and
 English string in `core:common`, and the `i18n-completeness` CI job fails if any code is missing
 either.
 

@@ -130,3 +130,59 @@ export async function zoneIsAssigned(db: Db, riderId: Uint8Array, zoneId: Uint8A
   );
   return row !== null;
 }
+
+/** What closing a shift writes. `end_reason` is constrained by the schema's own `CHECK` (`06 §6`). */
+export interface ShiftClose {
+  readonly shiftId: Uint8Array;
+  readonly endedAt: string;
+  readonly reason: string;
+  readonly endLatE7: number | null;
+  readonly endLonE7: number | null;
+  readonly onlineSeconds: number;
+}
+
+/**
+ * Close the shift, and only if it is still open.
+ *
+ * `WHERE ended_at IS NULL` is what makes this the decision rather than a write: two ends racing produce one
+ * affected row and one zero, and the caller that gets zero is told the shift was already closed instead of
+ * overwriting the moment it actually ended.
+ */
+export async function closeShift(db: Db, close: ShiftClose): Promise<number> {
+  const result = await db.execute(
+    "UPDATE `rider_shifts` SET `ended_at` = ?, `end_reason` = ?, `end_lat_e7` = ?, `end_lon_e7` = ?, " +
+      "`online_seconds` = ? WHERE `id` = ? AND `ended_at` IS NULL",
+    [close.endedAt, close.reason, close.endLatE7, close.endLonE7, close.onlineSeconds, close.shiftId],
+  );
+  return result.affectedRows;
+}
+
+/**
+ * Orders the rider is still on the hook for.
+ *
+ * `RIDER_ASSIGNED`, `PICKED_UP` and `ARRIVED` are the three states in which food is in the rider's hands or
+ * about to be (`11 §4`). Ending a shift in any of them leaves a customer watching a marker that stopped moving
+ * and a meal nobody is bringing, so the end is refused rather than the order reassigned behind the rider.
+ */
+export async function countActiveOrders(db: Db, riderId: Uint8Array): Promise<number> {
+  const row = await db.first<{ n: number | string }>(
+    "SELECT COUNT(*) AS `n` FROM `orders` WHERE `rider_id` = ? AND `state` IN ('RIDER_ASSIGNED', 'PICKED_UP', 'ARRIVED')",
+    [riderId],
+  );
+  return row === null ? 0 : Number(row.n);
+}
+
+/**
+ * What the rider still owes in cash, in paisa. `0` when they owe nothing or have no balance row yet.
+ *
+ * The column is generated (`collected − deposited`) and the table holds one row per rider, so this is one
+ * primary-key-ish read rather than arithmetic over orders (`25 §2`).
+ */
+export async function cashOutstandingPaisa(db: Db, riderId: Uint8Array): Promise<number> {
+  const row = await db.first<{ outstanding_paisa: number | string | null }>(
+    "SELECT `outstanding_paisa` FROM `rider_cash_balances` WHERE `rider_id` = ? LIMIT 1",
+    [riderId],
+  );
+  const value = row === null ? null : row.outstanding_paisa;
+  return value === null || value === undefined ? 0 : Math.max(0, Number(value));
+}

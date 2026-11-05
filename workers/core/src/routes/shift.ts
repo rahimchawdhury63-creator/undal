@@ -6,12 +6,15 @@
 import * as audit from "../audit/write.ts";
 import { createRealtimeClient } from "../bindings/realtime.ts";
 import { newId, toHexId } from "../lib/ids.ts";
-import { sqlDatetime } from "../db/time.ts";
+import { parseDatetime, sqlDatetime } from "../db/time.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
 import { parsePointE7 } from "../domain/order/distance.ts";
 import {
+  cashOutstandingPaisa,
+  closeShift,
+  countActiveOrders,
   deleteShift,
   findRiderByUserId,
   insertShift,
@@ -115,6 +118,17 @@ async function startShift(ctx: Ctx, body: unknown): Promise<Response> {
     return failureResponse({ code: "SHIFT_KYC_PENDING" }, ctx.locale, ctx.requestId);
   }
 
+  // A rider whose last shift ended with cash in hand is locked until they settle (`25 §2`). The state is set
+  // by the shift's end, which is the only thing that knows the amount, so the gate lives here and the balance
+  // is read only for a rider who is actually locked.
+  if (rider.shiftState === "CASH_LOCKED") {
+    return failureResponse(
+      { code: "SHIFT_CASH_OVERDUE", details: { outstanding: await cashOutstandingPaisa(ctx.db, rider.id) } },
+      ctx.locale,
+      ctx.requestId,
+    );
+  }
+
   const open = await openShiftFor(ctx.db, rider.id);
   if (open !== null) {
     return failureResponse({ code: "SHIFT_ALREADY_OPEN", details: { shift_id: toHexId(open.id) } }, ctx.locale, ctx.requestId);
@@ -156,7 +170,10 @@ async function startShift(ctx: Ctx, body: unknown): Promise<Response> {
     base === undefined || token === undefined
       ? null
       : await createRealtimeClient(base, token).openShift({
-          riderId: toHexId(rider.id),
+          // The identity, not the row: D1's `rider_current.rider_id` is the token's `sub` (D97), because that is
+          // what every flush carries. Seeding with `riders.id` writes a row nothing will ever read back — the
+          // exact swap this file's sibling got wrong once already (D110).
+          riderId: principal.userId,
           shiftId: toHexId(shiftId),
           zoneId: toHexId(zoneId),
           vehicle: rider.vehicle,
@@ -203,6 +220,135 @@ async function startShift(ctx: Ctx, body: unknown): Promise<Response> {
   );
 }
 
+/** The end body: where the rider is standing, and why the shift is ending. */
+type EndParsed = { readonly ok: true; readonly latE7: number | null; readonly lonE7: number | null } | { readonly ok: false; readonly field: string };
+
+/**
+ * Read a shift-end body. Both fields are optional — a rider who has lost their phone's location still gets to
+ * end their shift — but a point that is present must be a point.
+ */
+export function readShiftEnd(raw: unknown): EndParsed {
+  const body = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+  if (body["point"] === undefined) return { ok: true, latE7: null, lonE7: null };
+  const point = parsePointE7(body["point"]);
+  if (point === null) return { ok: false, field: "point" };
+  return { ok: true, latE7: point.latE7, lonE7: point.lonE7 };
+}
+
+/**
+ * Ending a shift (`08 §8`, `25 §2`, D110).
+ *
+ * Three things happen and the order between them is the design:
+ *
+ * 1. **The shift is closed in TiDB, conditionally on it still being open.**
+ * 2. **The rider's state becomes `OFFLINE`, or `CASH_LOCKED` when they still owe cash.** That state is what
+ *    refuses their next shift, so it is written here rather than derived by whoever asks next.
+ * 3. **The live channel is erased, synchronously, before the answer** (`07 §6.1` promises under a second for
+ *    a rider who taps End shift). A failure here does not fail the end: trapping a rider online because
+ *    realtime is cold would be a worse bug than a trail that outlives the shift by a minute, and the zone
+ *    sweep (D107) erases a row whose deadline passed anyway. The failure is reported in the answer and to the
+ *    log, so it is visible rather than assumed.
+ *
+ * An open order refuses the end (`SHIFT_ORDERS_ACTIVE`): a rider who vanishes mid-delivery leaves a customer
+ * watching a marker that stopped moving. Reassigning behind the rider is the dispatch engine's business, not a
+ * side effect of a button.
+ */
+async function endShift(ctx: Ctx, body: unknown): Promise<Response> {
+  const principal = ctx.principal;
+  if (principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+
+  const parsed = readShiftEnd(body);
+  if (!parsed.ok) {
+    return failureResponse({ code: "VALIDATION_FAILED", details: { field: parsed.field } }, ctx.locale, ctx.requestId);
+  }
+
+  let userBytes: Uint8Array;
+  try {
+    userBytes = uuidBytes(principal.userId);
+  } catch {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+  const rider = await findRiderByUserId(ctx.db, userBytes);
+  if (rider === null) {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+
+  const open = await openShiftFor(ctx.db, rider.id);
+  if (open === null) return failureResponse({ code: "SHIFT_NOT_FOUND" }, ctx.locale, ctx.requestId);
+
+  const active = await countActiveOrders(ctx.db, rider.id);
+  if (active > 0) {
+    return failureResponse({ code: "SHIFT_ORDERS_ACTIVE", details: { active_orders: active } }, ctx.locale, ctx.requestId);
+  }
+
+  const nowMs = Date.now();
+  const startedAt = parseDatetime(open.startedAt);
+  const onlineSeconds = startedAt === null ? 0 : Math.max(0, Math.round((nowMs - startedAt.getTime()) / 1_000));
+  const closed = await closeShift(ctx.db, {
+    shiftId: open.id,
+    endedAt: sqlDatetime(new Date(nowMs)),
+    reason: "RIDER_ENDED",
+    endLatE7: parsed.latE7,
+    endLonE7: parsed.lonE7,
+    onlineSeconds,
+  });
+  // Two ends racing: the loser reports the shift as closed rather than rewriting the moment it ended.
+  if (closed === 0) {
+    return failureResponse(
+      { code: "SHIFT_ALREADY_CLOSED", details: { closed_at: new Date(nowMs).toISOString() } },
+      ctx.locale,
+      ctx.requestId,
+    );
+  }
+
+  const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
+  const shiftState = outstanding > 0 ? "CASH_LOCKED" : "OFFLINE";
+  await setShiftState(ctx.db, rider.id, shiftState);
+
+  const base = ctx.env.REALTIME_BASE;
+  const token = ctx.env.INTERNAL_TOKEN;
+  const erased =
+    base === undefined || token === undefined
+      ? null
+      : await createRealtimeClient(base, token).eraseLiveLocation({ riderId: principal.userId, reason: "shift_end" });
+  // A trail that outlived its shift is a privacy failure with a one-minute fuse (D107), so it is logged loudly
+  // and reported to the caller instead of being swallowed into a 200 that claims the promise was kept.
+  if (erased !== null && !erased.ok) {
+    console.error(`shift: live location survived the end of shift ${toHexId(open.id)}: ${String(erased.error.code)}`);
+  }
+
+  await audit.appendAudit(ctx.db, {
+    actorId: principal.userId,
+    actorType: "RIDER",
+    actorRole: principal.role,
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+    requestId: ctx.requestId,
+    action: "rider.shift.end",
+    resourceType: "RIDER_SHIFT",
+    resourceId: toHexId(open.id),
+    subjectId: toHexId(rider.id),
+    before: { shiftState: rider.shiftState },
+    after: { shiftState, onlineSeconds, cashOutstandingPaisa: outstanding, liveLocationErased: erased === null ? null : erased.ok },
+    reason: "RIDER_ENDED",
+    severity: "NOTICE",
+  }, nowMs);
+
+  return successResponse(
+    {
+      shiftId: toHexId(open.id),
+      shiftState,
+      endedAt: new Date(nowMs).toISOString(),
+      onlineSeconds,
+      cashOutstandingPaisa: outstanding,
+      settlementRequired: outstanding > 0,
+      liveLocationErased: erased === null ? null : erased.ok ? erased.value : { positions: 0, current: 0 },
+    },
+    ctx.locale,
+    ctx.requestId,
+  );
+}
+
 /** The shift routes. */
 export const SHIFT_ROUTES: readonly RouteDefinition[] = [
   {
@@ -213,5 +359,14 @@ export const SHIFT_ROUTES: readonly RouteDefinition[] = [
     group: "PRESENCE",
     maxBodyBytes: 4_096,
     run: async (ctx, input) => startShift(ctx, input.body),
+  },
+  {
+    method: "POST",
+    path: "/v1/rider/shift/end",
+    permission: "rider.shift.end",
+    write: true,
+    group: "PRESENCE",
+    maxBodyBytes: 1_024,
+    run: async (ctx, input) => endShift(ctx, input.body),
   },
 ];

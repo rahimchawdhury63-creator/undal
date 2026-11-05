@@ -107,7 +107,7 @@ export function inScope(principal: Principal, zoneId: string | undefined): boole
 const ACTOR_KEYS: Readonly<Record<string, readonly PermissionKey[]>> = {
   CUSTOMER: ["order.read", "order.list", "order.create", "order.cancel", "order.rating.read", "customer.address.read", "customer.address.create", "customer.address.update", "customer.address.delete", "customer.address.set_default"],
   VENDOR_OWNER: ["vendor.read", "vendor.update", "order.read", "order.list", "order.accept", "order.reject", "catalogue.item.read", "catalogue.item.update", "catalogue.item.set_availability", "catalogue.item.mark_sold_out", "catalogue.menu.read", "catalogue.menu.update"],
-  RIDER: ["order.read", "order.list", "order.pickup", "order.deliver", "rider.shift.read", "rider.shift.start", "rider.view_finance"],
+  RIDER: ["order.read", "order.list", "order.pickup", "order.deliver", "rider.shift.read", "rider.shift.start", "rider.shift.end", "rider.view_finance"],
 };
 
 function isActorKey(principal: Principal, key: PermissionKey): boolean {

@@ -19,7 +19,7 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 | `bn-BD` | Full | **100% — enforced** |
 
 The `i18n-completeness` CI job fails the build if any key is missing from either locale, if any
-of the 184 error codes lacks a message in either, or if any string in either locale is identical
+of the 185 error codes lacks a message in either, or if any string in either locale is identical
 to its key (the classic sign of a forgotten translation).
 
 There is no partial-language state. A platform that falls back to English halfway through a
