@@ -4,6 +4,7 @@
  */
 
 import type { Db } from "../db/client.ts";
+import { classifyError } from "../db/client.ts";
 import { sqlDatetime } from "../db/time.ts";
 import type { OrderState } from "../domain/order/states.ts";
 
@@ -83,6 +84,75 @@ export async function nextEventSeq(db: Db, orderId: Uint8Array): Promise<number>
   return Number(row?.last ?? 0) + 1;
 }
 
+/**
+ * How many times an append may take a fresh sequence before the failure is the caller's.
+ *
+ * Five is not a guess at a contention level: the only way to lose the race twice is for two other transitions
+ * to allocate the same number twice in the microseconds between a `MAX` and an `INSERT`, and by the third
+ * attempt the alternative explanation — a genuinely reused event id — has to be the answer.
+ */
+export const MAX_EVENT_APPEND_ATTEMPTS = 5;
+
+/** The event row, appended once with the sequence it was given. */
+const INSERT_EVENT =
+  "INSERT INTO `order_state_events` (`id`, `order_id`, `seq`, `from_state`, `to_state`, `actor`, " +
+  "`actor_user_id`, `event`, `reason_code`, `reason_text`, `metadata`, `occurred_at`, `created_at`) " +
+  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+/** What an appended event needs. */
+export interface EventAppendInput {
+  readonly orderId: Uint8Array;
+  readonly eventId: Uint8Array;
+  readonly from: OrderState;
+  readonly to: OrderState;
+  readonly actor: string;
+  readonly actorUserId: Uint8Array | null;
+  readonly event: string;
+  readonly reasonCode: string | null;
+  readonly reasonText: string | null;
+  readonly now: string;
+}
+
+/**
+ * Append the event row and return the sequence it got (D102).
+ *
+ * `MAX(seq)+1` then `INSERT` is two statements, so two transitions on one order can read the same maximum. The
+ * unique index `(order_id, seq)` then refuses the second insert — but by then the order's `state` has already
+ * moved, because the `UPDATE` is what won the race. Losing the append there would leave an order that changed
+ * state with no event to explain it, and an error to the caller who caused a change that did happen.
+ *
+ * So a `DUPLICATE` is not a failure: it is the index saying "somebody took that number", and the answer is to
+ * take the next one. Everything else — a lock timeout, a dead connection — is rethrown, because retrying those
+ * here would hide the real failure behind an event row that never appears.
+ */
+export async function appendEvent(db: Db, input: EventAppendInput): Promise<number> {
+  for (let attempt = 1; attempt <= MAX_EVENT_APPEND_ATTEMPTS; attempt += 1) {
+    const seq = await nextEventSeq(db, input.orderId);
+    try {
+      await db.execute(INSERT_EVENT, [
+        input.eventId,
+        input.orderId,
+        seq,
+        input.from,
+        input.to,
+        input.actor,
+        input.actorUserId,
+        input.event,
+        input.reasonCode,
+        input.reasonText,
+        "{}",
+        input.now,
+        input.now,
+      ]);
+      return seq;
+    } catch (error) {
+      if (classifyError(error) !== "DUPLICATE" || attempt === MAX_EVENT_APPEND_ATTEMPTS) throw error;
+    }
+  }
+  // Unreachable: the loop either returns a sequence or throws on its last attempt.
+  throw new RangeError(`could not allocate an event sequence for order ${String(input.orderId)}`);
+}
+
 /** The result of attempting a state move. */
 export interface MoveResult {
   /** Whether this request won the race and the row now holds the new state. */
@@ -131,27 +201,18 @@ export async function moveState(
   );
   if (updated.affectedRows !== 1) return { applied: false, seq: 0 };
 
-  const seq = await nextEventSeq(db, input.orderId);
-  await db.execute(
-    "INSERT INTO `order_state_events` (`id`, `order_id`, `seq`, `from_state`, `to_state`, `actor`, " +
-      "`actor_user_id`, `event`, `reason_code`, `reason_text`, `metadata`, `occurred_at`, `created_at`) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [
-      input.eventId,
-      input.orderId,
-      seq,
-      input.from,
-      input.to,
-      input.actor,
-      input.actorUserId,
-      input.event,
-      input.reasonCode,
-      input.reasonText,
-      "{}",
-      now,
-      now,
-    ],
-  );
+  const seq = await appendEvent(db, {
+    orderId: input.orderId,
+    eventId: input.eventId,
+    from: input.from,
+    to: input.to,
+    actor: input.actor,
+    actorUserId: input.actorUserId,
+    event: input.event,
+    reasonCode: input.reasonCode,
+    reasonText: input.reasonText,
+    now,
+  });
   return { applied: true, seq };
 }
 

@@ -1637,8 +1637,34 @@ tests — including the two-order case, which is the bug itself — and restorin
 Tests: `fanout-seq.test.ts` (the order channel keeps its sequence; an unnumbered broadcast is ring-assigned; two
 orders with seq 1 both survive on the zone; five orders numbering their own frames 1–5).
 
-*Open:* the order channel's ids now come from a sequence allocated by `nextEventSeq` (`MAX(seq)+1` read, then
-inserted). Two concurrent transitions on one order can read the same maximum, and the unique index
-`(order_id, seq)` would then refuse the second insert *after* its state update applied — an order that moved with
-no event row and an error to its caller. That is the next rung: the append retries on `DUPLICATE` rather than
-losing the event.
+*Open:* closed by D102 — the append now retries on `DUPLICATE`.
+
+## D102 — A duplicate key is the index telling us to take the next number
+
+The sequence D101 handed to the order channel is allocated with `MAX(seq) + 1` and written by a second statement.
+Two transitions on one order can read the same maximum; the `UPDATE … WHERE state = ?` has already won and moved
+the order by then; and `uq_order_events_seq (order_id, seq)` then refuses the event row. The failure is the worst
+shape a failure can take here: the order changed, the log does not say why, and the caller is told their request
+errored.
+
+**`DUPLICATE` is a retry, everything else is not.** `appendEvent` re-reads the maximum and tries again, up to five
+times. The classification is the platform's existing one (`classifyError`), so a lock timeout or a dead connection
+is rethrown on its first attempt rather than being retried into an event row that never appears. Five is not a
+guess at a contention level: losing twice means two other transitions allocated the same number twice in the
+microseconds between a `MAX` and an `INSERT`, and by the third attempt the alternative explanation — a genuinely
+reused event id — has to be the answer, which deserves an error rather than a sixth silent try.
+
+**The append is now a named function, not four lines inside `moveState`.** That is what makes it testable without a
+transition, and it is what let the retry be verified rather than assumed: with the attempt count forced to one, two
+of the eight new tests fail; restored, all eight pass.
+
+**What a retry cannot fix.** The `UPDATE` and the `INSERT` are still two statements in autocommit, so an order can
+move and its event row can be lost to a crash between them. Closing that needs a transaction the `Db` port does not
+expose — the port deliberately prefers single-statement atomicity (`db/client.ts`), and a transition is inherently
+two statements. Retrying the duplicate takes the common race off the table; the crash window is recorded here as
+the honest remainder rather than quietly claimed.
+
+*Open:* the crash window above; and `nextEventSeq` remains the allocation strategy, which means the retry is what
+makes it correct rather than the allocation itself. A `SELECT … FOR UPDATE` on the order row, or a sequence column
+on `orders` incremented in the same `UPDATE`, would remove the retry — both change the schema or the lock profile
+of every transition, and neither is worth doing without the load numbers to justify it.

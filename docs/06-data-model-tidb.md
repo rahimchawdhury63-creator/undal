@@ -1024,6 +1024,14 @@ specification.
 Every transition writes an `order_state_events` row, emits an SSE event, and may emit FCM. The
 effects table is in [`08 §6`](08-api-contract.md).
 
+`seq` is allocated per order (`MAX(seq) + 1`) and the row is appended by `appendEvent`
+(`workers/core/src/repositories/orders.ts`, D102). Two transitions on one order can read the same maximum,
+and `uq_order_events_seq (order_id, seq)` then refuses the second insert — *after* its `UPDATE … WHERE
+state = ?` already won and moved the order. A `DUPLICATE` is therefore retried with the next number (up to
+five attempts) instead of failing: the index saying "somebody took that number" is a reason to take another,
+not a reason to hand a customer an error about a change that happened. Any other database error is rethrown
+on its first attempt.
+
 ### 7.4 Offers and assignments
 
 ```sql
