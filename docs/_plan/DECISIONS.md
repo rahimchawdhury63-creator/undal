@@ -1985,3 +1985,44 @@ with the row id fails the start test, and removing the erasure call fails two of
 clock between the two taps rather than the time the device was actually online, which is the number the summary
 wants and needs the presence ledger of D91 to be exact; and break toggling (`/v1/rider/shift/break`) plus
 `/v1/rider/shift/current` remain unwritten.
+
+## D111 — The rider's own screen: a read that refuses to call the normal case an error, and a break that is one flag
+
+The shift's three routes are now the whole loop a rider lives in: start, look, break, end. This is the two that
+were missing.
+
+**`GET /v1/rider/shift/current` answers `200` with `shift: null` for an offline rider.** That is the decision in
+the route, not an accident of implementation. The app calls it on every launch and every resume, most riders are
+offline at any moment, and `SHIFT_NOT_FOUND` would (a) fill the client's error log with the normal case and
+(b) teach the client that an error from this endpoint means "go to the shift screen" — which would show the shift
+screen to a rider who has not started one. The `404` stays on the *end*, where asking to close a shift that is not
+open is a mistake worth naming. A read route's job is to describe the world, including the parts that are absent.
+
+**It answers what the other two routes changed**, so the app never has to derive them: the shift's own totals
+(`ordersCompleted`, `distanceM` — columns the schema already had and nothing had read), `onlineSeconds` computed
+from the start, and `cashOutstandingPaisa` with `settlementRequired`. The cash figure on the read is what lets the
+app warn a rider *before* the end locks them, instead of showing the locking screen as a surprise.
+
+**The break toggle is a route rather than a `PATCH` on the shift.** Two screens have the button, and the audit
+trail wants to say which was pressed, so the actions are `rider.shift.break.start` and `rider.shift.break.end`
+rather than one `rider.shift.updated` with a payload a reviewer has to read. It writes one column and lets the
+device's next flush carry `state: "BREAK"` to realtime: two systems, one flag, no second source of truth about
+whether the rider is on a break.
+
+**No shift means no break, and nothing is written.** Tested by asserting the statement list is empty, because a
+`shift_state` written for a rider with no shift is a rider who looks online with nothing to be online *in*.
+
+**One more permission key.** `rider.shift.break` — the register is now 415, `21`'s two counts moved, and RIDER
+holds it. This is the third key this session has added to a register that claims to match the specification, and
+the honest description is that the specification enumerated the *admin* half of the rider's shift surface
+(`force_end`, `approve_selfie`, `reject_selfie`, `read`, `list`) and never the rider's own half (start, end,
+break). Every addition is recorded here rather than slipped in.
+
+Tests: eight in `shift-current.test.ts` — the open shift with its totals and clock, the offline `200` with `null`,
+the cash warning, a token with no rider, break on and break off (state and the two audit actions), no open shift
+writing nothing, and a non-boolean body refused before any read.
+
+*Open:* `online_seconds` on the read is wall clock since the tap, which includes time the phone was not sending;
+the exact figure needs D91's presence ledger and is the same gap D110 recorded on the end. The break does not
+touch the D1 row directly — a rider who takes a break and then stops sending keeps their last `ONLINE` state
+until the seed's deadline passes, which is a deliberate consequence of letting the device own the flag.

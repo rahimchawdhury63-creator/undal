@@ -349,6 +349,118 @@ async function endShift(ctx: Ctx, body: unknown): Promise<Response> {
   );
 }
 
+/**
+ * The rider's current shift (`08 §8`, D111).
+ *
+ * A read route, and its shape is the decision: **no open shift is a `200` with `shift: null`, not a `404`.** The
+ * rider app calls this on every launch and every resume, and most riders are offline at any given moment; a
+ * `SHIFT_NOT_FOUND` would fill the client's error log with the normal case and, worse, teach the app that an
+ * error means "go to the shift screen". The 404 is reserved for the *end*, where asking to end a shift that is
+ * not open is a mistake worth naming.
+ *
+ * What it answers is what the two routes around it changed: the shift, its state, how long it has been running,
+ * and the cash that decides whether the next end leaves the rider locked.
+ */
+async function currentShift(ctx: Ctx): Promise<Response> {
+  const principal = ctx.principal;
+  if (principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+
+  let userBytes: Uint8Array;
+  try {
+    userBytes = uuidBytes(principal.userId);
+  } catch {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+  const rider = await findRiderByUserId(ctx.db, userBytes);
+  if (rider === null) {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+
+  const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
+  const open = await openShiftFor(ctx.db, rider.id);
+  const nowMs = Date.now();
+  const startedAt = open === null ? null : parseDatetime(open.startedAt);
+  return successResponse(
+    {
+      shiftState: rider.shiftState,
+      shift:
+        open === null || startedAt === null
+          ? null
+          : {
+              shiftId: toHexId(open.id),
+              zoneId: toHexId(open.zoneId),
+              vehicle: rider.vehicle,
+              startedAt: startedAt.toISOString(),
+              onlineSeconds: Math.max(0, Math.round((nowMs - startedAt.getTime()) / 1_000)),
+              ordersCompleted: open.ordersCompleted,
+              distanceM: open.distanceM,
+            },
+      cashOutstandingPaisa: outstanding,
+      settlementRequired: outstanding > 0,
+    },
+    ctx.locale,
+    ctx.requestId,
+  );
+}
+
+/**
+ * Entering or leaving a break (`08 §8`, D111).
+ *
+ * A break is a field on the rider and a cadence on the device, and the cadence is pushed by whoever answers a
+ * flush — so this route's whole job is the flag. It is a separate route rather than a `PATCH` on the shift
+ * because the app toggles it from a button on two different screens and the audit trail wants to say which.
+ *
+ * The refusals are the ones that would otherwise leave a rider on a break with no shift to come back to: no open
+ * shift is `SHIFT_NOT_FOUND`, and a rider locked for cash cannot reach this state at all (`CASH_LOCKED` implies
+ * no open shift, so the same 404 answers, correctly).
+ */
+async function toggleBreak(ctx: Ctx, body: unknown): Promise<Response> {
+  const principal = ctx.principal;
+  if (principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+
+  const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const onBreak = fields["onBreak"];
+  if (typeof onBreak !== "boolean") {
+    return failureResponse({ code: "VALIDATION_FAILED", details: { field: "onBreak" } }, ctx.locale, ctx.requestId);
+  }
+
+  let userBytes: Uint8Array;
+  try {
+    userBytes = uuidBytes(principal.userId);
+  } catch {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+  const rider = await findRiderByUserId(ctx.db, userBytes);
+  if (rider === null) {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+  const open = await openShiftFor(ctx.db, rider.id);
+  if (open === null) return failureResponse({ code: "SHIFT_NOT_FOUND" }, ctx.locale, ctx.requestId);
+
+  const shiftState = onBreak ? "BREAK" : "ONLINE";
+  await setShiftState(ctx.db, rider.id, shiftState);
+
+  const nowMs = Date.now();
+  await audit.appendAudit(ctx.db, {
+    actorId: principal.userId,
+    actorType: "RIDER",
+    actorRole: principal.role,
+    ip: ctx.ip,
+    userAgent: ctx.userAgent,
+    requestId: ctx.requestId,
+    action: onBreak ? "rider.shift.break.start" : "rider.shift.break.end",
+    resourceType: "RIDER_SHIFT",
+    resourceId: toHexId(open.id),
+    subjectId: toHexId(rider.id),
+    before: { shiftState: rider.shiftState },
+    after: { shiftState },
+    reason: null,
+    severity: "INFO",
+  }, nowMs);
+
+  return successResponse({ shiftId: toHexId(open.id), shiftState, onBreak }, ctx.locale, ctx.requestId);
+}
+
 /** The shift routes. */
 export const SHIFT_ROUTES: readonly RouteDefinition[] = [
   {
@@ -359,6 +471,22 @@ export const SHIFT_ROUTES: readonly RouteDefinition[] = [
     group: "PRESENCE",
     maxBodyBytes: 4_096,
     run: async (ctx, input) => startShift(ctx, input.body),
+  },
+  {
+    method: "GET",
+    path: "/v1/rider/shift/current",
+    permission: "rider.shift.read",
+    group: "PRESENCE",
+    run: async (ctx) => currentShift(ctx),
+  },
+  {
+    method: "POST",
+    path: "/v1/rider/shift/break",
+    permission: "rider.shift.break",
+    write: true,
+    group: "PRESENCE",
+    maxBodyBytes: 1_024,
+    run: async (ctx, input) => toggleBreak(ctx, input.body),
   },
   {
     method: "POST",

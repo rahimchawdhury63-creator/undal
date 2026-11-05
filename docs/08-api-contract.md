@@ -483,8 +483,8 @@ completely transparent about how position is earned, and that transparency is it
 | `POST` | `/v1/rider/shift/start` | Begin a shift; requires a selfie. Implemented (D109) — see below |
 | `POST` | `/v1/rider/shift/selfie` | Upload the shift selfie (proxied to imgbb) |
 | `POST` | `/v1/rider/shift/end` | End a shift; triggers the cash lock if owing. Implemented (D110) |
-| `POST` | `/v1/rider/shift/break` | Enter/leave break |
-| `GET` | `/v1/rider/shift/current` | Current shift state and totals |
+| `POST` | `/v1/rider/shift/break` | Enter/leave break. Implemented (D111) |
+| `GET` | `/v1/rider/shift/current` | Current shift state and totals. Implemented (D111) |
 | `POST` | `/v1/rider/presence/heartbeat` | Presence ping |
 | `GET` | `/v1/rider/offers` | Pending offers (the FCM payload is authoritative; this is reconciliation) |
 | `GET` | `/v1/rider/orders/active` | Active order(s), batched if applicable |
@@ -519,6 +519,19 @@ in `OFFLINE`. The live channel is erased **before** the response (`07 §6.1`), a
 fail the end: it is logged and reported as `{ positions: 0, current: 0 }`, with the zone sweep (D107) as the
 one-minute fuse. Trapping a rider online because realtime is cold is a worse bug than a trail that outlives its
 shift by a minute.
+
+`GET /v1/rider/shift/current` (D111) is the screen both of those write to and the app reads on every launch. It
+answers `{ shiftState, shift, cashOutstandingPaisa, settlementRequired }`, where `shift` is `null` when nothing is
+open — **a `200` with `null`, not a `404`** — because an offline rider is the normal case and a client that has
+learned "error means go to the shift screen" is a client that shows the wrong screen to most of its users. When a
+shift is open it carries `{ shiftId, zoneId, vehicle, startedAt, onlineSeconds, ordersCompleted, distanceM }`.
+
+`POST /v1/rider/shift/break` (D111) takes `{ onBreak: boolean }` and answers `{ shiftId, shiftState, onBreak }`.
+It exists as a route rather than a `PATCH` because the button appears on two screens and the audit trail wants to
+say which one was pressed: `rider.shift.break.start` or `rider.shift.break.end`. No open shift is
+`SHIFT_NOT_FOUND` (404) and writes nothing. The cadence that a break implies is not in this answer — the device
+pushes `state: "BREAK"` with its flush and realtime answers with the profile (`07 §3.3`), so the two systems agree
+on one flag rather than two.
 
 The answer to a start is `{ shiftId, riderId, zoneId, vehicle, shiftState: "ONLINE", startedAt }`. Opening a shift writes
 `rider_shifts` **and** the rider's live D1 row, and the second write is synchronous: a shift that exists in TiDB

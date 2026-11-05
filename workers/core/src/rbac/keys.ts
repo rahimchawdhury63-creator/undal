@@ -20,8 +20,8 @@ import { VENDOR_KEYS } from "./keys/vendor.ts";
 import { ZONE_KEYS } from "./keys/zone.ts";
 
 /**
- * The permission register: 414 keys — the specification's 412 plus `rider.shift.start` and
- * `rider.shift.end` (D109, D110) — and
+ * The permission register: 415 keys — the specification's 412 plus `rider.shift.start`,
+ * `rider.shift.end` and `rider.shift.break` (D109–D111) — and
  * the count is asserted at module load.
  *
  * The assertion is deliberate. A register that is silently 411 fails in the worst
@@ -46,11 +46,11 @@ export const ALL_PERMISSION_KEYS = [
   ...ADMIN_KEYS,
 ] as const;
 
-/** One of the 414 keys. */
+/** One of the 415 keys. */
 export type PermissionKey = (typeof ALL_PERMISSION_KEYS)[number];
 
 /** The documented size of the register. */
-export const PERMISSION_COUNT = 414;
+export const PERMISSION_COUNT = 415;
 
 if (ALL_PERMISSION_KEYS.length !== PERMISSION_COUNT) {
   throw new Error(`permission register holds ${ALL_PERMISSION_KEYS.length} keys, expected ${PERMISSION_COUNT}`);
@@ -120,7 +120,7 @@ const HIGH_ACTIONS: readonly string[] = [
 /**
  * Classify a key by its action, which is what the risk column of `permissions` stores.
  *
- * Derived rather than hand-tagged: 414 hand-written risk labels are 414 chances to
+ * Derived rather than hand-tagged: 415 hand-written risk labels are 415 chances to
  * mark `finance.payout.mark_paid` as MEDIUM, and the classification is genuinely a
  * property of the verb.
  */

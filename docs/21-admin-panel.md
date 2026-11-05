@@ -98,7 +98,7 @@ therefore not seed data:
 | `ONBOARDING` | KYC queues, vendor and rider approval |
 | `ANALYST` | Read-only across every domain, plus exports |
 
-Custom roles are composed from **414 permission keys** shaped `domain.resource.action`
+Custom roles are composed from **415 permission keys** shaped `domain.resource.action`
 (`finance.payout.mark_paid`, `dispatch.order.force_assign`). The role editor shows exactly which
 UI elements a role can reach, computed from the register, so a permission change's blast radius is
 visible before it is saved.
@@ -362,7 +362,7 @@ Bundle budget: ≤ 420 KB gzipped for the shell, with every domain lazily loaded
 | Test | Count |
 | --- | --- |
 | Feature register coverage | 2 147 — every registered feature has a named test |
-| RBAC matrix | 414 permission keys × 7 roles = 2 898 assertions |
+| RBAC matrix | 415 permission keys × 7 roles = 2 905 assertions |
 | Audit coverage | Every mutation writes an audit row with a complete before/after; `audit-coverage` fails on a gap |
 | WORM | Update and delete on `audit_log` both raise; the chain verifier detects a tampered row |
 | Step-up auth | All 23 protected actions refuse without fresh TOTP |

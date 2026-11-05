@@ -27,11 +27,13 @@ export interface RiderRow {
   readonly vehicle: string;
 }
 
-/** A shift that has not ended. */
+/** A shift that has not ended, with the totals the rider's own screen shows. */
 export interface OpenShiftRow {
   readonly id: Uint8Array;
   readonly zoneId: Uint8Array;
   readonly startedAt: string;
+  readonly ordersCompleted: number;
+  readonly distanceM: number;
 }
 
 /** What opening a shift writes. */
@@ -75,8 +77,8 @@ export async function findRiderByUserId(db: Db, userId: Uint8Array): Promise<Rid
  */
 export async function openShiftFor(db: Db, riderId: Uint8Array): Promise<OpenShiftRow | null> {
   const row = await db.first<Record<string, unknown>>(
-    "SELECT `id`, `zone_id`, `started_at` FROM `rider_shifts` WHERE `rider_id` = ? AND `ended_at` IS NULL " +
-      "ORDER BY `started_at` DESC LIMIT 1",
+    "SELECT `id`, `zone_id`, `started_at`, `orders_completed`, `distance_m` FROM `rider_shifts` " +
+      "WHERE `rider_id` = ? AND `ended_at` IS NULL ORDER BY `started_at` DESC LIMIT 1",
     [riderId],
   );
   if (row === null) return null;
@@ -84,6 +86,8 @@ export async function openShiftFor(db: Db, riderId: Uint8Array): Promise<OpenShi
     id: new Uint8Array(row["id"] as Uint8Array),
     zoneId: new Uint8Array(row["zone_id"] as Uint8Array),
     startedAt: String(row["started_at"]),
+    ordersCompleted: Number(row["orders_completed"] ?? 0),
+    distanceM: Number(row["distance_m"] ?? 0),
   };
 }
 
