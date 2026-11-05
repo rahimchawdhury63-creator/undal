@@ -35,6 +35,20 @@ export interface RealtimeClient {
      */
     readonly audience?: { readonly vendorUserId?: string; readonly riderUserId?: string };
   }): Promise<Result<true>>;
+  /**
+   * Open a shift's live row in D1 (D108, D109).
+   *
+   * Every flush is judged against that row, and the first flush of a shift is refused without it. This is the
+   * one call core makes that *writes* in realtime rather than announcing something, so unlike a broadcast its
+   * failure is not degradable: a shift whose live row does not exist cannot be tracked at all.
+   */
+  openShift(input: {
+    readonly riderId: string;
+    readonly shiftId: string;
+    readonly zoneId: string;
+    readonly vehicle: string;
+    readonly point: { readonly lat: number; readonly lon: number };
+  }): Promise<Result<{ opened: boolean; shiftId: string; staleAfterMs: number }>>;
   /** Whether a rider is currently present in a zone. Presence is per zone, so the zone is required. */
   presenceOf(input: {
     readonly zoneId: string;
@@ -85,6 +99,11 @@ export function createRealtimeClient(baseUrl: string, token: string): RealtimeCl
     async broadcast(input) {
       const result = await call("/internal/broadcast", input);
       return result.ok ? ok(true) : result;
+    },
+    async openShift(input) {
+      const result = await call("/internal/shift/open", input);
+      if (!result.ok) return result;
+      return ok(result.value as { opened: boolean; shiftId: string; staleAfterMs: number });
     },
     async presenceOf(input) {
       const result = await call("/internal/presence", input);

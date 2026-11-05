@@ -4,7 +4,7 @@
  */
 
 /**
- * Riders: shifts, documents, penalties, cash — 36 keys.
+ * Riders: shifts, documents, penalties, cash — 37 keys.
  *
  * Every key is `resource.action` beneath a domain prefix, spelled out rather than
  * composed at runtime: a permission a client cannot grep for is a permission nobody
@@ -33,6 +33,7 @@ export const RIDER_KEYS = [
   "rider.impersonate",
   "rider.view_cash",
   // rider.shift
+  "rider.shift.start",
   "rider.shift.read",
   "rider.shift.list",
   "rider.shift.force_end",

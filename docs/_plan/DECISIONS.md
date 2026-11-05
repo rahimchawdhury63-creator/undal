@@ -1893,3 +1893,46 @@ values bound to them).
 *Open:* core's `/v1/rider/shift/start` — the caller — is the next rung; until it exists this route is reached by
 tests and by nothing else. The shift's end has the mirror problem: `POST /rt/location/erase` exists (D98) and
 `/v1/rider/shift/end` does not.
+
+## D109 — The shift's beginning exists, and it refuses rather than half-opens
+
+D108 closed the mouth of the live-tracking channel from realtime's side. This is the caller: `POST
+/v1/rider/shift/start`, the first route in the repo that makes a rider's live row exist because a rider asked
+for one. Before it, nothing in the platform could open a shift at all.
+
+**Four questions, four refusals, each naming the screen that fixes it.** The token resolves to a rider by
+`user_id` — never by a rider id in the body, which would be a user able to name a rider they are not. The rider
+must be `APPROVED`: under review is `SHIFT_KYC_PENDING` (409), suspended is `AUTH_ACCOUNT_SUSPENDED` (451), and
+the two are different screens so they are different codes. An existing open shift is `SHIFT_ALREADY_OPEN` with
+its id rather than a quiet `200` returning it — a stale shift that answers success is a shift nobody will ever
+close. And the zone: the home zone always, any other only through a live `rider_zone_assignments` row.
+
+**The selfie is required and is not verified here.** `19 §3.1` accepts the shift on the on-device checks and
+sends 10% plus every first shift to a human afterwards, so the API requires an https URL of at most 512
+characters (`selfie_url` is a `VARCHAR(512)`) and records `selfie_verified = 1`, which means *accepted at the
+door*. A review that later fails ends the shift; it never blocks the start, because a rider who cannot start
+because of a camera heuristic is a rider who cannot earn.
+
+**The seed is synchronous and its failure undoes the shift.** D108 argued that a shift without a live row is
+untracked. The consequence is that a shift start which wrote TiDB and skipped D1 would leave a rider visible to
+dispatch, invisible on the map, and unable to fix it — every flush refused with `SHIFT_NOT_OPEN` and no error
+the rider can see. So the internal call is awaited, and on failure the route deletes the shift row, puts
+`shift_state` back to `OFFLINE`, writes no audit row, and answers
+`503 SERVICE_DEGRADED { component: "realtime", reason: "live_position_unavailable" }`. A shift that cannot be
+tracked does not exist; the rider taps again in a second. The same refusal covers a deployment with no realtime
+configured, because there the seed is impossible rather than slow.
+
+**One permission key was added and the register's count moved, deliberately.** `rider.shift.start` did not
+exist: the specification's 412 keys include `rider.shift.read`, `force_end`, `approve_selfie` and
+`reject_selfie`, and nothing a rider could hold to begin their own shift. The register therefore holds 413 and
+asserts it at module load, `21`'s two counts moved with it, and the RIDER actor holds the new key. A route
+gated on a key that does not exist fails closed and reads as a UI bug; the count assertion is what caught it.
+
+Tests: ten in `shift-start.test.ts` — the happy path (row, state, audit, and the seed's rider/zone/vehicle/point),
+the second tap, under review, suspended, no rider row, a non-https selfie, an unassigned zone writing nothing, an
+assigned zone succeeding, the unwind (row deleted, both state writes, no audit), and the unconfigured deployment.
+Verified by deletion: removing the unwind block fails two of them.
+
+*Open:* the cash gate. `25 §2` has a `CASH_LOCKED` rider unable to start, and that state is produced by the
+shift *end* — which does not exist yet — so the gate is written when there is something that can set it. Also
+open: `GET /v1/rider/shift/current`, break toggling, and the sampled admin review that flips `selfie_verified`.

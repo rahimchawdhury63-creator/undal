@@ -480,9 +480,9 @@ completely transparent about how position is earned, and that transparency is it
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/v1/rider/shift/start` | Begin a shift; requires a verified selfie |
+| `POST` | `/v1/rider/shift/start` | Begin a shift; requires a selfie. Implemented (D109) — see below |
 | `POST` | `/v1/rider/shift/selfie` | Upload the shift selfie (proxied to imgbb) |
-| `POST` | `/v1/rider/shift/end` | End a shift; triggers the cash lock if owing |
+| `POST` | `/v1/rider/shift/end` | End a shift; triggers the cash lock if owing. **Not implemented** |
 | `POST` | `/v1/rider/shift/break` | Enter/leave break |
 | `GET` | `/v1/rider/shift/current` | Current shift state and totals |
 | `POST` | `/v1/rider/presence/heartbeat` | Presence ping |
@@ -498,6 +498,22 @@ completely transparent about how position is earned, and that transparency is it
 | `GET`/`PATCH` | `/v1/rider/profile` | Profile and payout details |
 | `GET` | `/v1/rider/penalties` | Penalties with appeal status |
 | `POST` | `/v1/rider/penalties/{id}/appeal` | Appeal |
+
+`/v1/rider/shift/start` (D109) is the route every live-tracking promise hangs from, so its contract is worth
+stating exactly. The body is `{ selfieUrl, point: { lat, lon }, zoneId? }`: the selfie must be an https URL of
+at most 512 characters (it is the imgbb link from `26`, and the on-device checks in `19 §3.1` are the
+verification), and `point` is where the rider is standing. The zone defaults to the rider's home zone; any other
+zone needs a live `rider_zone_assignments` row. The refusals are each a screen in the app: `SHIFT_KYC_PENDING`
+(409) while the application is under review, `AUTH_ACCOUNT_SUSPENDED` (451) when it is suspended,
+`SHIFT_ALREADY_OPEN` (409, with `shift_id`) for a second tap, `SHIFT_ZONE_NOT_ASSIGNED` (409) for a zone the
+rider does not hold, and `SHIFT_SELFIE_REQUIRED` (422) when the selfie is missing or not https.
+
+The answer is `{ shiftId, riderId, zoneId, vehicle, shiftState: "ONLINE", startedAt }`. Opening a shift writes
+`rider_shifts` **and** the rider's live D1 row, and the second write is synchronous: a shift that exists in TiDB
+but not in D1 is a rider dispatch can see and the map cannot, whose every flush is refused. If that write fails
+the shift is undone (`DELETE` the row, put `shift_state` back to `OFFLINE`) and the caller gets
+`503 SERVICE_DEGRADED { component: "realtime", reason: "live_position_unavailable" }` — a shift that cannot be
+tracked does not exist, and the rider taps again.
 | `GET` | `/v1/rider/diagnostics` | Location uploads, FCM health, battery posture |
 
 ---

@@ -26,6 +26,7 @@ import { STREAM_AUTH_ROUTES } from "./routes/stream-auth.ts";
 import { AUTO_CANCEL_ROUTES } from "./routes/auto-cancel.ts";
 import { DISPATCH_LOG_ROUTES } from "./routes/dispatch-log.ts";
 import { COORDINATION_ROUTES } from "./routes/coordination.ts";
+import { SHIFT_ROUTES } from "./routes/shift.ts";
 
 /**
  * The pipeline, in the order a request meets it: identify, throttle, parse, authenticate,
@@ -50,6 +51,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   ...AUTO_CANCEL_ROUTES,
   ...DISPATCH_LOG_ROUTES,
   ...COORDINATION_ROUTES,
+  ...SHIFT_ROUTES,
 ];
 
 /** A matched route plus the parameters its template captured. */
