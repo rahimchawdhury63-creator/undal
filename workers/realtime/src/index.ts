@@ -293,6 +293,9 @@ export default {
         ...(env.STREAM_ROOM === undefined
           ? { broadcastEnabled: false }
           : { store: new DurableObjectFrameStore(env.STREAM_ROOM), broadcastEnabled: true }),
+        // A shift's first row is written here on core's behalf: without it the first flush of the shift is
+        // refused as `SHIFT_NOT_OPEN`, which is the whole live-tracking channel failing to start (D108).
+        ...(env.RIDER_DB === undefined ? {} : { positions: d1Positions(env.RIDER_DB) }),
       });
     }
 

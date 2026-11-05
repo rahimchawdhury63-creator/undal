@@ -58,6 +58,23 @@ export interface Erasure {
   readonly current: number;
 }
 
+/** What opening a shift writes: the row that makes the first flush legal. */
+export interface OpenShiftInput {
+  readonly riderId: string;
+  readonly shiftId: string;
+  readonly zoneId: string;
+  readonly vehicle: string;
+  /** `ONLINE` at a shift's start; the flush moves it. */
+  readonly state: string;
+  /** The shift's start point, from the selfie step: a coarse "I am here", not a fix. */
+  readonly latE7: number;
+  readonly lonE7: number;
+  readonly accuracyM: number;
+  /** When this seed stops being live: `now + 2 × the idle ceiling`, until a flush moves it. */
+  readonly staleAfterMs: number;
+  readonly nowMs: number;
+}
+
 /** What the route needs from a position store. */
 export interface PositionStore {
   /** The rider's shift context, or `null` when there is no current row: the shift has not started. */
@@ -83,6 +100,18 @@ export interface PositionStore {
    * `stale_after` is in the past is a row no device is refreshing.
    */
   sweepStale(cutoffMs: number): Promise<Swept>;
+  /**
+   * Open a shift's live row (`07 §3.2`, D108).
+   *
+   * The ingest route refuses a batch for a rider with no `rider_current` row — `SHIFT_NOT_OPEN` — because a
+   * position with no shift, no zone and no vehicle cannot be judged. So somebody has to write the first row,
+   * and the only moment the platform knows the rider's zone and vehicle for certain is the shift's start.
+   *
+   * **The ring is cleared first.** A new shift's trail is that shift's: leaving the previous shift's last fix
+   * in place would hand the first flush of the new shift a `newest` from somewhere else and judge the rider a
+   * teleporter on their own doorstep. One batch, three statements, and the order in it is the decision.
+   */
+  open(input: OpenShiftInput): Promise<void>;
 }
 
 /** What a sweep removed. Zero is the normal answer; the counts make the abnormal one visible. */
@@ -125,6 +154,11 @@ const DELETE_CURRENT = "DELETE FROM rider_current WHERE rider_id = ?";
 const SWEEP_POSITIONS = `DELETE FROM rider_positions
   WHERE rider_id IN (SELECT rider_id FROM rider_current WHERE stale_after < ?)`;
 const SWEEP_CURRENT = "DELETE FROM rider_current WHERE stale_after < ?";
+
+/** The seed row a shift start writes, after the ring and the previous row are gone. */
+const INSERT_OPEN = `INSERT OR REPLACE INTO rider_current
+  (rider_id, shift_id, zone_id, vehicle, lat, lon, bearing_deg, speed_mps, accuracy_m, state, active_order_id, batch_size, battery_pct, updated_at, stale_after)
+  VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, 0, NULL, ?, ?)`;
 
 /** The newest stored fix, for the next batch's speed and ordering checks. */
 const SELECT_NEWEST = `SELECT lat, lon, accuracy_m, bearing_deg, recorded_at, received_at
@@ -218,6 +252,27 @@ export function d1Positions(db: D1Like): PositionStore {
         positions: results?.[0]?.meta?.changes ?? 0,
         current: results?.[1]?.meta?.changes ?? 0,
       };
+    },
+
+    async open(input: OpenShiftInput): Promise<void> {
+      await db.batch([
+        db.prepare(DELETE_POSITIONS).bind(input.riderId),
+        db.prepare(DELETE_CURRENT).bind(input.riderId),
+        db
+          .prepare(INSERT_OPEN)
+          .bind(
+            input.riderId,
+            input.shiftId,
+            input.zoneId,
+            input.vehicle,
+            input.latE7 / 1e7,
+            input.lonE7 / 1e7,
+            input.accuracyM,
+            input.state,
+            input.nowMs,
+            input.staleAfterMs,
+          ),
+      ]);
     },
 
     async sweepStale(cutoffMs: number): Promise<Swept> {

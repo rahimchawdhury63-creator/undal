@@ -53,6 +53,9 @@ function storeOf(options: {
     async sweepStale(): Promise<{ riders: number; positions: number }> {
       return { riders: 0, positions: 0 };
     },
+    async open(): Promise<void> {
+      // The route that opens a shift is tested where it lives; these fakes only have to satisfy the port.
+    },
   };
 }
 

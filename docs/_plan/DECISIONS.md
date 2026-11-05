@@ -1856,3 +1856,40 @@ sweep to `null` and watching it fail).
 zone that empties completely is therefore swept by the next connection, not by a timer. That is the same
 trade-off D91 made deliberately — no alarm with no members — and the residual case it leaves (one rider alone
 in a zone, socket closed without a presence absence) is the case the presence path already covers.
+
+## D108 — The shift's first row is the only row anybody can write, and core writes it
+
+Every flush is judged against `rider_current`: the zone the rider is in, the vehicle they are on, the state they
+are in. A rider without that row is refused with `SHIFT_NOT_OPEN` — correctly, because a position with no shift
+cannot be judged — and until now nothing wrote the row. `rider_current` was written only by `write()`, which the
+ingest route calls *after* `context()` has already answered. The live-tracking channel could therefore never
+start: the first flush of every shift would be refused, and so would every one after it.
+
+**The gap is exactly one row, and only the shift's start knows its contents.** The zone and the vehicle are the
+shift's, not the batch's. So core opens the shift in TiDB and calls `POST /internal/shift/open`, which is the
+one internal route that writes D1 rather than announcing something. It carries `{riderId, shiftId, zoneId,
+vehicle, point, state?}` and answers `{opened, shiftId, staleAfterMs}`.
+
+**Three statements, one batch, in an order that is the decision.** `DELETE FROM rider_positions`,
+`DELETE FROM rider_current`, then `INSERT OR REPLACE INTO rider_current` with the seed. The deletions are not
+tidy-up: a new shift's trail is that shift's, and leaving the previous shift's last fix in the ring would hand
+the first flush of the new shift a `newest` from somewhere else and judge the rider a teleporter on their own
+doorstep. A half-opened shift — row deleted, seed not written — is a rider with no marker, so it cannot be two
+batches.
+
+**The seed is honest about what it is.** `accuracy_m = 100` because the start point comes from the selfie step,
+not from a fix, and a seed that claims five metres would make the map draw a confident dot at a guess. Its
+`stale_after` is `now + 2 × the idle-stationary ceiling` (ten minutes), the same rule every flush uses, so a
+seed that never receives a flush goes grey rather than staying a permanent "online" claim.
+
+**A deployment without a D1 binding says so.** `positions` is optional in `InternalContext`; without it the
+route answers `501 live_positions_not_configured` rather than opening a shift whose first flush will be refused
+with a different error. Two errors for one cause is how an operator spends an afternoon.
+
+Tests: three in `internal.test.ts` (the seed's state, point, accuracy and deadline; the 501 without a store; a
+body that is not a shift writes nothing) and one in `d1-store.test.ts` (the three statements in order, with the
+values bound to them).
+
+*Open:* core's `/v1/rider/shift/start` — the caller — is the next rung; until it exists this route is reached by
+tests and by nothing else. The shift's end has the mirror problem: `POST /rt/location/erase` exists (D98) and
+`/v1/rider/shift/end` does not.

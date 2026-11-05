@@ -4,7 +4,7 @@
  */
 
 /**
- * The two endpoints `undal-core` calls, and nothing else.
+ * The endpoints `undal-core` calls, and nothing else.
  *
  * Core's typed client (`workers/core/src/bindings/realtime.ts`) is the specification: one broadcast that
  * fans an order event out to the order and its zone, and one presence question for a single rider. Both
@@ -31,6 +31,8 @@ import { catalogueName } from "../sse/hub.ts";
 import type { FrameStore } from "../sse/store.ts";
 import type { BroadcastInput } from "../sse/fanout.ts";
 import { broadcast } from "../sse/fanout.ts";
+import { cadenceFor } from "../d1/cadence.ts";
+import type { PositionStore } from "../d1/store.ts";
 
 /** What the internal routes are given. */
 export interface InternalContext {
@@ -47,6 +49,13 @@ export interface InternalContext {
    * client already expects: the broadcast is a notification and a failure degrades.
    */
   readonly broadcastEnabled?: boolean;
+  /**
+   * The live-position store, when this deployment has a D1 binding.
+   *
+   * Only `/internal/shift/open` needs it: the row a shift's first flush is judged against. Absent means no
+   * live tracking at all, and the route says so rather than pretending the shift opened.
+   */
+  readonly positions?: PositionStore;
   readonly clock?: Clock;
 }
 
@@ -78,6 +87,58 @@ function readBroadcast(raw: unknown): BroadcastInput | null {
     atMs: typeof body.atMs === "number" ? body.atMs : 0,
     ...(typeof body.seq === "number" ? { seq: body.seq } : {}),
     ...(audience.vendorUserId === undefined && audience.riderUserId === undefined ? {} : { audience }),
+  };
+}
+
+/** The accuracy of a shift's start point. It is a selfie's location, not a fix, and it must not look like one. */
+export const OPEN_ACCURACY_M = 100;
+
+/** The D1 states a shift can be opened in. `ON_ORDER` needs an order, so it is not one of them. */
+const OPEN_STATES: ReadonlySet<string> = new Set(["ONLINE", "BREAK"]);
+
+/** What opening a shift needs, or `null` when the body is not one. */
+interface OpenShift {
+  readonly riderId: string;
+  readonly shiftId: string;
+  readonly zoneId: string;
+  readonly vehicle: string;
+  readonly state: string;
+  readonly latE7: number;
+  readonly lonE7: number;
+  readonly accuracyM: number;
+}
+
+/** Read a shift-open body. `false`/`null` are absent; the ids are opaque strings the streams already use. */
+export function readShiftOpen(raw: unknown): OpenShift | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const body = raw as Record<string, unknown>;
+  const text = (value: unknown, max: number): string | null =>
+    typeof value === "string" && value !== "" && value.length <= max ? value : null;
+  const riderId = text(body.riderId, 64);
+  const shiftId = text(body.shiftId, 64);
+  const zoneId = text(body.zoneId, 64);
+  const vehicle = typeof body.vehicle === "string" && (body.vehicle === "MOTORBIKE" || body.vehicle === "BICYCLE") ? body.vehicle : null;
+  if (riderId === null || shiftId === null || zoneId === null || vehicle === null) return null;
+  const point = typeof body.point === "object" && body.point !== null ? (body.point as Record<string, unknown>) : null;
+  const lat = point?.lat;
+  const lon = point?.lon;
+  if (typeof lat !== "number" || !Number.isFinite(lat) || lat < -90 || lat > 90) return null;
+  if (typeof lon !== "number" || !Number.isFinite(lon) || lon < -180 || lon > 180) return null;
+  const state = body.state === undefined ? "ONLINE" : body.state;
+  if (typeof state !== "string" || !OPEN_STATES.has(state)) return null;
+  const accuracyM =
+    typeof body.accuracyM === "number" && Number.isFinite(body.accuracyM) && body.accuracyM > 0
+      ? Math.min(Math.round(body.accuracyM), 10_000)
+      : OPEN_ACCURACY_M;
+  return {
+    riderId,
+    shiftId,
+    zoneId,
+    vehicle,
+    state,
+    latE7: Math.round(lat * 1e7),
+    lonE7: Math.round(lon * 1e7),
+    accuracyM,
   };
 }
 
@@ -126,6 +187,21 @@ export async function handleInternal(request: Request, context: InternalContext)
     }
     const result = await broadcast(context.store, { ...body, atMs: body.atMs === 0 ? clock.nowMs() : body.atMs });
     return json(success({ recorded: result.recorded.length, orderId: body.orderId }, { requestId }), 200, requestId);
+  }
+
+  if (url.pathname === "/internal/shift/open") {
+    if (request.method !== "POST") return refuse("NOT_IMPLEMENTED", requestId, { method: request.method });
+    if (context.positions === undefined) {
+      return refuse("NOT_IMPLEMENTED", requestId, { reason: "live_positions_not_configured" });
+    }
+    const open = readShiftOpen(await safeJson(request));
+    if (open === null) return refuse("VALIDATION_FAILED", requestId, { fields: [] });
+    const nowMs = clock.nowMs();
+    // The seed's own deadline, from the profile the rider starts in: idle and stationary, the widest ceiling.
+    // Until the first flush this is the only claim the map has, and it must expire like any other.
+    const staleAfterMs = nowMs + cadenceFor("IDLE_STATIONARY").ceilingMs * 2;
+    await context.positions.open({ ...open, nowMs, staleAfterMs });
+    return json(success({ opened: true, shiftId: open.shiftId, staleAfterMs }, { requestId }), 200, requestId);
   }
 
   if (url.pathname === "/internal/presence") {

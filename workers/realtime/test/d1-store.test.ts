@@ -198,6 +198,44 @@ describe("erasing a rider", () => {
   });
 });
 
+describe("opening a shift (D108)", () => {
+  test("the old trail and row go first, then the seed: a new shift's trail is its own", async () => {
+    const fake = fakeD1();
+    await d1Positions(fake.db).open({
+      riderId: "rider-1",
+      shiftId: "shift-9",
+      zoneId: "zone-1",
+      vehicle: "BICYCLE",
+      state: "ONLINE",
+      latE7: 248_942_150,
+      lonE7: 918_689_120,
+      accuracyM: 100,
+      staleAfterMs: 1_600_000,
+      nowMs: 1_000_000,
+    });
+    assert.deepEqual(
+      fake.captured.map((entry) => entry.sql.split("\n")[0]),
+      ["DELETE FROM rider_positions WHERE rider_id = ?", "DELETE FROM rider_current WHERE rider_id = ?", "INSERT OR REPLACE INTO rider_current"],
+      "positions, then the row, then the seed",
+    );
+    assert.equal(fake.batched, 3, "one batch: a half-opened shift is a rider with no marker");
+    assert.deepEqual(fake.captured[0]!.values, ["rider-1"]);
+    assert.deepEqual(fake.captured[1]!.values, ["rider-1"]);
+    assert.deepEqual(fake.captured[2]!.values, [
+      "rider-1",
+      "shift-9",
+      "zone-1",
+      "BICYCLE",
+      24.894215,
+      91.868912,
+      100,
+      "ONLINE",
+      1_000_000,
+      1_600_000,
+    ]);
+  });
+});
+
 describe("the sweep's two statements (D107)", () => {
   test("positions go first, selected from the current rows the cutoff is about", async () => {
     const fake = fakeD1([], [412, 3]);

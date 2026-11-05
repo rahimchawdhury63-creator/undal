@@ -239,6 +239,17 @@ survivors with `d1/store.ts`, and returns the cadence the device should use for 
 2 048 bytes, more than twelve positions, a delta that is not three finite integers. Half a trail is a
 marker that jumps, which is worse than a client that knows its upload failed.
 
+**The first row of a shift is written by core, through `POST /internal/shift/open` (D108).** A flush is judged
+against the `rider_current` row — zone, vehicle, state — so a rider with no row is refused with
+`SHIFT_NOT_OPEN`, correctly: a position with no shift cannot be judged. That leaves exactly one gap to close,
+and it is the shift's start: core opens the shift in TiDB (`/v1/rider/shift/start`) and tells realtime to seed
+the live row with the rider's `shift_state = ONLINE`, the zone and vehicle from the shift, and the start point
+the selfie step already collected. The seed's `accuracy_m` is 100 m — a selfie's location is a coarse "I am
+here", and it must not look like a fix — and its `stale_after` is the idle ceiling twice over, so a seed that
+never receives a flush goes grey like anything else. Opening a shift clears the rider's ring and row first, in
+the same batch: a new shift's trail is that shift's, and a first fix judged against the last fix of the
+previous shift would make every rider a teleporter on their own doorstep.
+
 ### 4.2 Delta encoding
 
 The first position in a batch is absolute. The rest are deltas in units of 1e-6 degrees (~0.11 m)

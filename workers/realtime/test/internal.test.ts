@@ -19,6 +19,7 @@ import type { InternalContext } from "../src/routes/internal.ts";
 import { StreamHub } from "../src/sse/hub.ts";
 import { MemoryFrameStore } from "../src/sse/store.ts";
 import { parseChannels } from "../src/sse/channels.ts";
+import type { OpenShiftInput } from "../src/d1/store.ts";
 import { BACKENDS, T0 } from "./support/backends.ts";
 import type { Backend } from "./support/backends.ts";
 
@@ -247,5 +248,76 @@ describe("the internal secret", () => {
     assert.equal(await constantTimeEqual("abc", "abd"), false);
     assert.equal(await constantTimeEqual("abc", "abcd"), false);
     assert.equal(await constantTimeEqual("", ""), true);
+  });
+});
+
+describe("opening a shift's first row (D108)", () => {
+  /** A store that records what it was asked to open, and refuses to be more than that. */
+  function positions(opened: OpenShiftInput[] = []): NonNullable<InternalContext["positions"]> {
+    return {
+      async open(input) {
+        opened.push(input);
+      },
+      async context() {
+        return null;
+      },
+      async newest() {
+        return null;
+      },
+      async write() {
+        /* not exercised here */
+      },
+      async erase() {
+        return { positions: 0, current: 0 };
+      },
+      async sweepStale() {
+        return { riders: 0, positions: 0 };
+      },
+    };
+  }
+
+  const body = {
+    riderId: "rider-a",
+    shiftId: "shift-1",
+    zoneId: "zone-1",
+    vehicle: "MOTORBIKE",
+    point: { lat: 24.894215, lon: 91.868912 },
+  };
+
+  test("a shift opens with a seed row whose deadline is the idle ceiling, twice", async () => {
+    const backend = BACKENDS[0]!.make();
+    const opened: OpenShiftInput[] = [];
+    const response = await handleInternal(post("/internal/shift/open", body), {
+      ...contextFor(backend),
+      positions: positions(opened),
+    });
+    assert.equal(response.status, 200);
+    const parsed = (await response.json()) as { data: { opened: boolean; shiftId: string; staleAfterMs: number } };
+    assert.equal(parsed.data.opened, true);
+    assert.equal(parsed.data.shiftId, "shift-1");
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0]!.state, "ONLINE", "a shift starts online, not on an order");
+    assert.equal(opened[0]!.latE7, 248_942_150);
+    assert.equal(opened[0]!.lonE7, 918_689_120);
+    assert.equal(opened[0]!.accuracyM, 100, "a selfie's location must not look like a GPS fix");
+    assert.equal(opened[0]!.staleAfterMs, parsed.data.staleAfterMs);
+    assert.ok(opened[0]!.staleAfterMs > opened[0]!.nowMs, "a seed that is already stale is a marker that never appears");
+  });
+
+  test("without a live-position database the route says so rather than pretending", async () => {
+    const response = await handleInternal(post("/internal/shift/open", body), contextFor(BACKENDS[0]!.make()));
+    assert.equal(response.status, 501);
+    const parsed = (await response.json()) as { error: { details?: { reason?: string } } };
+    assert.equal(parsed.error.details?.reason, "live_positions_not_configured");
+  });
+
+  test("a body that is not a shift is refused before anything is written", async () => {
+    const opened: OpenShiftInput[] = [];
+    const response = await handleInternal(
+      post("/internal/shift/open", { ...body, vehicle: "HOVERBOARD" }),
+      { ...contextFor(BACKENDS[0]!.make()), positions: positions(opened) },
+    );
+    assert.equal(response.status, 422);
+    assert.deepEqual(opened, []);
   });
 });
