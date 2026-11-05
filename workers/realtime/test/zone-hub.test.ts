@@ -393,3 +393,77 @@ describe("the delivery receipt", () => {
     assert.equal(server.lastFrame().t, "hb_ack");
   });
 });
+
+describe("an absence erases the live channel (D99)", () => {
+  /** A D1 binding that records the statements it was asked to run. */
+  function fakeD1(statements: string[]): D1Database {
+    return {
+      prepare(sql: string) {
+        statements.push(sql);
+        return {
+          bind() {
+            return {
+              async run() {
+                return { results: [] };
+              },
+            };
+          },
+        };
+      },
+      async batch(list: readonly { run(): Promise<unknown> }[]) {
+        for (const statement of list) await statement.run();
+        return list.map(() => ({ meta: { changes: 0 } }));
+      },
+    } as unknown as D1Database;
+  }
+
+  /** A room over a D1-backed environment, with a pair the test holds both ends of. */
+  function roomWithD1(statements: string[]): { hub: ZoneHub; server: FakeWebSocket; clock: FixedClock } {
+    const clock = new FixedClock(T0);
+    const state = fakeState();
+    const server = new FakeWebSocket();
+    const client = new FakeWebSocket();
+    const pair: () => SocketPair = () => ({
+      client: client as unknown as WebSocket,
+      server: server as unknown as WebSocket,
+    });
+    const env = { ...environment(clock), RIDER_DB: fakeD1(statements) };
+    return { hub: new ZoneHub(state, env, { clock, pair }), server, clock };
+  }
+
+  test("a rider whose socket goes silent is erased at the instant the absence is published", async () => {
+    const statements: string[] = [];
+    const { hub, server, clock } = roomWithD1(statements);
+    await hub.upgrade(upgrade());
+    clock.advance(2_001);
+    await hub.alarm();
+    assert.deepEqual(await hub.presence(), [], "the absence was published");
+    assert.equal(statements.filter((sql) => sql.includes("DELETE FROM rider_positions")).length, 1);
+    assert.equal(statements.filter((sql) => sql.includes("DELETE FROM rider_current")).length, 1);
+    assert.deepEqual(server.closes, [{ code: CLOSE_HEARTBEAT_TIMEOUT, reason: "heartbeat timeout" }]);
+  });
+
+  test("a deliberate goodbye erases too: the rider pressed the button, the promise is the same", async () => {
+    const statements: string[] = [];
+    const { hub, server } = roomWithD1(statements);
+    await hub.upgrade(upgrade());
+    await hub.webSocketClose(server as unknown as WebSocket, CLOSE_GOING_OFFLINE, "offline", true);
+    await hub.alarm();
+    assert.equal(statements.filter((sql) => sql.includes("DELETE FROM rider_positions")).length, 1);
+  });
+
+  test("a room that never connected erases nothing, because nobody was absent", async () => {
+    const statements: string[] = [];
+    const { hub } = roomWithD1(statements);
+    await hub.alarm();
+    assert.deepEqual(statements, []);
+  });
+
+  test("without a binding the absence still publishes, because presence must not depend on D1", async () => {
+    const { hub, server, clock } = room();
+    await hub.upgrade(upgrade());
+    clock.advance(2_001);
+    await hub.alarm();
+    assert.deepEqual(await hub.presence(), []);
+  });
+});

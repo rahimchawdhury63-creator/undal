@@ -22,6 +22,8 @@ import { PresenceHub } from "./presence-hub.ts";
 import { CLOSE_GOING_OFFLINE } from "../presence/grace.ts";
 import { coordinatorFrom } from "../coordination/from-env.ts";
 import { createCoreReceiptRecorder } from "../authority/core-receipts.ts";
+import { absenceEraser } from "../d1/on-absence.ts";
+import { d1Positions } from "../d1/store.ts";
 import type { ReceiptRecorder } from "../authority/core-receipts.ts";
 import type { CoordinatorEnv } from "../coordination/from-env.ts";
 import type { PresenceRole } from "../coordination/coordinator.ts";
@@ -29,6 +31,12 @@ import type { PresenceRole } from "../coordination/coordinator.ts";
 /** The bindings the room needs. */
 export interface ZoneHubEnv extends CoordinatorEnv {
   readonly INTERNAL_TOKEN?: string;
+  /**
+   * The live-position database (`07 §6`). Present, a presence-declared absence erases that rider's
+   * breadcrumbs at the instant the absence is published (D99); absent, presence publishes and nothing is
+   * erased, because there is nothing to erase.
+   */
+  readonly RIDER_DB?: D1Database;
   /** Where core is, for the receipt a `alarm_received` frame produces. */
   readonly CORE_BASE_URL?: string;
   readonly PUBLIC_API_BASE?: string;
@@ -273,6 +281,18 @@ export class ZoneHub {
       coordinator: built.coordinator,
       storage: this.state.storage,
       clock: this.clock,
+      // The one absence consequence this room owns outright. Everything else a presence change implies —
+      // reassignment, the admin map, the vendor's `open_state` — belongs to whoever hears about it next.
+      onPublished: absenceEraser(
+        this.env.RIDER_DB === undefined ? null : d1Positions(this.env.RIDER_DB),
+        (record, error) => {
+          // The absence is published and cannot be unpublished, so this is a report rather than a retry:
+          // an operator reading it knows one rider's trail outlived their departure.
+          console.error(
+            `presence: erasure failed for ${record.reason} at ${String(record.publishedAtMs)}: ${String(error)}`,
+          );
+        },
+      ),
     });
     return this.hubInstance;
   }

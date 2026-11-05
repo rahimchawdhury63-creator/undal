@@ -383,6 +383,13 @@ when the rider goes offline or ends their shift.
 | Admin force-ends a shift | < 1 s | Synchronous |
 | App uninstalled / token invalid | next zone sweep, < 60 s | `ZoneHub`'s 60 s housekeeping alarm |
 
+The presence-declared row is implemented (D99): `PresenceHub` publishes an absence at its alarm, and the room
+turns that publication into a deletion through `absenceEraser` (`workers/realtime/src/d1/on-absence.ts`) wired
+in `hubs/zone-hub.ts`. The erasure happens **at the instant of publication**, so the five seconds are D91's
+detection budget (2 000 ms at the top) plus the alarm's own latency — not a second job's. A failed erasure is
+reported and swallowed: the absence is already published and the rest of the alarm still has work, and a stale
+trail is a wrong answer to "where is my rider", not a permanent one.
+
 ```sql
 -- Both statements in one D1 batch. Two writes, once per shift. Negligible.
 DELETE FROM rider_positions WHERE rider_id = ?1;

@@ -1538,11 +1538,44 @@ erasure endpoint open to anybody who could reach it, with a test suite that woul
 the "no internal token configured" case. It now awaits and checks `.ok`, and the route carries a comment saying
 why the bare form must never come back.
 
-**What it does not do yet.** Nothing in the platform calls either door on the presence path, which is the trigger
-with the five-second promise: `presence/socket` knows when a rider's last socket dies and `markAbsent` exists on
-the coordinator, but neither holds a D1 binding, so the sweep that erases an abruptly-dead device is still
-unbuilt. Presence-declared erasure is the next rung and it is the one that matters most operationally — the
-other two triggers are a rider pressing a button or an operator pressing one.
+**What it did not do yet** — the presence trigger, closed by D99 below.
 
-*Open:* the presence-declared trigger above; and `/rt/location/batch` still learns a rider's zone and vehicle
-from `rider_current` because no shift-start route exists to tell it.
+*Open:* `/rt/location/batch` still learns a rider's zone and vehicle from `rider_current` because no shift-start
+route exists to tell it.
+
+## D99 — The trigger nobody presses, wired to the thing that must happen within five seconds
+
+`§6.1` lists five erasure triggers. D98 built the doors for four of them — a rider pressing end shift or go
+offline, an operator forcing one, and the sweep for a device that stopped existing. The fifth is the one the
+promise is really about: *the presence engine declares the rider offline*, because a phone that died in a tunnel
+cannot ask to be forgotten.
+
+**The hook already existed and had no consequences.** `PresenceHub` publishes an absence at its alarm and calls
+`onPublished`, which nothing supplied. It does now: `absenceEraser` (`d1/on-absence.ts`) is passed by
+`ZoneHub`, over the room's own `RIDER_DB`. The hub's comment said "the hub reports; whoever owns those effects
+decides" — this is the first effect the room owns outright, because the live channel is the room's territory
+and reassignment is not.
+
+**Erasure happens at publication, not on a later sweep.** D91 already spends up to two seconds proving the
+device is silent; a second scheduled job that erased "shortly after" would add a window with no owner. Deleting
+in the same breath makes the five-second promise a property of the alarm's latency, which is the only part of
+the path that is measurable.
+
+**A failed erasure does not fail the absence.** The ledger has already been swept and the coordinator told;
+throwing would abort the alarm and delay every other absence in the zone. The failure is reported to a callback
+that logs it, and the ring is overwritten by the next shift's first flush anyway — a stale trail is a wrong
+answer to "where is my rider", not a permanent one. The asymmetry is deliberate: refusing to publish would leave
+a rider marked present forever, which is worse than a trail that outlives them by one shift.
+
+**It does not ask what kind of actor was absent.** The id is the key and a customer's id has no rows in D1, so
+the deletion is a no-op that costs one batched statement. Branching on the role would make erasure depend on a
+field that a future vendor live-tracking feature would have to remember to add to — and the failure mode of
+forgetting is a trail that never gets erased.
+
+Tests: the module's six cases (each reason, idempotence, no binding, a failure with and without a reporter) and
+four at the room: a silent socket erases at the alarm that publishes it, a deliberate goodbye erases too, a room
+that never connected erases nothing, and a deployment without a binding still publishes.
+
+*Open:* `/rt/location/batch` still learns a rider's zone and vehicle from `rider_current` because no
+shift-start route exists to tell it; and the 60-second housekeeping sweep (`§6.1`'s last row) still needs a
+listener that notices a token is invalid.
