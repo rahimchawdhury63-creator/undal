@@ -534,6 +534,13 @@ never reached answers `complete: false` rather than "nothing was missed": a fres
 room and a lost snapshot are indistinguishable from a channel that never spoke, so the client is told to
 reconcile instead of being shown a silence it will read as "nothing happened".
 
+A third rule is about where a sequence comes from (`sse/fanout.ts`, D101). Core numbers an order's events
+with that order's own log sequence, and on the **order** channel that number is the frame id — so a
+`Last-Event-ID` is also a row in `order_state_events`. The **zone** channel carries every order in the zone,
+where per-order numbers repeat; it is numbered by its own ring instead. Copying the order's sequence onto it
+would make two orders' frames share an id, and the ring replaces a duplicate id rather than refusing it, so
+the admin map would silently lose one of them.
+
 ### 9.1 Event catalogue (46 events)
 
 | Group | Events |

@@ -1612,3 +1612,33 @@ duplicate ids, oldest-id eviction, age trimming of a late event, evicted cursors
 *Open:* the live broadcast path still has no ordering guarantee across isolates — a socket can receive frames
 out of sequence even though its reconnect will be exact. Fixing that needs the broadcaster to sequence per
 order, which is core's `announce()` and a separate decision.
+
+## D101 — A sequence belongs to the channel that owns it
+
+D100 made the ring robust against ids that arrive out of order. It did not ask where those ids come from, and
+the answer was wrong in one place: `broadcast` copied core's per-order `seq` onto **every** channel it fanned
+out to, including the zone.
+
+**The bug that produces.** `order_state_events.seq` is per order and starts at 1. A zone channel carries every
+order in the zone, so order A's first event and order B's first event both arrive as id 1 — and `EventRing.push`
+treats a repeated id as *the same event, revised*, so B's frame silently replaced A's. The admin map lost A's
+event with no error anywhere: the ring did what it was told, and the fan-out told it two different events were
+one.
+
+**The fix is scoping, not more machinery.** The order channel keeps the order's log sequence, which is exactly
+what a resuming client should quote: `Last-Event-ID: 4` is also a row in `order_state_events` for that order.
+The zone channel is numbered by its own ring, because a zone's frames have no per-order sequence to inherit and
+pretending they do makes the shared id space a collision domain. `channelsFor` still returns both channels;
+`broadcast` decides the sequence per channel rather than per broadcast.
+
+**Verified the way a claim has to be.** Reverting the one-line scoping decision fails three of the four new
+tests — including the two-order case, which is the bug itself — and restoring it passes all four.
+
+Tests: `fanout-seq.test.ts` (the order channel keeps its sequence; an unnumbered broadcast is ring-assigned; two
+orders with seq 1 both survive on the zone; five orders numbering their own frames 1–5).
+
+*Open:* the order channel's ids now come from a sequence allocated by `nextEventSeq` (`MAX(seq)+1` read, then
+inserted). Two concurrent transitions on one order can read the same maximum, and the unique index
+`(order_id, seq)` would then refuse the second insert *after* its state update applied — an order that moved with
+no event row and an error to its caller. That is the next rung: the append retries on `DUPLICATE` rather than
+losing the event.

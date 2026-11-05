@@ -25,7 +25,13 @@ export interface BroadcastInput {
   /** The catalogue name, e.g. `order.assigned`, or the stored kind it is derived from. */
   readonly event: string;
   readonly payload: unknown;
-  /** The order's sequence number, when core has one; otherwise the ring assigns the next id. */
+  /**
+   * The order's log sequence, when core has one.
+   *
+   * It is an **order-scoped** fact and it is applied to the order's channel only: copying it onto the zone
+   * channel would make two orders' events share an id there, and the ring replaces a duplicate id rather than
+   * refusing it — so the admin map would silently lose one of them (D101).
+   */
   readonly seq?: number;
   readonly atMs: number;
 }
@@ -58,8 +64,13 @@ export async function broadcast(
   if (catalogueName(input.event) === null) return { recorded: [], dropped: true };
   const recorded: { id: number; event: string }[] = [];
   for (const channel of channelsFor(input)) {
+    // A sequence belongs to the channel that owns it. `order:` channels are one order, whose log sequence is
+    // exactly the id a resuming client should quote; `zone:` channels carry every order in the zone, where the
+    // same per-order numbers repeat and the ring would treat the second order's frame as a replacement for the
+    // first. The zone's frames are numbered by its own ring (D101).
+    const seq = channel.kind === "order" ? input.seq : undefined;
     const frame = await store.record(channel, {
-      ...(input.seq === undefined ? {} : { seq: input.seq }),
+      ...(seq === undefined ? {} : { seq }),
       kind: input.event,
       data: input.payload,
       atMs: input.atMs,
