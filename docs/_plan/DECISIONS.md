@@ -1742,3 +1742,37 @@ order and the zone, because those routes have to resolve a rider's *user* id fro
 mapping problem `vendorOwnerUserId` solved for vendors, and a lookup per transition that deserves its own rung.
 Until then a vendor's other devices learn about an acceptance when the customer's page does, which is correct but
 not what the four-channel promise implies.
+
+## D105 — Three transitions were broadcasting names the stream refuses, which is the quietest failure available
+
+Comparing `state-machine.ts`'s event names against `EVENT_NAMES` found three that the stream does not carry:
+`order.rider_assigned`, `order.rider_search` and `order.auto_cancelled`. The catalogue (`08 §9.1`, from which
+the apps are generated) has `order.assigned`, `order.searching` and `order.cancelled`. The internal broadcast
+route answers `unknown_event` for a name it does not know, and `announce` treats any failure as a degraded
+notification — so in production **every rider search, every assignment and every auto-cancellation moved the
+order and reached nobody**. Not a crash, not a log flood: a customer watching "searching for a rider" forever
+while a rider was already on the way.
+
+**The machine was wrong, not the catalogue.** The catalogue is the contract the clients are generated from, and
+the realtime worker enforces it; the machine had invented its own spellings. Three literals changed in
+`state-machine.ts`. The stored `order_state_events.event` column follows the same literals, which is a naming
+change in new rows and nothing more — replay maps the *state kind* (`RIDER_ASSIGNED`) through the catalogue, so
+history written before today still replays correctly.
+
+**The check that would have caught it is a test, not a review.** `catalogue-coverage.test.ts` imports
+`TRANSITIONS` from core and asks `catalogueName` about every distinct event in the table. It fails the moment a
+row is added with a name the stream cannot carry — verified by changing `order.assigned` back to
+`order.rider_assigned` and watching the test go red. Two modules that must agree now have one place that says so.
+
+**The acceptance also reaches the vendor's own channel**, closing half of D104's open: the vendor answering an
+order is the vendor owner, so their user id is `principal.userId` and naming it costs nothing. A vendor's second
+device, or their desktop, now learns about the acceptance in the same second as the customer, instead of on the
+next poll. Verified by removing the one line and watching the route test fail.
+
+Tests: three in `catalogue-coverage.test.ts` (the exhaustive check, the three corrected names, the stored-kind
+mapping) and one in `order-routes.test.ts` (the broadcast body carries `audience.vendorUserId` = the owner).
+
+*Open:* `pickup.ts` is the same free win — the rider is the actor, so `audience.riderUserId` is
+`principal.userId` — and I left it out to keep this rung to the claim I could verify. Auto-cancel and dispatch
+still need a vendor-owner lookup per transition; rider's `rider_id` on the order turns out to be a *user* id
+(`pickup.ts` compares it to `principal.userId`), so those are cheap when someone writes them.

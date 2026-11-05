@@ -132,6 +132,34 @@ describe("a vendor answering an order", () => {
     assert.ok(db.calls.some((call) => call.sql.includes("INSERT INTO `audit_log`")));
   });
 
+  test("the acceptance reaches the vendor's own channel, by the owner's user id (D105)", async () => {
+    const db = vendorDb();
+    const pending: Promise<unknown>[] = [];
+    const calls: { url: string; body: string }[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response(JSON.stringify({ ok: true, data: { recorded: 3 } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const ctx = { ...ctxFor(db, principalFor("VENDOR_OWNER")), env: testEnv({ REALTIME_BASE: "https://rt.undal.test" }), waitUntil: (promise: Promise<unknown>) => pending.push(promise) };
+      const response = await route("/v1/orders/{id}/accept", "POST").run(ctx, {
+        params: { id: OWNER_ID },
+        body: { prepTimeSeconds: 900 },
+        reason: null,
+      });
+      assert.equal(response.status, 200);
+      await Promise.all(pending);
+    } finally {
+      globalThis.fetch = original;
+    }
+    const broadcast = calls.find((call) => call.url.endsWith("/internal/broadcast"));
+    assert.notEqual(broadcast, undefined, "the vendor's other devices are the point of the fan-out");
+    const body = JSON.parse(broadcast?.body ?? "{}") as { audience?: { vendorUserId?: string }; event: string };
+    assert.equal(body.event, "order.accepted");
+    assert.equal(body.audience?.vendorUserId, OWNER_ID);
+  });
+
   test("a prep time outside the window is refused with the field named", async () => {
     const db = vendorDb();
     const response = await route("/v1/orders/{id}/accept", "POST").run(ctxFor(db, principalFor("VENDOR_OWNER")), {

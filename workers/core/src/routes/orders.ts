@@ -210,6 +210,9 @@ async function vendorMove(
       ...(to === "ACCEPTED" ? { prepTimeSeconds: prepTime ?? null } : {}),
     },
     seq: moved.seq,
+    // The vendor's own channel, which is the identity `vendor:self` resolves to — the accepting device's
+    // other windows and the owner's other phones. It costs nothing to name: the principal *is* that user (D105).
+    audience: { vendorUserId: principal.userId },
   });
 
   const updated = await findOrder(ctx.db, row.id);
