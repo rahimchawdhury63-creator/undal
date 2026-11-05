@@ -2050,3 +2050,55 @@ the suite knows it.
 
 This closes the wart D97 recorded. There is no behaviour change: every existing location-route test passes
 unchanged, because the same elements are read in the same order. The change is to what the code claims.
+
+## D113 — The transition that nothing could fire now has a caller, and the database is the arbiter
+
+`RIDER_SEARCH → RIDER_ASSIGNED` has been legal in `state-machine.ts` since the machine was written, with a
+`riderClaimedOffer` guard, a catalogue name (`order.assigned`), error codes for every race and an audience helper
+that could reach the rider's own channel. Nothing could fire it. `POST /v1/orders/{code}/offer/{offerId}/accept`
+is the caller, and with it the dispatch half of the platform has a first honest step.
+
+**The database decides the race, not a coordinator.** `11 §7.3` puts an atomic `claimOffer` in the coordination
+layer, and that remains right for what it is for — delivering a wave to fifty phones and stopping it early. The
+*claim* needs exactly one of fifty conditional updates to succeed, and `UPDATE orders … WHERE id = ? AND state =
+'RIDER_SEARCH'` already gives that: forty-nine zero-row answers, forty-nine `OFFER_CLAIMED`, which every loser
+needs anyway to stop ringing. A coordinator would be a second arbiter with a second answer.
+
+**The order moves first and the offer records it second.** If the order's state had been left to a later
+statement, a claim could mark an offer accepted for a rider who then did not get the order — a screen saying
+"yours" above food somebody else is collecting. So `moveState` is conditional and first; if it reports zero rows,
+the rider is told `OFFER_CLAIMED` and *nothing else is written*, not even the offer's own answer.
+
+**A wave ends the moment it is claimed.** `11 §7.2`'s early termination is one statement: every unanswered offer
+on the order becomes `WITHDRAWN` in the same call. Leaving them `NULL` would keep fifty phones ringing for a
+delivery that is already assigned, and would let one of them claim an order that is no longer searching. Verified
+by deletion: removing that statement fails the winning-claim test.
+
+**Four refusals, in the order a rider can hit them.** Not the offer (`OFFER_NOT_FOUND`, including an offer that
+belongs to another order), not this rider's (`OFFER_NOT_TARGETED` — read from the offer's own `rider_id`, never
+guessed from a body), already declined (`OFFER_ALREADY_REJECTED`), the TTL passed (`OFFER_EXPIRED`, 410, and the
+expiry is *recorded* so the rider's screen and any sweep agree), the order stopped searching or the state change
+lost (`OFFER_CLAIMED`), or the machine refused a claim the route had already checked (`OFFER_CLAIM_RACE`, a bug
+in this route, named so the rider retries rather than believing the offer was never theirs). A second tap from
+the winner is a `200` with `repeated: true`: a flaky network must not look like a lost delivery.
+
+**Two new rows are written and one existing column moves.** `order_assignments` records who had the order and
+from when (its `end_reason` is for the reassignment rung), `responded_at` records when the offer was answered,
+and `orders.rider_id` is set by the same statement that sets the state, because an order assigned to a rider in
+two writes can be observed with one of them.
+
+**No new permission key.** `order.deliver` gates the route: accepting is the first act of delivering, the
+register's `order.offer.*` keys are the dispatch-side half (`create`, `expire`, `cancel`,
+`view_rider_identity`), and minting a rider-facing key per verb would be a fourth addition to a register that
+claims to match the specification.
+
+Tests: ten in `offer-claim.test.ts` — the winning claim (conditional move with `rider_id`, the single answer, the
+withdrawals, the assignment row, the audit), another rider's offer, expiry with its recording, an order that
+stopped searching, a lost state change writing nothing further, a repeated tap, an already-declined offer, an
+offer from another order, an unparseable offer id, and the announcement carrying the rider's identity and the
+vendor's owner.
+
+*Open:* the **reject** half (`/v1/orders/{code}/offer/{offerId}/reject`) is documented and unimplemented, and
+`reject_reason` is a `CHECK`ed column waiting for it. Also open: nothing creates offers yet — the dispatch engine
+that scores riders and writes `order_offers` rows is core's brain, not this route — so the claim path is proven
+against rows a test writes until that rung lands.

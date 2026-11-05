@@ -1,0 +1,109 @@
+/*
+ * Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.
+ * SPDX-License-Identifier: LicenseRef-PASVL-1.0
+ */
+
+/**
+ * The offers a rider is holding (`07 §?` no — `11 §7`, D113).
+ *
+ * An offer is a row with a 25-second life and one question attached: *will you take this delivery?* The row is
+ * the record of having asked, and the answer is written once — `response IS NULL` in the update is what makes
+ * a second answer impossible rather than merely unlikely.
+ *
+ * Two identities meet here and are easy to confuse, so they are named at the type: `order_offers.rider_id` is a
+ * **riders row id**, while the token that claims carries a **user id**. The route translates once, before it
+ * reads anything, and every statement below takes the row id.
+ */
+
+import type { Db } from "../db/client.ts";
+
+/** One offer, with everything the claim decision needs. */
+export interface OfferRow {
+  readonly id: Uint8Array;
+  readonly orderId: Uint8Array;
+  /** The riders row id the offer was sent to. */
+  readonly riderId: Uint8Array;
+  readonly wave: number;
+  /** `DATETIME(6)`: when the 25-second TTL runs out. */
+  readonly expiresAt: string;
+  /** `null` until the rider answers. */
+  readonly response: string | null;
+  readonly payoutPaisa: number;
+}
+
+/** What an assignment row records. */
+export interface AssignmentInsert {
+  readonly id: Uint8Array;
+  readonly orderId: Uint8Array;
+  readonly riderId: Uint8Array;
+  readonly assignedAt: string;
+}
+
+const OFFER_COLUMNS = "`id`, `order_id`, `rider_id`, `wave`, `expires_at`, `response`, `payout_paisa`";
+
+/** One offer by id, or `null`. */
+export async function findOffer(db: Db, offerId: Uint8Array): Promise<OfferRow | null> {
+  const row = await db.first<Record<string, unknown>>(
+    `SELECT ${OFFER_COLUMNS} FROM \`order_offers\` WHERE \`id\` = ? LIMIT 1`,
+    [offerId],
+  );
+  if (row === null) return null;
+  return {
+    id: new Uint8Array(row["id"] as Uint8Array),
+    orderId: new Uint8Array(row["order_id"] as Uint8Array),
+    riderId: new Uint8Array(row["rider_id"] as Uint8Array),
+    wave: Number(row["wave"]),
+    expiresAt: String(row["expires_at"]),
+    response: row["response"] === null || row["response"] === undefined ? null : String(row["response"]),
+    payoutPaisa: Number(row["payout_paisa"] ?? 0),
+  };
+}
+
+/**
+ * Record an answer, once.
+ *
+ * `WHERE response IS NULL` is the whole concurrency story for this table: two taps by one rider, or a tap racing
+ * the expiry sweep, produce one row changed and one zero. The caller that gets zero has lost to an answer that
+ * already exists, and is told which rather than overwriting it.
+ */
+export async function respondToOffer(db: Db, input: {
+  readonly offerId: Uint8Array;
+  readonly response: "ACCEPTED" | "REJECTED" | "EXPIRED" | "WITHDRAWN";
+  readonly respondedAt: string;
+  readonly rejectReason?: string | null;
+}): Promise<number> {
+  const result = await db.execute(
+    "UPDATE `order_offers` SET `response` = ?, `responded_at` = ?, `reject_reason` = ? " +
+      "WHERE `id` = ? AND `response` IS NULL",
+    [input.response, input.respondedAt, input.rejectReason ?? null, input.offerId],
+  );
+  return result.affectedRows;
+}
+
+/**
+ * Withdraw every other unanswered offer on the order.
+ *
+ * `11 §7.2`: a wave ends early the moment anyone claims, and the other riders' alarms must stop. Leaving their
+ * offers `NULL` would keep those screens ringing for a delivery that is already someone else's — and would let
+ * one of them claim an order that is no longer searching.
+ */
+export async function withdrawSiblingOffers(db: Db, input: {
+  readonly orderId: Uint8Array;
+  readonly exceptOfferId: Uint8Array;
+  readonly respondedAt: string;
+}): Promise<number> {
+  const result = await db.execute(
+    "UPDATE `order_offers` SET `response` = 'WITHDRAWN', `responded_at` = ? " +
+      "WHERE `order_id` = ? AND `response` IS NULL AND `id` <> ?",
+    [input.respondedAt, input.orderId, input.exceptOfferId],
+  );
+  return result.affectedRows;
+}
+
+/** Write the assignment row: which rider had this order, from when, and (later) why they stopped. */
+export async function insertAssignment(db: Db, assignment: AssignmentInsert): Promise<void> {
+  await db.execute(
+    "INSERT INTO `order_assignments` (`id`, `order_id`, `rider_id`, `assigned_at`) VALUES (?, ?, ?, ?)",
+    [assignment.id, assignment.orderId, assignment.riderId, assignment.assignedAt],
+  );
+}

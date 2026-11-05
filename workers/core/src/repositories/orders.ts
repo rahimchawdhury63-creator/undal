@@ -183,7 +183,7 @@ export async function moveState(
     readonly reasonCode: string | null;
     readonly reasonText: string | null;
     readonly nowMs: number;
-    readonly extra?: Readonly<Record<string, string | number | null>>;
+    readonly extra?: Readonly<Record<string, string | number | null | Uint8Array>>;
   },
 ): Promise<MoveResult> {
   const now = sqlDatetime(new Date(input.nowMs));

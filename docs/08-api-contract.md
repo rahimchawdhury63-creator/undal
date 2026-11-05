@@ -309,8 +309,8 @@ charging more.
 | `PATCH` | `/v1/orders/{code}/prep-time` | Vendor | Extend before pickup |
 | `POST` | `/v1/orders/{code}/ready` | Vendor | Mark ready early |
 | `GET` | `/v1/orders/{code}/qr` | Vendor | The pickup QR payload |
-| `POST` | `/v1/orders/{code}/offer/{offerId}/accept` | Rider | Claim an offer |
-| `POST` | `/v1/orders/{code}/offer/{offerId}/reject` | Rider | Decline with a reason |
+| `POST` | `/v1/orders/{code}/offer/{offerId}/accept` | Rider | Claim an offer. Implemented (D113) |
+| `POST` | `/v1/orders/{code}/offer/{offerId}/reject` | Rider | Decline with a reason. **Not implemented** |
 | `POST` | `/v1/orders/{code}/pickup` | Rider | Submit the scanned QR |
 | `POST` | `/v1/orders/{code}/arrive` | Rider | Mark arrived |
 | `POST` | `/v1/orders/{code}/deliver` | Rider | Complete with cash collected |
