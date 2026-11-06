@@ -7,11 +7,13 @@ import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { requireInternalToken } from "../middleware/internal-token.ts";
 import * as audit from "../audit/write.ts";
+import { announce } from "../bindings/announce.ts";
 import { createRealtimeClient } from "../bindings/realtime.ts";
 import { newId } from "../lib/ids.ts";
 import { estimateRoute, ESTIMATED_SPEED_MPS } from "../domain/order/distance.ts";
 import { planWaves, type ScoredCandidate } from "../domain/order/assignment.ts";
 import { planWaveWrite } from "../domain/order/dispatch-plan.ts";
+import { offerAlarm } from "../domain/order/offer-alarm.ts";
 import { DEFAULT_MEDIAN_PICKUP_M, scoreCandidates, wilsonLowerBound, type ScoringFacts } from "../domain/order/scoring.ts";
 import { idleSeconds, riderHistory, type RiderHistory } from "../repositories/dispatch-stats.ts";
 import { claimDispatchLock, insertOfferWave, releaseDispatchLock, waveStateForOrder } from "../repositories/dispatch.ts";
@@ -436,6 +438,30 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
       },
       at,
     );
+
+    // Ring the wave. One alarm per offered rider, each with their own audience, because the rider channel is keyed by
+    // the user id and the offer row only carries the rider row id (`D110`'s distinction, again).
+    const userOf = new Map(candidates.map((candidate) => [hexOf(candidate.riderId), hexOf(candidate.userId)]));
+    for (const offer of planned.offers) {
+      const riderId = Buffer.from(offer.riderId).toString("hex");
+      const riderUserId = userOf.get(riderId);
+      if (riderUserId === undefined) continue;
+      const alarm = offerAlarm({
+        orderCode: order.code,
+        offerId: Buffer.from(offer.riderId).toString("hex"),
+        payoutPaisa: offer.payoutPaisa,
+        pickupDistanceM: assembled.snapshots.find((snapshot) => snapshot.riderId === riderId)?.routedDistanceToVendorM ?? 0,
+        expiresAtMs: planned.expiresAtMs,
+        nowMs: at,
+      });
+      announce(ctx, {
+        zoneId: order.zoneId,
+        orderId: order.code,
+        event: alarm.event,
+        payload: { ...alarm.data, title: alarm.title, body: alarm.body },
+        audience: { riderUserId },
+      });
+    }
 
     return successResponse(
       {

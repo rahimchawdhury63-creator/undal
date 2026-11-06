@@ -111,9 +111,13 @@ function candidateRow(overrides: Record<string, unknown> = {}): Record<string, u
   };
 }
 
+const sent: { url: string; body: unknown }[] = [];
+
 function stubFeed(riders: readonly string[]): void {
-  globalThis.fetch = (async () =>
-    Response.json({
+  sent.length = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    sent.push({ url: String(input), body: init?.body === undefined ? null : JSON.parse(String(init.body)) });
+    return Response.json({
       ok: true,
       data: {
         zoneId: ZONE_HEX,
@@ -131,7 +135,8 @@ function stubFeed(riders: readonly string[]): void {
           staleAfterMs: Date.now() + 28_000,
         })),
       },
-    })) as typeof fetch;
+    });
+  }) as typeof fetch;
 }
 
 afterEach(() => {
@@ -155,11 +160,15 @@ function ctxFor(db: ReturnType<typeof stubDb>): Ctx {
       method: "POST",
       headers: { authorization: "Bearer internal-secret" },
     }),
-    waitUntil: () => undefined,
+    waitUntil: (promise: Promise<unknown>) => {
+      pending.push(promise);
+    },
   } as unknown as Ctx;
 }
 
 const INPUT = { params: {}, body: { orderCode: "UND-7K2M9QX4" }, reason: null };
+
+const pending: Promise<unknown>[] = [];
 
 async function answer(response: Response): Promise<{ status: number; data: Record<string, unknown>; code?: string }> {
   const parsed = (await response.json()) as Record<string, unknown>;
@@ -275,5 +284,41 @@ describe("planning a wave (D126)", () => {
     const result = await answer(await route().run(ctx, INPUT));
     assert.equal(result.status, 401);
     assert.equal(db.calls.length, 0);
+  });
+});
+
+describe("the ring (D127)", () => {
+  test("an offered rider is told once, on their own audience", async () => {
+    stubFeed([USER_HEX]);
+    pending.length = 0;
+    await route().run(ctxFor(dbFor()), INPUT);
+    await Promise.all(pending);
+    const broadcasts = sent.filter((entry) => entry.url.endsWith("/internal/broadcast"));
+    assert.equal(broadcasts.length, 1);
+    const body = broadcasts[0]?.body as { event: string; audience: { riderUserId: string }; payload: Record<string, unknown> };
+    assert.equal(body.event, "order.offer");
+    assert.equal(body.audience.riderUserId, USER_HEX, "the rider channel is keyed by user id, not the row id");
+    assert.equal(body.payload["orderCode"], "UND-7K2M9QX4");
+    assert.ok(typeof body.payload["secondsRemaining"] === "number");
+    assert.ok(body.payload["body"] !== undefined, "the copy travels with the data");
+  });
+
+  test("the ring happens after the offers exist, and nobody unoffered is rung", async () => {
+    stubFeed([USER_HEX]);
+    pending.length = 0;
+    await route().run(ctxFor(dbFor()), INPUT);
+    await Promise.all(pending);
+    const broadcastIndex = sent.findIndex((entry) => entry.url.endsWith("/internal/broadcast"));
+    assert.ok(broadcastIndex >= 0);
+    // The feed call comes first; the broadcast is queued only once the wave is written.
+    assert.equal(sent[0]?.url.includes("/internal/candidates"), true);
+  });
+
+  test("a wave with nobody in it rings nobody", async () => {
+    stubFeed([]);
+    pending.length = 0;
+    await route().run(ctxFor(dbFor()), INPUT);
+    await Promise.all(pending);
+    assert.equal(sent.filter((entry) => entry.url.endsWith("/internal/broadcast")).length, 0);
   });
 });

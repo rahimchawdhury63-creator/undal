@@ -2659,3 +2659,46 @@ with its ten bindings; the plan returned with wave 1's 25 s TTL; a live wave blo
 planner's lock reported as `409 ORDER_LOCKED` with no work done; the lock released on the success path; an assigned
 order refused before the lock; no candidates answered rather than failed; the audit row carrying the wave and the
 unjudgeable candidates; and a missing token with zero database calls.
+
+## D127 — A wave that nobody is told about is a folder of rows
+
+D126 wrote the offers. This rung makes a phone aware of one, and it does it through the path that already exists —
+`announce` → realtime's `/internal/broadcast` — rather than by inventing a push client. The consequences of that
+choice are worth stating, because they are the reason it is the right first rung and not a shortcut.
+
+**The audience is the user id, the offer is the row id, and both are needed.** `announce`'s `audience.riderUserId` is
+the `sub` that a rider's own channel resolves `self` to, while `order_offers.rider_id` is the `riders` row. The route
+already has both on each candidate, so it translates **once** through a map built from the candidate list, and the
+deletion proof is that emptying the audience turns the ring test red — the fifth appearance of D110's distinction,
+and the first where the symptom would be an alarm delivered to nobody rather than a wave written for nobody.
+
+**The message is data only, and that is a rule with a scar.** The payload carries `title` and `body` as *fields*,
+alongside the numbers, and never a platform alert object: on several Android builds letting the OS draw the alert means
+the full-screen intent never appears, and a rider misses an order worth ৳1 800 (`fcm-payload-purity`, `15 §9`). The
+guardrail enforces it; the module's documentation explains why somebody would otherwise be tempted.
+
+**The countdown is computed from the offer's expiry, not passed in.** `secondsRemaining` is derived inside
+`offerAlarm` from `expiresAtMs - nowMs`, so the app cannot be handed a number that disagrees with the row it is
+counting down — and an offer that is already expired still produces a message, counting from zero, because the app has
+to be able to say "too late" rather than show nothing.
+
+**Both languages always travel.** The rider app picks from `{en, bn}` on the device; sending one language and
+translating on the device would mean two builds of every string, and `05`'s copy rules apply to an alarm as much as to
+a screen.
+
+**The send cannot fail the wave.** `announce` is handed to `waitUntil` and discards its `Result` (D85's rule): the
+offers are written and claimable whether or not a socket heard about them, and a ring that fails costs a missed
+notification, not a lost order. What is *not* discarded is the decision to ring at all — the loop runs after
+`insertOfferWave`, over exactly the offered riders, so nobody unoffered is woken and nobody offered is skipped.
+
+**What this rung does not do, stated.** It rings **connected** riders: the path is realtime's broadcast, so a rider
+whose socket is closed gets nothing until they open the app. The FCM path — writing `fcm_dispatches` rows and letting
+the sender deliver to a sleeping phone — is the piece that makes the ring work for a rider with the app closed, and it
+needs the device-token join plus the sender's retry semantics. Everything the message needs (a data-only payload, both
+languages, a truthful countdown) is now built and tested, so that rung is delivery rather than copywriting.
+
+Tests: seven in `offer-alarm.test.ts` — the countdown from the expiry, an expired offer counting from zero, taka from
+paisa and one decimal on kilometres, metres below a kilometre, the payload's exact key set, both languages present and
+different, and the catalogue's event name — plus three in `dispatch-plan-route.test.ts`: one broadcast per offered
+rider audienced to their user id with the copy in the payload, the ring ordered after the feed and the write, and no
+broadcast at all when nobody was offered.

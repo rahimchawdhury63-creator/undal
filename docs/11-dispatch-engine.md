@@ -178,6 +178,14 @@ rider who fails any one of them is not ranked at all.
 > riders the order is gone. It writes **wave 1 only** — the rest of the cascade is planned and returned, and the caller
 > comes back when this one expires. Nothing rings yet: the alarm is the FCM binding's job.
 
+> **And then it rings (D127).** Each offer is announced on its rider's own channel — `order.offer`, audienced to
+> that rider's **user id**, since the rider channel is keyed by `sub` while the offer row carries the rider row id —
+> with a data-only payload from `domain/order/offer-alarm.ts`: order code, offer id, payout, pickup distance and the
+> seconds remaining, computed from the offer's own expiry rather than a caller's arithmetic. Both languages travel
+> together and no platform alert object is used, because on several Android builds letting the OS draw the alert means
+> the full-screen alarm never appears (`fcm-payload-purity`). The send is handed to `waitUntil`: an alarm that fails
+> is not a reason to lose a wave that was written.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep
