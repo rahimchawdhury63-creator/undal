@@ -58,6 +58,8 @@ interface Options {
 
 function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
   return stubDb([
+    { match: /FROM `device_tokens` `t` JOIN `devices` `d`/u, rows: [{ fcm_token: "tok-1" }, { fcm_token: "tok-2" }] },
+    { match: /INSERT INTO `fcm_dispatches`/u, affectedRows: 1 },
     {
       match: /FROM `orders` WHERE `code`/u,
       rows: [
@@ -117,6 +119,10 @@ function stubFeed(riders: readonly string[]): void {
   sent.length = 0;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     sent.push({ url: String(input), body: init?.body === undefined ? null : JSON.parse(String(init.body)) });
+    if (String(input).includes("messages:send")) {
+      // A push answered as Google answers it; the feed stub below is for the candidate call only.
+      return Response.json({ name: "projects/undal-prod/messages/1" });
+    }
     return Response.json({
       ok: true,
       data: {
@@ -149,9 +155,13 @@ function route(): RouteDefinition {
   return found;
 }
 
-function ctxFor(db: ReturnType<typeof stubDb>): Ctx {
+function ctxFor(db: ReturnType<typeof stubDb>, fcm = false): Ctx {
   return {
-    env: testEnv({ INTERNAL_TOKEN: "internal-secret", REALTIME_BASE: "https://rt.undal.app" }),
+    env: testEnv({
+      INTERNAL_TOKEN: "internal-secret",
+      REALTIME_BASE: "https://rt.undal.app",
+      ...(fcm ? { FCM_PROJECT_ID: "undal-prod", FCM_ACCESS_TOKEN: "ya29.token", FCM_ENDPOINT: "https://fcm.test" } : {}),
+    }),
     db,
     requestId: "0193f2a1-7c3e-7890-abcd-ef0123456701",
     locale: "en",
@@ -320,5 +330,43 @@ describe("the ring (D127)", () => {
     await route().run(ctxFor(dbFor()), INPUT);
     await Promise.all(pending);
     assert.equal(sent.filter((entry) => entry.url.endsWith("/internal/broadcast")).length, 0);
+  });
+});
+
+describe("the push behind the ring (D128)", () => {
+  test("every valid token of an offered rider is sent once, and recorded", async () => {
+    stubFeed([USER_HEX]);
+    pending.length = 0;
+    const db = dbFor();
+    await route().run(ctxFor(db, true), INPUT);
+    await Promise.all(pending);
+    const pushes = sent.filter((entry) => entry.url === "https://fcm.test/v1/projects/undal-prod/messages:send");
+    assert.equal(pushes.length, 2, "one per token, not one per rider");
+    const rows = db.calls.filter((call) => /INSERT INTO `fcm_dispatches`/u.test(call.sql));
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]?.params[4], 1, "first attempt");
+    assert.equal(rows[0]?.params[5], "SENT");
+  });
+
+  test("the push carries the offer's data and no platform alert object", async () => {
+    stubFeed([USER_HEX]);
+    pending.length = 0;
+    await route().run(ctxFor(dbFor(), true), INPUT);
+    await Promise.all(pending);
+    const push = sent.find((entry) => entry.url === "https://fcm.test/v1/projects/undal-prod/messages:send");
+    const body = push?.body as { message: { data: Record<string, string>; android: { priority: string } } };
+    assert.equal(body.message.data["orderCode"], "UND-7K2M9QX4");
+    assert.ok(body.message.data["titleBn"] !== undefined, "the copy travels so the app can draw in either language");
+    assert.equal(body.message.android.priority, "high");
+  });
+
+  test("without credentials nothing is sent and no dispatch row claims otherwise", async () => {
+    stubFeed([USER_HEX]);
+    pending.length = 0;
+    const db = dbFor();
+    await route().run(ctxFor(db), INPUT);
+    await Promise.all(pending);
+    assert.equal(sent.filter((entry) => entry.url.includes("messages:send")).length, 0);
+    assert.equal(db.calls.filter((call) => /INSERT INTO `fcm_dispatches`/u.test(call.sql)).length, 0);
   });
 });

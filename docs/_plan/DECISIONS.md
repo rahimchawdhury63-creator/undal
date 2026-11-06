@@ -2702,3 +2702,45 @@ paisa and one decimal on kilometres, metres below a kilometre, the payload's exa
 different, and the catalogue's event name — plus three in `dispatch-plan-route.test.ts`: one broadcast per offered
 rider audienced to their user id with the copy in the payload, the ring ordered after the feed and the write, and no
 broadcast at all when nobody was offered.
+
+## D128 — The ring reaches a pocket, and a failed send is a row
+
+D127 rang phones whose app is open. That is the minority of the day: a rider between orders puts the phone down, and
+the alarm that matters is the one that wakes it. So each offered rider's valid tokens now get a message through
+`bindings/fcm.ts`, which is deliberately a *client* and not a queue — one HTTP call, one message, no retry inside it.
+
+**Data only, `high` priority, and both are load-bearing.** The message carries `data` and no platform alert object,
+because letting the OS draw the alert means the full-screen intent never appears on several Android builds and a rider
+misses an order worth ৳1 800 (`fcm-payload-purity`). The priority is `high` for a subtler reason: a *data* message at
+normal priority can wait in a dozing device's queue until the offer has expired, which is worse than not sending it at
+all — the rider gets an alarm for a delivery that is already gone. Both facts are asserted in the binding's tests
+rather than left to review.
+
+**Strings on the wire, numbers in the code.** The push format wants string values, so the payload is stringified at the
+one place it leaves: the same `data` object the SSE ring carries, plus both titles, flattened with `String(value)`. A
+number sent as a number is a message the runtime rejects, and the failure would look like a dead token.
+
+**Every send is recorded, including the failures.** One `fcm_dispatches` row per token with `SENT` or `FAILED`, the
+attempt index, and the message id when there is one; `device_id` is `null` because the token is the identity this path
+has and the join back to the device is the log's job, not the dispatcher's. This is what makes the alarm measurable:
+`15 §9`'s coaching flow depends on knowing whether a rider's phone actually received the alarm, and a send that is not
+recorded is a claim nobody can check.
+
+**Absent credentials mean no push and no row.** `fcmConfigured` guards the whole branch, and a deployment without
+`FCM_PROJECT_ID`/`FCM_ACCESS_TOKEN` still rings connected riders through the SSE path and writes nothing that claims a
+send. That is the same rule `announce` follows (D85): an unconfigured dependency is a configuration state, not an error
+on every order.
+
+**Queued, not awaited.** The sends go on `waitUntil`, one rider's tokens in sequence within it — eight riders are eight
+independent chains, so a slow phone cannot delay the ninth rider's alarm, and the wave's response is not held open by
+Google.
+
+**The retry story is deliberately not here.** A `FAILED` row is a fact; retrying is the sender's business, and it needs
+the offer's remaining life to decide whether a retry is even meaningful. `attempt` exists on the row for that rung,
+which will read unclaimed `FAILED` rows inside their wave's TTL — the same shape as D116's sweep.
+
+Tests: six in `fcm-binding.test.ts` — the v1 URL and bearer token, the data-only body at high priority with the token on
+the message, a 404 as a typed failure carrying the status, a 200 with no message name as a failure, an aborted request
+as `DEPENDENCY_TIMEOUT`, and `fcmConfigured` on every absent-credential combination — plus three in
+`dispatch-plan-route.test.ts`: two tokens rung once each with two recorded rows, the payload carrying the offer data and
+both titles, and nothing sent or recorded when the deployment has no credentials.

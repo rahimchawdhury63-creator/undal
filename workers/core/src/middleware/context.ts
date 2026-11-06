@@ -42,6 +42,14 @@ export interface Env {
    * (D82). Absent, the internal surface refuses everybody rather than answering whoever asks.
    */
   readonly INTERNAL_TOKEN?: string;
+  /**
+   * The push credentials (D128). Absent, no alarm is sent to a sleeping phone — the SSE ring still runs, and no
+   * dispatch row is written claiming a send that never happened.
+   */
+  readonly FCM_PROJECT_ID?: string;
+  readonly FCM_ACCESS_TOKEN?: string;
+  /** Overridable so a test can point the client at a stub without touching the Google endpoint. */
+  readonly FCM_ENDPOINT?: string;
   readonly GOOGLE_OAUTH_CLIENT_ID?: string;
   readonly GOOGLE_OAUTH_CLIENT_SECRET?: string;
 }

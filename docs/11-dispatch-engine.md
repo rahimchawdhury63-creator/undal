@@ -186,6 +186,14 @@ rider who fails any one of them is not ranked at all.
 > the full-screen alarm never appears (`fcm-payload-purity`). The send is handed to `waitUntil`: an alarm that fails
 > is not a reason to lose a wave that was written.
 
+> **And reaches a phone in a pocket (D128).** The SSE ring needs an open app; most riders, most of the time, do not
+> have one. So each offered rider's valid device tokens get one push through `bindings/fcm.ts`: the v1 endpoint, a
+> **data-only** message with `android.priority: "high"` (a normal-priority data message can doze past the offer's
+> 25 s), the same copy in both languages as data fields, and one `fcm_dispatches` row per token recording `SENT` or
+> `FAILED` with the status. The sends are queued on `waitUntil` — eight phones are eight round trips and an offer's
+> seconds belong to the rider — and absent credentials mean **no push and no dispatch row**, never a row claiming a
+> send that did not happen.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep
