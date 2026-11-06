@@ -1,7 +1,7 @@
 {
   "generated_by": "scripts/db/extract_constraints.py",
   "note": "TiDB does not enforce CHECK; these validators are the enforcement (06 \u00a71.2).",
-  "count": 166,
+  "count": 167,
   "constraints": [
     {
       "table": "users",
@@ -1163,6 +1163,13 @@
       "name": "chk_security_events_inline_2",
       "expression": "`severity` IN ('INFO','NOTICE','WARNING','CRITICAL')",
       "source": "013_session_security.sql",
+      "origin": "inline"
+    },
+    {
+      "table": "rider_cash_declarations",
+      "name": "chk_rider_cash_declarations_inline_1",
+      "expression": "`kind` IN ('EMERGENCY','ROBBED','DISPUTE')",
+      "source": "023_rider_cash_declarations.sql",
       "origin": "inline"
     }
   ]
