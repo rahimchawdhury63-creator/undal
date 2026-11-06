@@ -148,18 +148,54 @@ describe("declaring an emergency (D148)", () => {
   });
 
   test("the two buttons without machinery say so, and a rider who owes nothing is told that instead", async () => {
-    for (const kind of ["ROBBED", "DISPUTE"]) {
-      const response = await declare(dbFor({ outstanding: 214_000 }), { kind });
-      assert.equal(response.status, 501, `${kind} needs a case and an order list that do not exist yet`);
-      assert.equal(((await response.json()) as { error: { code: string } }).error.code, "NOT_IMPLEMENTED");
-    }
+    const dispute = await declare(dbFor({ outstanding: 214_000 }), { kind: "DISPUTE" });
+    assert.equal(dispute.status, 501, "a disputed amount needs the order list that produced it");
+    assert.equal(((await dispute.json()) as { error: { code: string } }).error.code, "NOT_IMPLEMENTED");
 
     const invented = await declare(dbFor({ outstanding: 214_000 }), { kind: "SICK" });
     assert.equal(invented.status, 422);
     const details = ((await invented.json()) as { error: { details: unknown } }).error.details;
-    assert.deepEqual(details, { field: "kind", allowed: ["EMERGENCY"] });
+    assert.deepEqual(details, { field: "kind", allowed: ["EMERGENCY", "ROBBED"] });
 
     const clear = await declare(dbFor({ outstanding: 0 }), { kind: "EMERGENCY" });
     assert.equal(clear.status, 409, "there is nothing to be unable to settle");
+  });
+
+  test("a robbery lifts the block with no expiry and opens a case, because a case is not a timer (D149)", async () => {
+    const db = dbFor({ outstanding: 214_000 });
+    const response = await declare(db, { kind: "ROBBED", note: "snatched at Karimganj, GD filed at Kotwali" });
+    assert.equal(response.status, 200);
+    const data = ((await response.json()) as { data: Record<string, any> }).data;
+    assert.equal(data.released, true);
+    assert.equal(data.stillOwedPaisa, 214_000, "the amount is handled case by case, not forgiven");
+    assert.equal(data.declaration.liftedUntil, null, "null is a promise with no end, not a missing value");
+    assert.equal(data.declaration.routedToReview, true, "every robbery reaches a human");
+
+    const insert = db.calls.find((call) => call.sql.includes("INSERT INTO `rider_cash_declarations`"));
+    assert.equal(insert?.params[2], "ROBBED");
+    assert.equal(insert?.params[4], null, "no expiry is written, so no timer can put them back behind the block");
+    assert.equal(insert?.params[5], 1);
+
+    const auditRow = db.calls.find((call) => call.sql.includes("INSERT INTO `audit_log`"));
+    assert.equal(auditRow?.params[16], "CRITICAL", "a rider was robbed: this is not a notice");
+  });
+
+  test("a theft with no sentence is not a claim", async () => {
+    const bare = await declare(dbFor({ outstanding: 214_000 }), { kind: "ROBBED" });
+    assert.equal(bare.status, 422);
+    assert.deepEqual(((await bare.json()) as { error: { details: unknown } }).error.details, { fields: ["note"] });
+
+    const blank = await declare(dbFor({ outstanding: 214_000 }), { kind: "ROBBED", note: "   " });
+    assert.equal(blank.status, 422);
+  });
+
+  test("a robbery is never a repeat and never has a cooldown", async () => {
+    // One was declared an hour ago; the second is still a robbery, and still lifts with no expiry.
+    const anHourAgo = new Date(Date.now() - 60 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = dbFor({ outstanding: 214_000, lastEmergencyAt: anHourAgo });
+    const response = await declare(db, { kind: "ROBBED", note: "the bag with the day's cash" });
+    const data = ((await response.json()) as { data: Record<string, any> }).data;
+    assert.equal(data.declaration.liftedUntil, null);
+    assert.equal(data.declaration.routedToReview, true);
   });
 });

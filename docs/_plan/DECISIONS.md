@@ -3628,3 +3628,38 @@ one each in `rider-cash.test.ts` (a live window and an expired one on the read) 
 *Open:* robbed, dispute and partial. The partial path is the odd one out — "I'll settle part of it now" is not a
 declaration but a settlement for less than the balance, which `POST /rider/cash/settle` refuses today with
 `CASH_UNDERPAYMENT`. It is the next rung.
+
+## D149 — A robbery is a case, an emergency is a window
+
+`25 §7`'s second button — "I was robbed or lost the money" — is the same declaration as the first with two fields
+changed, and the changes are the whole design.
+
+**No expiry.** An emergency writes `lifted_until = now + 24 h`, because the money is still owed and the rider expects to
+have it tomorrow. A robbery writes `NULL`, which the reader treats as *lifted* rather than *not lifted*: `§7` says the
+amount is "handled case by case", and a case that a timer closes at midnight is not a case. `activeLiftUntil` already
+distinguished the two — `NULL` becomes `Infinity` — so nothing in the block's arithmetic had to change; only the
+declaration's intent did.
+
+**Always routed, always critical.** `routed_to_review` is set for every robbery rather than only for repeats, and the
+audit severity is `CRITICAL` rather than `WARNING`. A robbery is not a pattern to be noticed later; it is a rider who
+needs a call back today, and the reviewer's list is the only mechanism this build has for that call.
+
+**A sentence is required.** `note` is mandatory for `ROBBED` and optional for `EMERGENCY`. Somebody will ring this rider
+back and "robbed" alone tells them nothing about when, where, or which police station took the report — so the one field
+that makes the call possible is the one field the route will not accept empty.
+
+**No cooldown.** The thirty-day limit belongs to the emergency button, which is the path a rider could use as a way out of
+paying. A robbery is a different claim: repeat it and a human sees two `CRITICAL` rows with two sentences, which is a
+conversation rather than a limit.
+
+**What is still missing is the case.** `§7` also offers a police-report upload and a case a human owns. The declaration
+row is the case's first entry — its id, its note and its `routed_to_review` flag are what a reviewer works from — but
+there is no `cases` table, no upload, and no closing decision. That is written here rather than implied by a route that
+says `200`.
+
+Tests: four new — three in `test/cash-declare.test.ts` (the expiry-less lift with its `CRITICAL` audit row, the mandatory
+note, and a robbery after a recent emergency still being a robbery) and one in `test/rider-cash.test.ts` (the read
+treating a `NULL` expiry as lifted).
+
+*Open:* the dispute path, the police-report upload, and "I'll settle part of it now" — which is not a declaration at all
+but a settlement for less than the balance, refused today with `CASH_UNDERPAYMENT`.

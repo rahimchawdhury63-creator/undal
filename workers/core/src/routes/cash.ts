@@ -328,8 +328,14 @@ async function settleCash(ctx: Ctx, body: unknown): Promise<Response> {
  * Declare why the rider cannot settle: `POST /v1/rider/cash/declare` (`25 §7`, D148).
  *
  * The section opens with a screen and four buttons, and closes with the rule they exist for: *"The block exists to
- * collect money from people who have it and are about to go home — not to punish people who do not."* This route is the
- * first of the four buttons: **I have an emergency**.
+ * collect money from people who have it and are about to go home — not to punish people who do not."* Two of the four
+ * are built here: **I have an emergency** (D148) and **I was robbed or lost the money** (D149).
+ *
+ * The two differ in exactly one field, and it is the field that matters. An emergency is a window — 24 hours, then the
+ * block returns, because the money is still owed and the rider expects to have it. A robbery is a *case* — the lift has
+ * no expiry and always routes to a human, because `§7` says the debt is "handled case by case" and a case that a timer
+ * can close at midnight is not a case. A robbery also requires a sentence: somebody will ring this rider back, and
+ * "robbed" alone tells them nothing about when, where, or which police station was told.
  *
  * **It lifts the block for 24 hours, and the lift is computed.** No state write here — `activeLiftUntil` answers the
  * same question from the declaration's `lifted_until`, and `liftStateOf` treats a live window like an escalation. The
@@ -341,9 +347,9 @@ async function settleCash(ctx: Ctx, body: unknown): Promise<Response> {
  * block. So the declaration is written either way, `routed_to_review` marks the second, and the audit row goes from
  * `NOTICE` to `WARNING` so the morning's reviewer list has it at the top.
  *
- * **Two of the four buttons are not built, and they say so.** "I was robbed" needs a case a human owns and a police
- * report to attach; "I disagree" needs the order-by-order breakdown `§7` describes. Both answer `NOT_IMPLEMENTED` rather
- * than pretending: an app that shows a button and gets a 422 will show an error, and one that gets a 501 can hide it.
+ * **One button is still not built, and it says so.** "I disagree" needs the order-by-order breakdown `§7` describes —
+ * a rider disputing a number has to see the deliveries that produced it. It answers `NOT_IMPLEMENTED` rather than
+ * pretending: an app that shows a button and gets a 422 will show an error, and one that gets a 501 can hide it.
  */
 async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
   const rider = await riderFor(ctx);
@@ -353,14 +359,14 @@ async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
   const kind = fields["kind"];
   if (!isDeclarationKind(kind)) {
     return failureResponse(
-      { code: "VALIDATION_ENUM", details: { field: "kind", allowed: ["EMERGENCY"] } },
+      { code: "VALIDATION_ENUM", details: { field: "kind", allowed: ["EMERGENCY", "ROBBED"] } },
       ctx.locale,
       ctx.requestId,
     );
   }
-  if (kind !== "EMERGENCY") {
-    // ROBBED and DISPUTE are `§7`'s other two buttons, and neither has the machinery behind it yet: one needs a case
-    // with a human owner, the other the order-by-order list a rider disputes line by line.
+  if (kind === "DISPUTE") {
+    // `§7`'s third button needs the order-by-order breakdown a rider disputes line by line, which means reading a
+    // shift's deliveries back to them. The table has a column for it and no route yet.
     return failureResponse({ code: "NOT_IMPLEMENTED" }, ctx.locale, ctx.requestId);
   }
 
@@ -369,6 +375,11 @@ async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
     return failureResponse({ code: "VALIDATION_REQUIRED", details: { fields: ["note"] } }, ctx.locale, ctx.requestId);
   }
   const note = noteRaw === null ? null : (noteRaw as string).trim();
+  if (kind === "ROBBED" && (note === null || note.length === 0)) {
+    // A theft claim with no words is not a claim: somebody has to ring this rider back, and "robbed" alone tells them
+    // nothing about when, where, or which police station was told (D149).
+    return failureResponse({ code: "VALIDATION_REQUIRED", details: { fields: ["note"] } }, ctx.locale, ctx.requestId);
+  }
 
   const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
   if (outstanding === 0) {
@@ -380,8 +391,12 @@ async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
   const nowMs = Date.now();
   const previous = await lastDeclaration(ctx.db, rider.id, "EMERGENCY");
   const previousMs = previous === null ? null : parseDatetime(previous.createdAt)?.getTime() ?? null;
-  const repeated = repeatedEmergency(previousMs, nowMs);
-  const liftedUntilMs = nowMs + EMERGENCY_LIFT_MS;
+  // Only an emergency has a cooldown and a window. A robbery lifts the block with **no expiry** (`lifted_until` null) and
+  // always routes to a human: `§7` says the amount is "handled case by case", and a case by case decision cannot be a
+  // timer that puts somebody back behind the block at midnight (D149).
+  const robbed = kind === "ROBBED";
+  const repeated = robbed || repeatedEmergency(previousMs, nowMs);
+  const liftedUntilMs = robbed ? null : nowMs + EMERGENCY_LIFT_MS;
   const id = await writeDeclaration(
     ctx.db,
     { riderId: rider.id, kind, note, liftedUntilMs, routedToReview: repeated },
@@ -402,11 +417,11 @@ async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
       resourceId: toHexId(id),
       subjectId: toHexId(rider.id),
       before: { shiftState: rider.shiftState, outstandingPaisa: outstanding },
-      after: { kind, note, liftedUntil: new Date(liftedUntilMs).toISOString(), routedToReview: repeated },
+      after: { kind, note, liftedUntil: liftedUntilMs === null ? null : new Date(liftedUntilMs).toISOString(), routedToReview: repeated },
       // A rider's own declaration is not an admin reason, and the register is a list of admin reasons. The `after` block
       // carries everything a reviewer needs, and putting a word from that list here would attribute it to the rider.
       reason: null,
-      severity: repeated ? "WARNING" : "NOTICE",
+      severity: robbed ? "CRITICAL" : repeated ? "WARNING" : "NOTICE",
     },
     nowMs,
   );
@@ -417,7 +432,8 @@ async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
         id: toHexId(id),
         kind,
         note,
-        liftedUntil: new Date(liftedUntilMs).toISOString(),
+        // `null` is a promise with no end, not a missing value: a robbed rider is not put back behind the block by a timer.
+        liftedUntil: liftedUntilMs === null ? null : new Date(liftedUntilMs).toISOString(),
         routedToReview: repeated,
       },
       released: true,

@@ -364,6 +364,23 @@ describe("the emergency lift, as the read reports it (D148)", () => {
   });
 });
 
+describe("a lift with no expiry (D149)", () => {
+  test("a robbery keeps the rider unblocked until a human closes the case", async () => {
+    // The declaration read answers with a row whose `lifted_until` is null — the shape a robbery writes (D149).
+    const noExpiry = stubDb([
+      { match: /FROM `riders` WHERE `user_id`/u, rows: [RIDER] },
+      { match: /outstanding_paisa` FROM `rider_cash_balances`/u, rows: [{ outstanding_paisa: 214_000 }] },
+      { match: /SELECT `lifted_until` FROM `rider_cash_declarations`/u, rows: [{ lifted_until: null }] },
+      { match: /FROM `rider_cash_settlements` WHERE `rider_id` = \? ORDER BY/u, rows: [] },
+      { match: /MAX\(`ended_at`\)/u, rows: [{ ended_at: null }] },
+    ]);
+    const response = await route("/v1/rider/cash").run(ctxFor(noExpiry, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    const parsed = (await response.json()) as { data: { locked: boolean; declared: boolean } };
+    assert.equal(parsed.data.locked, false, "nobody is locked out of their livelihood over a theft at 11 pm");
+    assert.equal(parsed.data.declared, true);
+  });
+});
+
 describe("the two comparisons a reviewer sees (D141)", () => {
   test("a number matches across the spellings a rider types", () => {
     assert.equal(sameNumber("+8801812345678", "01812345678"), true);

@@ -383,15 +383,21 @@ accounting disagreement.
 Every one of these paths lifts the block. The block exists to collect money from people who have
 it and are about to go home — not to punish people who do not.
 
-> **The emergency button is built (D148), and the other three are not.** `POST /v1/rider/cash/declare` with
+> **Two of the four buttons are built (D148–D149), and the two others are not.** `POST /v1/rider/cash/declare` with
 > `{kind:"EMERGENCY", note?}` writes a `rider_cash_declarations` row with `lifted_until = now + 24 h` and **lifts the
 > block for a day**; the debt is untouched, and the rider's next request opens the door the same way an escalation does.
 > A second use inside thirty days still lifts — `§7` says it "routes to a human instead of being refused" — and marks the
 > row `routed_to_review` with a `WARNING` audit so the morning's list has it first. `kind:"ROBBED"` and `kind:"DISPUTE"`
-> answer `501 NOT_IMPLEMENTED`: one needs a case with a human owner and a police report, the other the order-by-order
-> list a rider disputes line by line. The declaration table has a column for each of them and no route yet, which is the
-> honest shape of a half-built feature. A rider who owes nothing gets `409` rather than a lift, because there is nothing
-> to be unable to settle.
+> `kind:"ROBBED"` is the same route with the opposite expiry (D149): the lift has **no end** (`lifted_until` null, which
+> the read treats as "lifted" rather than "not lifted"), it always routes to a human, its audit row is `CRITICAL`, and it
+> requires a sentence — somebody will ring the rider back, and "robbed" alone says nothing about when or where.
+> `kind:"DISPUTE"` answers `501 NOT_IMPLEMENTED`: a disputed amount needs the order-by-order list `§7` describes, and
+> that is a different rung. A rider who owes nothing gets `409` rather than a lift, because there is nothing to be unable
+> to settle.
+>
+> Still open on this path: the **police-report upload** `§7` offers beside a robbery, and the case record a human would
+> own. The declaration is the case's first row — `routed_to_review` is how a reviewer finds it — and the rest of that
+> object does not exist yet.
 
 ---
 
