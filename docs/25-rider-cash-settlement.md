@@ -213,6 +213,28 @@ foreground lock, which would be both hostile and impossible to guarantee.
 | Selfie | Required. Face detected on-device. Uploaded to **imgbb**, per the brief |
 | Amount | Pre-filled, read-only. A partial settlement requires an explicit "I'm settling less" path with a reason (§7) |
 
+> **What the API now does with those five fields (D141).** `POST /v1/rider/cash/settle` takes
+> `{ trxId, bkashNumber, accountName, screenshotUrl, selfieUrl, amountPaisa, method? }` and writes one `PENDING` row.
+> The transaction ID is uppercased before anything else, because `9h5k2m8p1q` and `9H5K2M8P1Q` are one transfer and
+> `uq_cash_settlement_trx` can only enforce uniqueness over one spelling. The two comparisons in §6 are made at
+> submission and stored beside the claim — `number_matches` against the rider's `payout_number`, `name_matches` as the
+> Dice similarity of character bigrams against the payout or legal name, at a 0.75 threshold — so a reviewer sees what
+> the platform saw, and so a later change to the rules cannot rewrite history. **Neither comparison refuses the rider**,
+> which §6 already says: a flag is a hint for a human. Null means *not checked* — a rider who never gave a payout number
+> is not accused of a mismatch.
+>
+> The refusals are the six states the screen has a message for: `CASH_TRXID_INVALID` for ten characters that are not
+> ten bKash characters, `CASH_SELFIE_REQUIRED` for the missing selfie, `CASH_TRXID_DUPLICATE` when the ID belongs to
+> somebody else's claim (one payment must not settle two debts), `CASH_ALREADY_SETTLED` when nothing is owed or a claim
+> is already under review, and `CASH_OVERPAYMENT` / `CASH_UNDERPAYMENT` (+`short_by`) because the amount is pre-filled
+> and read-only. **A retry is not a refusal**: the same claim from the same rider answers with the first one and writes
+> nothing, which is what makes the offline outbox safe.
+>
+> **Nothing unlocks at submission.** §5 has the rider's state become `CASH_SUBMITTED`; `riders.shift_state` has six
+> values and none of them is that, and the block is released by *approval*, not by a claim. A rider who could pass the
+> gate by typing ten characters would make the gate decorative. What changes is that the screen stops asking, and
+> `GET /v1/rider/cash` starts reporting the submission with its status.
+
 Submission is **idempotent** and queued in the outbox if offline, with the screen showing
 *"Waiting for connection — your settlement is saved and will be sent automatically."* The rider is
 never trapped by their own network.
@@ -322,6 +344,11 @@ it and are about to go home — not to punish people who do not.
 | Review exceeds 12 hours | Escalated to `SUPER_ADMIN`, and the rider is called |
 | The app crashes on the screen | State is persisted; it re-presents on relaunch with everything the rider already typed still filled in |
 | A bug produces a wrong `cash_in_hand` | The "I disagree" path exists precisely for this, and the order-by-order list makes the error visible to both sides |
+
+> **The promise is in the answer; the sweep is not built (D141).** A submission's response carries
+> `reviewDueBy`, two hours out, so the app can say "usually under 30 minutes" with a bound behind it. Nothing sweeps
+> pending settlements yet, so nothing lifts the block at that instant. That is a promise the platform makes and does not
+> currently keep, and it is written here rather than left for a rider to discover at 1 am.
 
 The 2-hour auto-lift is the most important rule in this document. It converts the block from an
 open-ended detention into a bounded procedure with the platform carrying the cost of its own

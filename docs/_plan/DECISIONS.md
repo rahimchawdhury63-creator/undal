@@ -3266,3 +3266,62 @@ Tests: three in `shift-current.test.ts` — a locked rider's amount, block and i
 *Open:* `POST /v1/rider/cash/settle` — the bKash TrxID, the screenshot, the admin approval and the auto-lift when review
 exceeds the two-hour SLA (`25 §8`) — is not built. Until it is, a `CASH_LOCKED` rider has a readable balance and no way
 to clear it, which is the one gap in this flow that a rider would notice first.
+
+## D141 — The rider submits the claim, and a human still decides
+
+D140 gave the blocking screen a readable number. This rung gives the rider the only action that screen offers: send the
+money by bKash, then type five things into the app. Everything about the shape of the write follows from one question —
+*what may a claim do by itself?* — and the answer is: nothing but stop asking.
+
+**Submission does not unlock the rider.** `25 §5` says `shift_state = CASH_SUBMITTED` on success, and `riders.shift_state`
+has six values, none of them that one (a CHECK constraint, five migrations ago). Rather than alter the constraint to
+record a state the platform has no refusal for, the submission leaves the state at `CASH_LOCKED`: the block is released
+by *approval* (`25 §6.1`), and a gate a rider can pass by typing ten characters is not a gate. The screen still stops
+asking — `GET /v1/rider/cash` reports the pending claim — so the rider may close the app, which is the actual promise in
+§5 ("You can close the app. We'll notify you.").
+
+**The transaction ID is the payment, so it is normalised and unique.** Trimmed and uppercased before validation, because
+`bKash` prints upper case and a phone keyboard does not, and `uq_cash_settlement_trx` is a table-wide unique key: a reused
+TrxID is how one transfer would settle two debts, so it is the one refusal in this flow that is unambiguous. It is
+checked before the insert so the rider gets `CASH_TRXID_DUPLICATE` — a sentence about their input — rather than a driver
+error about a constraint. **Unless it is their own claim arriving twice**, which is the offline outbox: the answer is the
+first row, `duplicate: true`, no write and no audit entry. Idempotency here is not politeness, it is the difference
+between a retry and a second payment.
+
+**A mismatch is a flag, never a wall.** `25 §6` marks the number and name comparisons "pass / flag" and the selfie
+comparison "advisory — never decisive", and the reason is in the document: face comparison is a hint for a human. So
+`checkClaim` answers `numberMatches` and `nameMatches`, both nullable, and the route stores them beside the claim
+(`number_matches`, `name_matches`) so the reviewer sees the verdict the platform gave at submission time. `null` is *not
+checked* — a rider whose `payout_number` was never recorded is not accused of a mismatch — which is why the columns are
+nullable rather than defaulted false. The name comparison is a Dice coefficient over character bigrams at 0.75:
+"Md Karim Rahman" and "Karim Rahman Md" are the same person and Levenshtein would call them distant, while bigram overlap
+calls them close, which is the right mistake to make for a field that only produces a hint.
+
+**The amount is compared, never taken.** `25 §5` makes the field pre-filled and read-only, so the route reads the balance
+and refuses `CASH_OVERPAYMENT` or `CASH_UNDERPAYMENT` (+`short_by`) rather than trusting the body. `25 §7`'s partial
+settlement — "I'll settle part of it now", with a reason and a reduced cash limit — is a *path*, and a path needs a
+screen, a reason vocabulary and a policy about who may use it. It is not built, and a silent partial would look like
+settling a debt while leaving one.
+
+**The evidence columns.** `019` adds `bkash_number`, `account_name`, `screenshot_url`, `selfie_url`, `number_matches` and
+`name_matches` to `rider_cash_settlements`. The screenshot is a URL rather than a `media` row because the screen must work
+while `26`'s pipeline is cold — a rider in the street at 11 pm cannot be told to wait for an upload job — and because the
+one document that is both evidence and a secret is easier to keep out of the customer and vendor surfaces when only the
+admin side is given its key. `proof_media_id` stays for the day the screenshot is promoted.
+
+**The module moved.** The cash pair now lives in `routes/cash.ts`; `shift.ts` was at 511 lines with the read route in it
+and the line budget is 600. Four routes about shifts belong together; two routes about money belong together; the split
+is by noun, not by file length, and the length is what made the noun visible.
+
+Tests: eighteen in the new `rider-cash.test.ts` — the draft with a normalised TrxID, thirteen refusals each naming a
+field, the two patterns, number matching across the three spellings of one number, the name similarity's four anchors,
+`null` vs `false` for missing data on file, the read route's three states plus the refusal, the insert's thirteen
+bindings and its audit row, the idempotent retry writing nothing, a foreign TrxID refused, a pending claim blocking a
+second, nothing-owed refused, over/under payment with `short_by`, the unrecorded payout number submitted rather than
+accused, and a bad claim reaching no database call at all. `db/expected.json` was regenerated:
+115 tables, 685 columns.
+
+*Open:* the review half — approve, approve-a-different-amount, reject, escalate (`25 §6.1`), the rejection reason
+vocabulary (`§6.2`), and the 2-hour auto-lift (`§8`) whose deadline the submission now promises as `reviewDueBy`. The next
+rung should start with the sweep, because a promise in a response that nothing keeps is exactly the kind of thing this
+platform is not supposed to do.

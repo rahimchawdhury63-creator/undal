@@ -2476,6 +2476,30 @@
         {
           "name": "created_at",
           "type": "DATETIME(6)"
+        },
+        {
+          "name": "bkash_number",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "account_name",
+          "type": "VARCHAR(96)"
+        },
+        {
+          "name": "screenshot_url",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "selfie_url",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "number_matches",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "name_matches",
+          "type": "TINYINT(1)"
         }
       ],
       "generated": [],
