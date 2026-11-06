@@ -9,9 +9,17 @@ import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
 import { parseDatetime } from "../db/time.ts";
-import { cashDueAtMs, cashOutstandingPaisa, findRiderByUserId, type RiderRow } from "../repositories/riders.ts";
+import {
+  cashCollectedPaisa,
+  cashDueAtMs,
+  cashOutstandingPaisa,
+  findRiderByUserId,
+  type RiderRow,
+} from "../repositories/riders.ts";
 import {
   activeLiftUntil,
+  cashLines,
+  cashLinesTotal,
   lastDeclaration,
   lastShiftId,
   latestSettlement,
@@ -325,6 +333,46 @@ async function settleCash(ctx: Ctx, body: unknown): Promise<Response> {
 }
 
 /**
+ * Where the number came from: `GET /v1/rider/cash/breakdown` (`25 §8`, D150).
+ *
+ * `25 §8` names the situation this route answers: *"A bug produces a wrong `cash_in_hand` — the 'I disagree' path exists
+ * precisely for this, and the order-by-order list makes the error visible to both sides."* A rider told they are carrying
+ * ৳2 140 and shown eight deliveries that add up to it will pay it; a rider told the same number with no explanation is
+ * being asked to take the platform's word for a debt. This is the eight rows.
+ *
+ * The arithmetic is reported rather than reconciled: `collectedPaisa` comes from the balance, `linesPaisa` from the
+ * deliveries, and `differencePaisa` is what is left over. A non-zero difference is the bug `§8` describes, and surfacing
+ * it to the rider is deliberate — the alternative is a screen that hides a disagreement it already knows about, which is
+ * how a support call becomes an accusation.
+ *
+ * `deliveredAt` is the assignment's end, not the order's `delivered_at`: the same fact the attribution uses, so a line
+ * cannot say "delivered at 22:14" about a delivery the rider did not make.
+ */
+async function cashBreakdown(ctx: Ctx): Promise<Response> {
+  const rider = await riderFor(ctx);
+  if (rider instanceof Response) return rider;
+
+  const requested = Number(ctx.url.searchParams.get("limit") ?? 50);
+  const limit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), 200) : 50;
+  const lines = await cashLines(ctx.db, rider.id, limit);
+  const total = await cashLinesTotal(ctx.db, rider.id);
+  const collected = await cashCollectedPaisa(ctx.db, rider.id);
+  return successResponse(
+    {
+      deliveries: lines,
+      // The page is capped, so the total is its own query: a rider with four hundred deliveries still gets the figure.
+      linesPaisa: total,
+      collectedPaisa: collected,
+      differencePaisa: collected - total,
+      truncated: lines.length === limit,
+      outstandingPaisa: await cashOutstandingPaisa(ctx.db, rider.id),
+    },
+    ctx.locale,
+    ctx.requestId,
+  );
+}
+
+/**
  * Declare why the rider cannot settle: `POST /v1/rider/cash/declare` (`25 §7`, D148).
  *
  * The section opens with a screen and four buttons, and closes with the rule they exist for: *"The block exists to
@@ -478,5 +526,12 @@ export const CASH_ROUTES: readonly RouteDefinition[] = [
     group: "PRESENCE",
     maxBodyBytes: 1_024,
     run: async (ctx, input) => declareCash(ctx, input.body),
+  },
+  {
+    method: "GET",
+    path: "/v1/rider/cash/breakdown",
+    permission: "rider.view_finance",
+    group: "PRESENCE",
+    run: async (ctx) => cashBreakdown(ctx),
   },
 ];

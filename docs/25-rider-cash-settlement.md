@@ -411,6 +411,14 @@ it and are about to go home — not to punish people who do not.
 | The app crashes on the screen | State is persisted; it re-presents on relaunch with everything the rider already typed still filled in |
 | A bug produces a wrong `cash_in_hand` | The "I disagree" path exists precisely for this, and the order-by-order list makes the error visible to both sides |
 
+> **The "I disagree" path has its fuel (D150).** `GET /v1/rider/cash/breakdown` lists the deliveries that produced
+> `cash_in_hand` — newest first, attributed by `order_assignments.end_reason = 'DELIVERED'` rather than by
+> `orders.rider_id`, which is whoever holds the order *now* — and reports three numbers: `linesPaisa` (the deliveries,
+> over the whole history), `collectedPaisa` (the balance) and `differencePaisa`. A non-zero difference is `§8`'s "a bug
+> produces a wrong `cash_in_hand`", and it is shown to the rider rather than hidden: a screen that conceals a
+> disagreement it already knows about is how a support call becomes an accusation. The declaration button for `DISPUTE`
+> is still `501` — this route is what it will read from.
+
 > **The two-hour rule is a rule about state, and the door applies it (D142).** There is no cron in this platform, so a
 > deadline cannot *fire* anything: what a deadline can do is change what a door decides. `riders.shift_state` stays
 > `CASH_LOCKED` until the rider next presents themselves, and at that moment `POST /v1/rider/shift/start` asks whether

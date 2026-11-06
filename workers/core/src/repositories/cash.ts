@@ -445,3 +445,51 @@ export async function writeDeclaration(db: Db, write: DeclarationWrite, nowMs: n
   );
   return id;
 }
+
+/** One delivery that produced cash in the rider's hand. */
+export interface CashLine {
+  readonly orderId: string;
+  readonly code: string;
+  readonly cashPaisa: number;
+  readonly deliveredAt: string | null;
+}
+
+/**
+ * The deliveries behind the number: newest first, and only the ones that put cash in the rider's hand (`25 §7`, D150).
+ *
+ * Attribution is `order_assignments.end_reason = 'DELIVERED'`, not `orders.rider_id`. The order's column is whoever has it
+ * *now* — a reassigned order keeps the id of the rider it was taken from — so summing by it would credit one rider with
+ * another's delivery first and take it away second, which is exactly the shape of a `cash_in_hand` bug a rider would
+ * dispute. The assignment row is the record of who actually delivered it.
+ */
+export async function cashLines(db: Db, riderId: Uint8Array, limit: number): Promise<CashLine[]> {
+  const rows = await db.query<Record<string, unknown>>(
+    "SELECT o.`id`, o.`code`, o.`cash_collected_paisa`, a.`ended_at` FROM `order_assignments` a " +
+      "JOIN `orders` o ON o.`id` = a.`order_id` WHERE a.`rider_id` = ? AND a.`end_reason` = 'DELIVERED' " +
+      "AND o.`cash_collected_paisa` IS NOT NULL AND o.`cash_collected_paisa` > 0 " +
+      "ORDER BY a.`ended_at` DESC LIMIT ?",
+    [riderId, limit],
+  );
+  return rows.map((raw) => ({
+    orderId: raw["id"] instanceof Uint8Array ? toHexId(raw["id"]) : "",
+    code: String(raw["code"] ?? ""),
+    cashPaisa: Number(raw["cash_collected_paisa"] ?? 0),
+    deliveredAt: typeof raw["ended_at"] === "string" ? raw["ended_at"] : null,
+  }));
+}
+
+/**
+ * Every paisa those deliveries account for, over the whole history rather than the page.
+ *
+ * Two numbers rather than one because the page is capped: a rider with four hundred deliveries still needs the total, and
+ * the difference between this and `collected_paisa` is the only honest way to say "the screen and the balance disagree".
+ */
+export async function cashLinesTotal(db: Db, riderId: Uint8Array): Promise<number> {
+  const row = await db.first<{ total: number | string | null }>(
+    "SELECT SUM(o.`cash_collected_paisa`) AS `total` FROM `order_assignments` a " +
+      "JOIN `orders` o ON o.`id` = a.`order_id` WHERE a.`rider_id` = ? AND a.`end_reason` = 'DELIVERED' " +
+      "AND o.`cash_collected_paisa` IS NOT NULL AND o.`cash_collected_paisa` > 0",
+    [riderId],
+  );
+  return Number(row?.total ?? 0);
+}

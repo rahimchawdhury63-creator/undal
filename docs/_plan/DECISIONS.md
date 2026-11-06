@@ -3663,3 +3663,34 @@ treating a `NULL` expiry as lifted).
 
 *Open:* the dispute path, the police-report upload, and "I'll settle part of it now" — which is not a declaration at all
 but a settlement for less than the balance, refused today with `CASH_UNDERPAYMENT`.
+
+## D150 — The deliveries behind the number
+
+`25 §8` names the failure exactly: *"A bug produces a wrong `cash_in_hand` — the 'I disagree' path exists precisely for
+this, and the order-by-order list makes the error visible to both sides."* The platform has been telling riders a number
+with no way to check it. `GET /v1/rider/cash/breakdown` is the check.
+
+**Attribution is the assignment, not the order.** The natural join is `orders.rider_id`, and it is wrong: that column is
+whoever holds the order *now*, so a reassigned order credits one rider with a delivery and takes it away from another.
+The line items come from `order_assignments` where `end_reason = 'DELIVERED'` — the record of who actually delivered —
+which is also why the same rule appears in the delivery-statistics query (D?) and nowhere else. A test asserts the
+statement does not mention `orders.rider_id` at all.
+
+**Three numbers, and the difference is the point.** `linesPaisa` is the sum over the whole history, `collectedPaisa` is
+the balance's `collected_paisa`, and `differencePaisa` is what is left over. A zero difference is the ordinary case; a
+non-zero one is a bug, and the route surfaces it to the rider rather than reconciling it silently. The alternative —
+showing a list that adds up to something other than the balance and saying nothing — is exactly the experience that turns
+a support call into an accusation.
+
+**The page is capped, the total is not.** `limit` defaults to 50 and caps at 200, `truncated` says whether the page was
+cut, and `linesPaisa` comes from its own `SUM` so a rider with four hundred deliveries still sees the figure that matters.
+A single query returning everything would have made the response size a function of how long somebody has worked.
+
+**No writing, so no audit.** A `GET` that changes nothing does not get a row; the read is the rider's own data and the
+guardrail's audit rule is scoped to mutations. The route is in `PRN`'s `PRESENCE` budget with the rest of the cash read.
+
+Tests: five in `test/cash-breakdown.test.ts` — the deliveries that add up, a disagreement surfaced, the attribution rule
+asserted against the SQL, a capped page whose total is still whole, and a rider with nothing collected.
+
+*Open:* `kind: "DISPUTE"` still answers `501`. It now has a source to read from, and what it still needs is a dispute
+record, a message thread (`order_disputes` exists in the inventory for orders) and a reviewer decision.

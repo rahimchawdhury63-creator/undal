@@ -200,6 +200,15 @@ export async function cashOutstandingPaisa(db: Db, riderId: Uint8Array): Promise
   return value === null || value === undefined ? 0 : Math.max(0, Number(value));
 }
 
+/** What the rider has been credited with collecting, before any deposit — the top line of `25 §7`'s breakdown (D150). */
+export async function cashCollectedPaisa(db: Db, riderId: Uint8Array): Promise<number> {
+  const row = await db.first<{ collected_paisa: number | string | null }>(
+    "SELECT `collected_paisa` FROM `rider_cash_balances` WHERE `rider_id` = ? LIMIT 1",
+    [riderId],
+  );
+  return row === null ? 0 : Math.max(0, Number(row.collected_paisa ?? 0));
+}
+
 /**
  * When the cash became owed: the instant the shift that collected it ended (D140).
  *
