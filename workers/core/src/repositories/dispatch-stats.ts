@@ -11,7 +11,7 @@
  * how they are rated, whether they know this vendor's back door, how long they have been idle, and how much they have
  * already done today. This module reads exactly that and nothing else.
  *
- * **Four statements, whatever the wave size.** Every query takes the whole candidate list as an `IN` list, because
+ * **Four or five statements, whatever the wave size.** Every query takes the whole candidate list as an `IN` list, because
  * the alternative — a rider at a time — is the same mistake the candidate feed avoided (D117) and would put sixty
  * round trips inside a twenty-five-second wave.
  *
@@ -21,10 +21,12 @@
  * `order_assignments` where `end_reason = 'DELIVERED'`, not `orders.rider_id` — the latter is the *current* rider, and
  * a rating must follow the rider who actually carried the food.
  *
- * **One figure the schema still cannot supply.** `orders` carries no delivery-cell column, so `area_familiarity`
- * (`11 §5` factor 8) has no input and the caller scores it zero — the honest value for "no evidence about this cell".
- * That gap is recorded in `DECISIONS.md` and it is visible in the code as a literal rather than a query that returns
- * nothing, which is the difference between a factor that is missing its evidence and one that is missing its reader.
+ * **The delivery cell is the schema's own arithmetic (D139).** `orders.delivery_cell` is a generated column over the
+ * delivery coordinates — the same `44920`/`49520` cell `addresses` and `vendors` use — so factor 8's count is an
+ * indexed `GROUP BY` on a column MySQL maintains, and the formula exists once in the database rather than once per
+ * caller. The cell being asked about is computed by the same expression inside the query, for the same reason: a
+ * TypeScript copy of the divisor is a second place for the two to drift. A `PICKUP` order has no delivery point, so the
+ * statement is not run at all and every candidate scores zero — no evidence, not zero evidence.
  */
 
 import type { Db } from "../db/client.ts";
@@ -45,6 +47,8 @@ export interface RiderHistory {
   readonly deliveredLifetime: number;
   /** When the rider last delivered, or `null` if never — the base of `idle_s`. */
   readonly lastDeliveredAtMs: number | null;
+  /** Deliveries this rider has completed into the cell being dispatched into (`11 §5` factor 8, D139). */
+  readonly deliveriesIntoCell: number;
   /**
    * Delivery ratings: how many were four or five stars, out of how many (`11 §5` factor 6, D137).
    *
@@ -62,6 +66,13 @@ export interface HistoryQuery {
   /** The instant being scored, and the start of the local day it falls in. */
   readonly nowMs: number;
   readonly dayStartMs: number;
+  /**
+   * Where the food is going, in E7, or `null` for an order with no delivery point.
+   *
+   * The cell is not passed pre-computed: the query derives it with the schema's own expression, so this module never
+   * holds a second copy of the grid.
+   */
+  readonly delivery: { readonly latE7: number; readonly lonE7: number } | null;
 }
 
 const EMPTY: RiderHistory = Object.freeze({
@@ -73,6 +84,7 @@ const EMPTY: RiderHistory = Object.freeze({
   deliveredFromVendor: 0,
   deliveredLifetime: 0,
   lastDeliveredAtMs: null,
+  deliveriesIntoCell: 0,
   rating: null,
 });
 
@@ -107,6 +119,19 @@ const SELECT_DELIVERIES = `SELECT \`rider_id\` AS \`rider_id\`, COUNT(*) AS \`de
   GROUP BY \`rider_id\``;
 
 /**
+ * Deliveries into the cell the order is going to, per candidate (`11 §5` factor 8, D139).
+ *
+ * The `WHERE` clause carries the schema's cell expression rather than a pre-computed number, so the query and the
+ * generated column cannot disagree about where the grid's edges are. `DELIVERED` and `SETTLED` both count, as they do
+ * for factor 7: settlement is bookkeeping after the food arrived.
+ */
+const SELECT_CELL_DELIVERIES = `SELECT \`rider_id\` AS \`rider_id\`, COUNT(*) AS \`delivered\`
+  FROM \`orders\`
+  WHERE \`rider_id\` IN (IDS) AND \`state\` IN ('DELIVERED', 'SETTLED')
+    AND \`delivery_cell\` = FLOOR(? / 44920) * 1000000 + FLOOR(? / 49520)
+  GROUP BY \`rider_id\``;
+
+/**
  * The delivery ratings behind factor 6, per candidate.
  *
  * Both numbers matter: the Wilson bound of eight good ratings out of ten is not the bound of eighty out of a hundred,
@@ -134,11 +159,22 @@ export async function riderHistory(db: Db, query: HistoryQuery): Promise<Readonl
   const ids = placeholders(query.riderIds.length);
   const day = sqlDatetime(new Date(query.dayStartMs));
 
-  const [today, lifetimeOffers, deliveries, ratings] = await Promise.all([
+  // A pickup order has no delivery point, so there is no cell to be familiar with and no statement to run.
+  const cell =
+    query.delivery === null
+      ? Promise.resolve([] as Record<string, unknown>[])
+      : db.query<Record<string, unknown>>(SELECT_CELL_DELIVERIES.replace("IDS", ids), [
+          ...query.riderIds,
+          query.delivery.latE7,
+          query.delivery.lonE7,
+        ]);
+
+  const [today, lifetimeOffers, deliveries, ratings, intoCell] = await Promise.all([
     db.query<Record<string, unknown>>(SELECT_TODAY.replace("IDS", ids), [...query.riderIds, day]),
     db.query<Record<string, unknown>>(SELECT_LIFETIME_OFFERS.replace("IDS", ids), [...query.riderIds]),
     db.query<Record<string, unknown>>(SELECT_DELIVERIES.replace("IDS", ids), [query.vendorId, ...query.riderIds]),
     db.query<Record<string, unknown>>(SELECT_RATINGS.replace("IDS", ids), [...query.riderIds]),
+    cell,
   ]);
 
   const merge = (riderId: string): RiderHistory => out.get(riderId) ?? EMPTY;
@@ -171,6 +207,10 @@ export async function riderHistory(db: Db, query: HistoryQuery): Promise<Readonl
       deliveredFromVendor: Number(row["from_vendor"] ?? 0),
       lastDeliveredAtMs: Number.isFinite(lastDeliveredAtMs) ? lastDeliveredAtMs : null,
     });
+  }
+  for (const row of intoCell) {
+    const riderId = hex(row["rider_id"]);
+    out.set(riderId, { ...merge(riderId), deliveriesIntoCell: Number(row["delivered"] ?? 0) });
   }
   for (const row of ratings) {
     const riderId = hex(row["rider_id"]);

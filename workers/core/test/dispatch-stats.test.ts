@@ -16,7 +16,14 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { idleSeconds, riderHistory } from "../src/repositories/dispatch-stats.ts";
-import { acceptanceFrom, medianDeliveries, ratesFrom, ratingFrom, startOfDayMs } from "../src/domain/order/dispatch-facts.ts";
+import {
+  acceptanceFrom,
+  medianDeliveries,
+  ratesFrom,
+  ratingFrom,
+  startOfDayMs,
+} from "../src/domain/order/dispatch-facts.ts";
+import { areaFamiliarity } from "../src/domain/order/scoring.ts";
 import { wilsonLowerBound } from "../src/domain/order/scoring.ts";
 import { stubDb } from "../src/db/client.ts";
 
@@ -24,6 +31,8 @@ const RIDER_HEX = "0193f2a17c3e7890abcdef0123456707";
 const OTHER_HEX = "0193f2a17c3e7890abcdef0123456711";
 const VENDOR_HEX = "0193f2a17c3e7890abcdef0123456709";
 const NOW = 1_700_000_000_000;
+/** The delivery point under test: the cell D139 counts into is derived from these two numbers by the query itself. */
+const CELL = { latE7: 248_981_000, lonE7: 918_698_000 };
 
 function bytes(value: string): Uint8Array {
   return Uint8Array.from(Buffer.from(value, "hex"));
@@ -76,29 +85,35 @@ describe("reading a candidate list's history (D125)", () => {
         match: /FROM `order_ratings` `r` JOIN `order_assignments`/u,
         rows: [{ rider_id: bytes(RIDER_HEX), good: 47, total: 52 }],
       },
+      {
+        match: /FROM `orders`\s+WHERE `rider_id` IN/u,
+        rows: [{ rider_id: bytes(RIDER_HEX), delivered: 5 }],
+      },
     ]);
   }
 
-  test("four statements cover the whole candidate list, whatever its size", async () => {
+  test("five statements cover the whole candidate list, whatever its size", async () => {
     const db = dbFor();
     await riderHistory(db, {
       riderIds: [bytes(RIDER_HEX), bytes(OTHER_HEX)],
       vendorId: bytes(VENDOR_HEX),
       nowMs: NOW,
       dayStartMs: NOW - 3_600_000,
+      delivery: CELL,
     });
-    assert.equal(db.calls.length, 4);
+    assert.equal(db.calls.length, 5);
     for (const call of db.calls) {
       assert.match(call.sql, /IN \(\?, \?\)/u, "one placeholder per candidate, never a query per candidate");
     }
   });
 
-  test("the four answers merge into one history per rider", async () => {
+  test("the five answers merge into one history per rider", async () => {
     const history = await riderHistory(dbFor(), {
       riderIds: [bytes(RIDER_HEX)],
       vendorId: bytes(VENDOR_HEX),
       nowMs: NOW,
       dayStartMs: NOW - 3_600_000,
+      delivery: CELL,
     });
     const rider = history.get(RIDER_HEX);
     assert.ok(rider !== undefined);
@@ -107,7 +122,8 @@ describe("reading a candidate list's history (D125)", () => {
     assert.equal(rider.deliveredFromVendor, 12);
     assert.equal(rider.deliveredLifetime, 210);
     assert.equal(rider.lastDeliveredAtMs, Date.parse("2023-11-14T22:00:00.000Z"));
-    assert.deepEqual(rider.rating, { good: 47, total: 52 }, "the tally arrives with the same three queries");
+    assert.deepEqual(rider.rating, { good: 47, total: 52 }, "the tally arrives with the same round trip");
+    assert.equal(rider.deliveriesIntoCell, 5, "and so does the cell count");
   });
 
   test("a rider with no history at all is absent from the map, which the caller reads as empty", async () => {
@@ -121,6 +137,7 @@ describe("reading a candidate list's history (D125)", () => {
       vendorId: bytes(VENDOR_HEX),
       nowMs: NOW,
       dayStartMs: NOW,
+      delivery: CELL,
     });
     assert.equal(history.size, 0);
   });
@@ -132,6 +149,7 @@ describe("reading a candidate list's history (D125)", () => {
       vendorId: bytes(VENDOR_HEX),
       nowMs: NOW,
       dayStartMs: NOW,
+      delivery: CELL,
     });
     assert.equal(history.size, 0);
     assert.equal(db.calls.length, 0);
@@ -144,8 +162,9 @@ describe("reading a candidate list's history (D125)", () => {
       vendorId: bytes(VENDOR_HEX),
       nowMs: NOW,
       dayStartMs: NOW,
+      delivery: CELL,
     });
-    const delivery = db.calls.find((call) => /FROM `orders`/u.test(call.sql));
+    const delivery = db.calls.find((call) => /SUM\(CASE WHEN `vendor_id` = \?/u.test(call.sql));
     assert.ok(delivery !== undefined);
     assert.deepEqual(delivery.params[0], bytes(VENDOR_HEX));
     assert.match(delivery.sql, /state` IN \('DELIVERED', 'SETTLED'\)/u, "settlement bookkeeping is not lateness");
@@ -158,6 +177,7 @@ describe("reading a candidate list's history (D125)", () => {
       vendorId: bytes(VENDOR_HEX),
       nowMs: NOW,
       dayStartMs: NOW,
+      delivery: CELL,
     });
     const ratings = db.calls.find((call) => /FROM `order_ratings`/u.test(call.sql));
     assert.match(ratings?.sql ?? "", /`a`\.`end_reason` = 'DELIVERED'/u);
@@ -177,10 +197,48 @@ describe("reading a candidate list's history (D125)", () => {
       vendorId: bytes(VENDOR_HEX),
       nowMs: NOW,
       dayStartMs: NOW,
+      delivery: CELL,
     });
     assert.equal(history.size, 0);
     assert.equal(ratingFrom(undefined), 0);
     assert.equal(ratingFrom(history.get(RIDER_HEX)), 0, "no evidence is zero, and a neutral half would be a lie");
+  });
+
+  test("the cell is the schema's own expression, and the delivery point is its binding (D139)", async () => {
+    const db = dbFor();
+    await riderHistory(db, {
+      riderIds: [bytes(RIDER_HEX)],
+      vendorId: bytes(VENDOR_HEX),
+      nowMs: NOW,
+      dayStartMs: NOW,
+      delivery: CELL,
+    });
+    const intoCell = db.calls.find((call) => /`delivery_cell` = FLOOR/u.test(call.sql));
+    assert.ok(intoCell !== undefined, "factor 8 has a statement of its own");
+    assert.match(intoCell.sql, /FLOOR\(\? \/ 44920\) \* 1000000 \+ FLOOR\(\? \/ 49520\)/u, "the grid lives in one place");
+    assert.deepEqual(intoCell.params, [bytes(RIDER_HEX), CELL.latE7, CELL.lonE7]);
+    assert.match(intoCell.sql, /state` IN \('DELIVERED', 'SETTLED'\)/u, "settlement is bookkeeping, not familiarity");
+  });
+
+  test("a pickup order has no cell, so the statement is not run and every candidate scores zero", async () => {
+    const db = dbFor();
+    const history = await riderHistory(db, {
+      riderIds: [bytes(RIDER_HEX)],
+      vendorId: bytes(VENDOR_HEX),
+      nowMs: NOW,
+      dayStartMs: NOW,
+      delivery: null,
+    });
+    assert.equal(db.calls.length, 4, "no delivery point, no query about one");
+    assert.equal(history.get(RIDER_HEX)?.deliveriesIntoCell, 0);
+  });
+
+  test("factor 8 is five deliveries out of twelve towards knowing the gate, and a missing count is none", () => {
+    assert.equal(areaFamiliarity(0), 0);
+    assert.ok(Math.abs(areaFamiliarity(6) - 0.5) < 1e-12, "six deliveries into the cell is half familiarity");
+    assert.equal(areaFamiliarity(12), 1);
+    assert.equal(areaFamiliarity(40), 1, "knowing the door does not get better than knowing the door");
+    assert.equal(areaFamiliarity(-3), 0);
   });
 
   test("the rating a driver reports as a string is still a number, and a null sum is none", async () => {
@@ -194,6 +252,7 @@ describe("reading a candidate list's history (D125)", () => {
       vendorId: bytes(VENDOR_HEX),
       nowMs: NOW,
       dayStartMs: NOW,
+      delivery: CELL,
     });
     assert.deepEqual(history.get(RIDER_HEX)?.rating, { good: 0, total: 3 }, "three one-star ratings are three ratings");
     assert.equal(ratingFrom(history.get(RIDER_HEX)), 0);
@@ -209,6 +268,7 @@ describe("reading a candidate list's history (D125)", () => {
       deliveredFromVendor: 0,
       deliveredLifetime: 0,
       lastDeliveredAtMs: null,
+      deliveriesIntoCell: 0,
     };
     assert.ok(ratingFrom({ ...empty, rating: { good: 47, total: 52 } }) > 0.75);
     assert.ok(
@@ -228,6 +288,7 @@ describe("reading a candidate list's history (D125)", () => {
       offersAcceptedLifetime: 0,
       deliveredFromVendor: 0,
       deliveredLifetime: 1,
+      deliveriesIntoCell: 0,
       rating: null,
     };
     assert.equal(idleSeconds({ ...base, lastDeliveredAtMs: NOW - 600_000 }, NOW), 600);
@@ -247,6 +308,7 @@ describe("history into factors (D129)", () => {
     deliveredFromVendor: 0,
     deliveredLifetime: 0,
     lastDeliveredAtMs: null,
+    deliveriesIntoCell: 0,
     rating: null,
   };
 

@@ -1961,7 +1961,12 @@
       "source": "006_orders.sql"
     },
     "orders": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "delivery_cell",
+          "type": "BIGINT"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 13,

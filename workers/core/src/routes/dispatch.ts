@@ -365,6 +365,7 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
       vendorId: Buffer.from(order.vendorId, "hex"),
       nowMs: at,
       dayStartMs: startOfDayMs(at),
+      delivery: order.delivery,
     });
 
     const readyInS = order.readyAtMs === null ? 0 : Math.round((order.readyAtMs - at) / 1000);
@@ -385,8 +386,8 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
         deliveriesToday: past?.deliveriesToday ?? 0,
         ratingLowerBound: ratingFrom(past),
         deliveriesFromVendor: past?.deliveredFromVendor ?? 0,
-        // No delivery-cell column on `orders`, so factor 8 has no evidence (D125).
-        deliveriesIntoCell: 0,
+        // Deliveries this rider has already made into the cell the food is going to (`11 §5` factor 8, D139).
+        deliveriesIntoCell: past?.deliveriesIntoCell ?? 0,
         batchFeasibility: 0,
         currentLoad: snapshot.currentLoad,
         maxConcurrent: snapshot.maxConcurrent,

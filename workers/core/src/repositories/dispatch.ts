@@ -249,10 +249,12 @@ export interface DispatchOrder {
   readonly readyAtMs: number | null;
   /** Where the food is, in E7 — the origin of every candidate's distance. */
   readonly pickup: { readonly latE7: number; readonly lonE7: number };
+  /** Where the food is going, in E7, or `null` — the cell factor 8 is counted in (D139). */
+  readonly delivery: { readonly latE7: number; readonly lonE7: number } | null;
 }
 
 const SELECT_DISPATCH_ORDER = `SELECT \`id\`, \`code\`, \`state\`, \`zone_id\`, \`vendor_id\`, \`total_paisa\`, \`rider_payout_paisa\`,
-    \`pickup_lat_e7\`, \`pickup_lon_e7\`, \`ready_at_estimate\`
+    \`pickup_lat_e7\`, \`pickup_lon_e7\`, \`delivery_lat_e7\`, \`delivery_lon_e7\`, \`ready_at_estimate\`
   FROM \`orders\` WHERE \`code\` = ?`;
 
 /** The order, or `null` when no such code exists. */
@@ -272,6 +274,10 @@ export async function orderForDispatch(db: Db, code: string): Promise<DispatchOr
       ? null
       : new Date(String(row["ready_at_estimate"]).replace(" ", "T") + "Z").getTime(),
     pickup: { latE7: Number(row["pickup_lat_e7"] ?? 0), lonE7: Number(row["pickup_lon_e7"] ?? 0) },
+    delivery:
+      row["delivery_lat_e7"] === null || row["delivery_lat_e7"] === undefined
+        ? null
+        : { latE7: Number(row["delivery_lat_e7"]), lonE7: Number(row["delivery_lon_e7"] ?? 0) },
   };
 }
 

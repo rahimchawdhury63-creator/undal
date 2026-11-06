@@ -302,6 +302,16 @@ rider who fails any one of them is not ranked at all.
 >
 > Four statements now cover a wave of any size, and the module's own comment said "three" for three rungs — a number in
 > a docstring is a claim, and this one had been false since the rating landed.
+>
+> **And the cell factor had the evidence all along (D139).** Factor 8 (`area_familiarity`) was the last factor with no
+> input, on the record that `orders` has no delivery-cell column. It had the coordinates: `delivery_lat_e7` and
+> `delivery_lon_e7` are snapshotted at placement so an address edit cannot rewrite history, and the cell is a pure
+> function of them — the same `FLOOR(lat/44920) * 1e6 + FLOOR(lon/49520)` that `addresses` and `vendors` already use.
+> So `018` adds `orders.delivery_cell` as a **generated stored column** with an index, and the ranking's fifth statement
+> asks it a question the index can answer. The order being dispatched is located with the same expression inside the
+> query rather than with a TypeScript copy of the divisors, because a second copy of a grid is a second chance for the
+> two to disagree about where a cell ends. Five deliveries into that cell is five twelfths of the way to knowing which
+> gate, which is what the factor says; a `PICKUP` order has no cell, so the statement is not run at all.
 
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
