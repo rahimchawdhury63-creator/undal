@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { idleSeconds, riderHistory } from "../src/repositories/dispatch-stats.ts";
+import { acceptanceFrom, medianDeliveries, ratesFrom, startOfDayMs } from "../src/domain/order/dispatch-facts.ts";
 import { wilsonLowerBound } from "../src/domain/order/scoring.ts";
 import { stubDb } from "../src/db/client.ts";
 
@@ -159,5 +160,47 @@ describe("reading a candidate list's history (D125)", () => {
     assert.equal(idleSeconds({ ...base, lastDeliveredAtMs: null }, NOW), 0, "never delivered is zero idle, not infinite");
     assert.equal(idleSeconds({ ...base, lastDeliveredAtMs: NOW - 2 * 86_400_000 }, NOW), 86_400);
     assert.equal(idleSeconds({ ...base, lastDeliveredAtMs: NOW + 5_000 }, NOW), 0, "a future stamp is not idle time");
+  });
+});
+
+describe("history into factors (D129)", () => {
+  const base = {
+    deliveriesToday: 0,
+    offersSentToday: 0,
+    offersAcceptedToday: 0,
+    offersSentLifetime: 0,
+    offersAcceptedLifetime: 0,
+    deliveredFromVendor: 0,
+    deliveredLifetime: 0,
+    lastDeliveredAtMs: null,
+    rating: null,
+  };
+
+  test("acceptance is the Wilson bound of lifetime offers, and zero without any", () => {
+    assert.equal(acceptanceFrom(undefined), 0);
+    assert.equal(acceptanceFrom({ ...base, offersSentLifetime: 0 }), 0);
+    assert.ok(acceptanceFrom({ ...base, offersSentLifetime: 400, offersAcceptedLifetime: 300 }) > 0.7);
+  });
+
+  test("completion is deliveries over accepted offers, and on-time borrows it until lateness is recorded", () => {
+    const rates = ratesFrom({ ...base, offersAcceptedLifetime: 100, deliveredLifetime: 95 });
+    assert.ok(rates.completion > 0.85 && rates.completion < 0.95);
+    assert.equal(rates.onTime, rates.completion);
+    assert.deepEqual(ratesFrom(undefined), { completion: 0, onTime: 0 });
+  });
+
+  test("the median is over the riders in play, and an even count averages the middle two", () => {
+    const history = new Map([
+      ["a", { ...base, deliveriesToday: 1 }],
+      ["b", { ...base, deliveriesToday: 5 }],
+      ["c", { ...base, deliveriesToday: 6 }],
+      ["d", { ...base, deliveriesToday: 12 }],
+    ]);
+    assert.equal(medianDeliveries(history), 5.5);
+    assert.equal(medianDeliveries(new Map()), 0);
+  });
+
+  test("the day boundary is UTC midnight of the instant", () => {
+    assert.equal(startOfDayMs(Date.parse("2023-11-14T22:13:20.000Z")), Date.parse("2023-11-14T00:00:00.000Z"));
   });
 });

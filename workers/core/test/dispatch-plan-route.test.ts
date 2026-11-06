@@ -370,3 +370,45 @@ describe("the push behind the ring (D128)", () => {
     assert.equal(db.calls.filter((call) => /INSERT INTO `fcm_dispatches`/u.test(call.sql)).length, 0);
   });
 });
+
+describe("advancing the ladder (D129)", () => {
+  test("a second call writes wave 2, not wave 1 again", async () => {
+    stubFeed([USER_HEX]);
+    const db = dbFor({ lastWave: 1 });
+    const result = await answer(await route().run(ctxFor(db), INPUT));
+    assert.equal(result.status, 200);
+    assert.equal(result.data["wave"], 2);
+    const insert = db.calls.find((call) => /INSERT INTO `order_offers`/u.test(call.sql));
+    assert.ok(insert !== undefined);
+    assert.equal(insert.params[3], 2, "the wave number is the order's next one, not the plan's first");
+  });
+
+  test("a fourth call writes wave 4 with its own shorter budget", async () => {
+    stubFeed([USER_HEX]);
+    const db = dbFor({ lastWave: 3 });
+    const result = await answer(await route().run(ctxFor(db), INPUT));
+    assert.equal(result.data["wave"], 4);
+    const insert = db.calls.find((call) => /INSERT INTO `order_offers`/u.test(call.sql));
+    assert.ok(insert !== undefined);
+    // Wave 4's TTL is 20 s: the expiry is the wave's own, measured from this call.
+    assert.ok(String(insert.params[9]).length > 0);
+  });
+
+  test("after wave 5 the ladder is exhausted, and nothing more is written", async () => {
+    stubFeed([USER_HEX]);
+    const db = dbFor({ lastWave: 5 });
+    const result = await answer(await route().run(ctxFor(db), INPUT));
+    assert.equal(result.status, 200);
+    assert.equal(result.data["wave"], null);
+    assert.equal(result.data["reason"], "LADDER_EXHAUSTED");
+    assert.equal(db.calls.filter((call) => /INSERT INTO `order_offers`/u.test(call.sql)).length, 0);
+  });
+
+  test("the advance route is the same handler under the name the driver calls it by", async () => {
+    const advance = DISPATCH_ROUTES.find((definition) => definition.path === "/internal/dispatch/advance");
+    assert.ok(advance !== undefined);
+    stubFeed([USER_HEX]);
+    const result = await answer(await advance.run(ctxFor(dbFor({ lastWave: 2 })), INPUT));
+    assert.equal(result.data["wave"], 3);
+  });
+});

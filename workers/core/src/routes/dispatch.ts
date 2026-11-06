@@ -13,7 +13,7 @@ import { createRealtimeClient } from "../bindings/realtime.ts";
 import { newId } from "../lib/ids.ts";
 import { sqlDatetime } from "../db/time.ts";
 import { estimateRoute, ESTIMATED_SPEED_MPS } from "../domain/order/distance.ts";
-import { planWaves, type ScoredCandidate } from "../domain/order/assignment.ts";
+import { MAX_WAVES, planWaves, type ScoredCandidate } from "../domain/order/assignment.ts";
 import { planWaveWrite } from "../domain/order/dispatch-plan.ts";
 import { offerAlarm } from "../domain/order/offer-alarm.ts";
 import { DEFAULT_MEDIAN_PICKUP_M, scoreCandidates, wilsonLowerBound, type ScoringFacts } from "../domain/order/scoring.ts";
@@ -22,6 +22,14 @@ import { claimDispatchLock, insertOfferWave, releaseDispatchLock, waveStateForOr
 import { insertDispatch } from "../repositories/dispatches.ts";
 import { tokensForUser } from "../repositories/recipients.ts";
 import { parseZoneRing } from "../domain/geo/zone-shape.ts";
+import {
+  acceptanceFrom,
+  hexOf,
+  idleFrom,
+  medianDeliveries,
+  ratesFrom,
+  startOfDayMs,
+} from "../domain/order/dispatch-facts.ts";
 import { eligibility, type AssignmentTarget } from "../domain/order/assignment.ts";
 import { assembleSnapshots, type FeedFix } from "../domain/order/dispatch-assembly.ts";
 import {
@@ -364,10 +372,10 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
         // routing lands, both move together.
         arrivalAtVendorS: Math.round(distanceM / ESTIMATED_SPEED_MPS),
         readyInS,
-        acceptanceRate: wilson(past),
-        completionRate: snapshotRates(past).completion,
-        onTimeRate: snapshotRates(past).onTime,
-        idleS: past === undefined ? 0 : idleSeconds(past, at),
+        acceptanceRate: acceptanceFrom(past),
+        completionRate: ratesFrom(past).completion,
+        onTimeRate: ratesFrom(past).onTime,
+        idleS: idleFrom(past, at),
         deliveriesToday: past?.deliveriesToday ?? 0,
         ratingLowerBound: 0,
         deliveriesFromVendor: past?.deliveredFromVendor ?? 0,
@@ -397,7 +405,23 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
       score: entry.score,
     }));
     const plan = planWaves(candidatesForPlan);
-    const first = plan[0];
+    // The wave to write is the *next* one for this order, not wave 1: a second call (the advance driver, D129) must not
+    // rewrite wave 1, and `uq_offers_order_rider_wave` would reject it if it tried. `planWaves` always numbers its
+    // cascade 1..5, so the next wave is selected by number rather than by position.
+    const nextNumber = waves.lastWave + 1;
+    // The *contents* are the planner's first wave — the best remaining riders — written under this order's next wave
+    // number. `planWaves` numbers a fresh cascade 1..5, so taking its wave 2 would silently skip the best candidates on
+    // a re-plan; taking its wave 1 and renumbering is what makes a second call advance rather than repeat.
+    const first = plan[0] === undefined ? undefined : { ...plan[0], wave: nextNumber };
+    if (nextNumber > MAX_WAVES) {
+      // The ladder is exhausted (`11 §11`): five waves asked and nobody took it. Not an error — the caller escalates
+      // (expansion, then refund) and this route stops writing.
+      return successResponse(
+        { orderCode: order.code, wave: null, offered: [], pNone: 1, reason: "LADDER_EXHAUSTED" },
+        ctx.locale,
+        ctx.requestId,
+      );
+    }
     if (first === undefined) {
       return successResponse(
         { orderCode: order.code, wave: null, offered: [], pNone: 1, reason: "NO_WAVE_PLANNED" },
@@ -524,44 +548,6 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
   }
 }
 
-/** Midnight UTC of the day an instant falls in — `rider_stats.stat_date` is a `DATE`, so the day is the key. */
-function startOfDayMs(atMs: number): number {
-  const date = new Date(atMs);
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-}
-
-/** Factor 3's rate: the Wilson bound of lifetime acceptance, zero with no history (D125). */
-function wilson(past: RiderHistory | undefined): number {
-  if (past === undefined) return 0;
-  return wilsonLowerBound(past.offersAcceptedLifetime, past.offersSentLifetime);
-}
-
-/**
- * Factors 4's two rates, both Wilson-bounded from what the platform records.
- *
- * Completion is deliveries over lifetime accepted offers; on-time has no recorded outcome yet, so it takes the same
- * figure rather than a guess — a rider who accepts and does not deliver looks unreliable, which is exactly what the
- * factor is for, and there is no separate lateness signal to use until penalties are wired into scoring.
- */
-function snapshotRates(past: RiderHistory | undefined): { completion: number; onTime: number } {
-  if (past === undefined) return { completion: 0, onTime: 0 };
-  const completion = wilsonLowerBound(past.deliveredLifetime, past.offersAcceptedLifetime);
-  return { completion, onTime: completion };
-}
-
-/** The zone's median deliveries today, from the riders actually in the wave's candidate list. */
-function medianDeliveries(history: ReadonlyMap<string, RiderHistory>): number {
-  const counts = [...history.values()].map((entry) => entry.deliveriesToday).sort((a, b) => a - b);
-  if (counts.length === 0) return 0;
-  const middle = Math.floor(counts.length / 2);
-  return counts.length % 2 === 0 ? ((counts[middle - 1] ?? 0) + (counts[middle] ?? 0)) / 2 : (counts[middle] ?? 0);
-}
-
-/** The hex form of a binary id, for the two set lookups above. */
-function hexOf(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
-}
-
 /** The internal dispatch surface. */
 export const DISPATCH_ROUTES: readonly RouteDefinition[] = [
   {
@@ -584,6 +570,18 @@ export const DISPATCH_ROUTES: readonly RouteDefinition[] = [
     method: "POST",
     path: "/internal/dispatch/plan",
     // Internal for the same reason as the eligibility read: a Worker calls it, not a person.
+    permission: "*",
+    write: true,
+    group: "INTERNAL",
+    maxBodyBytes: 512,
+    run: async (ctx, input) =>
+      planWave(ctx, typeof input.body === "object" && input.body !== null ? (input.body as Record<string, unknown>) : {}),
+  },
+  {
+    method: "POST",
+    path: "/internal/dispatch/advance",
+    // The same handler under the name the driver calls it by: an order whose wave expired needs *the next* wave, and
+    // the difference between "plan" and "advance" is a sentence about intent, not a different code path (D129).
     permission: "*",
     write: true,
     group: "INTERNAL",

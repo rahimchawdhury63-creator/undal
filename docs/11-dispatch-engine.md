@@ -194,6 +194,14 @@ rider who fails any one of them is not ranked at all.
 > seconds belong to the rider — and absent credentials mean **no push and no dispatch row**, never a row claiming a
 > send that did not happen.
 
+> **A second call advances, and the fifth ends the ladder (D129).** The wave written is the order's *next* number, not
+> wave 1: `planWaves` numbers a fresh cascade 1..5, so the route takes its first wave's riders — the best remaining
+> candidates — and renumbers them under `lastWave + 1`, with that wave's own TTL. Without this, the second planning
+> call would rewrite wave 1 and `uq_offers_order_rider_wave` would reject it. Past wave 5 the route answers
+> `{wave: null, reason: "LADDER_EXHAUSTED"}` and writes nothing: `11 §11`'s escalation (expansion, then refund) is the
+> caller's business, and a sixth wave is not one of the options. `POST /internal/dispatch/advance` is the same handler
+> under the name the driver calls by.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep

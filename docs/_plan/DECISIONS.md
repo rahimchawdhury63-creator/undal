@@ -2744,3 +2744,44 @@ the message, a 404 as a typed failure carrying the status, a 200 with no message
 as `DEPENDENCY_TIMEOUT`, and `fcmConfigured` on every absent-credential combination — plus three in
 `dispatch-plan-route.test.ts`: two tokens rung once each with two recorded rows, the payload carrying the offer data and
 both titles, and nothing sent or recorded when the deployment has no credentials.
+
+## D129 — The second wave was going to be the first wave again
+
+Writing D126's route exposed a real bug in it: `planWaveWrite(plan[0])` always wrote **wave 1**, because `planWaves`
+numbers a fresh cascade from one. A second planning call — the advance driver, or an operator retrying after a crash —
+would therefore re-insert wave 1 and be refused by `uq_offers_order_rider_wave`, which is the good outcome: the bad one
+is a retry that quietly writes the same eight riders as "wave 2" and rings them twice for an order they already
+declined.
+
+**The fix separates numbering from contents.** The **contents** are the planner's first wave — the best remaining
+candidates after the rejections this order has already collected, because `rejectedWavesForOrder` feeds filter 12, so a
+rider who said no is not in the plan at all. The **number** is the order's `lastWave + 1`, and the TTL is that wave's
+own from `WAVE_SCHEDULE`. Taking the plan's wave 2 instead would have looked correct and silently skipped the best
+candidates on every re-plan: a rider who had never been asked would sit behind one who had been asked and had not yet
+answered.
+
+**Past wave 5 the ladder ends, and the route says so.** `{wave: null, offence: [], reason: "LADDER_EXHAUSTED"}` with a
+`200`, not an error: five waves asked and nobody took it is a state `11 §11` answers with escalation and then a refund,
+and neither of those is a wave. A sixth wave would be a policy the document does not contain.
+
+**`/internal/dispatch/advance` is the same handler, named for intent.** It exists because the caller's sentence is
+"this order's wave expired, ask the next group", not "plan a wave" — and a route named after what the caller means is
+the cheapest documentation there is. The guards are identical: the live-wave check already refuses while phones are
+ringing, and the lock already refuses while another planner is working, so the advance path needed no new code beyond
+the number.
+
+**The line budget caught the route at 622 lines, and the fix is the right one.** The five joins between a rider's
+history and the scoring table — acceptance, the two rates, idle, the zone median — moved to
+`domain/order/dispatch-facts.ts`, where they are pure and testable at their anchors, and the route keeps the I/O. A
+600-line warning that arrives because a file is doing two jobs is worth obeying; the same warning a year later is
+usually noise.
+
+Tests: four in `dispatch-plan-route.test.ts` — a second call writing wave 2 with wave 2 on the insert, a fourth writing
+wave 4, wave 5 followed by `LADDER_EXHAUSTED` and no write, and the advance route writing wave 3 from `lastWave: 2` —
+plus four in `dispatch-stats.test.ts` for the moved joins: the Wilson bound of lifetime acceptance, completion over
+accepted offers with on-time borrowing it, the even-count median of the riders in play, and UTC midnight as the day
+boundary.
+
+*Open:* the caller. Realtime's zone alarm is the natural home — it already runs while riders are connected and already
+calls core for the auto-cancel ladder — and `POST /internal/offers/expire` (D116) is what tells it that a wave has
+timed out. Wiring those two together is the last piece of the dispatch loop.
