@@ -152,6 +152,14 @@ rider who fails any one of them is not ranked at all.
 > honestly today is name the filter that refused each rider — the same vocabulary the rider's app uses — which is
 > what makes an empty wave a diagnosis instead of a mystery.
 
+> **Ranking and confidence are two numbers, and were one (D124).** `planWaves` now ranks on `ScoredCandidate.score`
+> — the fourteen-factor weighted sum — while its `pNone` still multiplies `(1 − acceptanceProbability)`. They were the
+> same field before this rung, which made the planner sort by who tends to tap *accept* and multiply a weighted sum
+> as though it were a probability. With no score supplied it falls back to acceptance, which is correct only when no
+> score exists. `domain/order/dispatch-plan.ts` then turns the chosen wave into the rows the writer inserts: ranks
+> from the planner's own order, one expiry from `WAVE_SCHEDULE`, the order's payout on every offer, and the score the
+> decision used — so the audit trail can be re-derived.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep

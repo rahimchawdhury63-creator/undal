@@ -2530,3 +2530,41 @@ input reordering plus the lexicographic tiebreak.
 
 *Open:* the last line of the dispatch path — `scoreCandidates` fed by the D122 route's snapshots, `planWaves` ranking
 on `score` while its confidence multiplies `acceptanceProbability`, `insertOfferWave`, the ring.
+
+## D124 — Two numbers that were one, and the last pure step before the database
+
+`ScoredCandidate` had a single numeric field, `acceptanceProbability`, and `planWaves` used it for two unrelated
+jobs: it **sorted** candidates by it, and it **multiplied** `(1 − p)` to get the chance nobody in a wave accepts. With
+D123's fourteen-factor scoring in place that field split in two — a rider can be first in the city on proximity,
+idleness, reliability and familiarity while being middling on how often they tap *accept* — and the sorting key is no
+longer the probability the confidence arithmetic needs. Sorting by acceptance would rank the glib rider first;
+multiplying the weighted sum as though it were a probability would report a `pNone` that is not a probability at all.
+
+**So the type carries both, and each has one job.** `score` is the ranking, `acceptanceProbability` is the confidence,
+and `score` is *optional* because a caller with no scoring model still deserves a deterministic order — the fallback
+is exactly what the old code did, and it is documented as a fallback rather than presented as equivalent. The
+deletion proof is the point of the rung: removing the score comparison from the sort turns the test that says *a
+wave is ordered by the weighted score, not by who tends to say yes* red, and nothing else, which is precisely the
+bug that would otherwise ship silently.
+
+**`pNone` is still computed from the acceptance probability**, and a test pins `0.5 × 0.75` for two riders so a
+future "simplification" that multiplies scores fails loudly. That number is what wave sizing turns on: killing a wave
+early because the model says it will be accepted is only cheap while the model's unit is a probability.
+
+**The last pure step gets its own module.** `domain/order/dispatch-plan.ts` `planWaveWrite` maps a `Wave` to the rows
+the writer inserts: ranks from **the planner's order** (re-sorting here would let two orderings disagree about who
+was asked first, and `rank_in_wave` is the planner's answer recorded for audit), one `expiresAtMs` from
+`WAVE_SCHEDULE` via `waveExpiryMs` (a wave's twenty-five seconds is a promise about the wave, D121), the order's
+payout on every offer, and the score that produced the rank so a trace can be re-derived months later. A wave naming
+a rider who was not scored throws `RangeError`: the planner can only have chosen from the scored list, so a mismatch
+means two different lists reached this function and the audit row would carry a ranking the decision never made.
+
+Tests: ten in `dispatch-plan.test.ts` — ordering by score against acceptance, `pNone` from acceptance, the no-score
+fallback, sequential ranks, the 25 s / 22 s / 20 s budgets across waves one, three and five, the payout repeated on
+every offer, ids round-tripping to the bytes an offer points at, the contradictory plan throwing, and `pNone` riding
+along with the plan.
+
+*Open:* the writer route that calls all of this — it needs the scoring facts (`idle_s`, `deliveries_today`, the
+Wilson rates, vendor and cell familiarity) which no query reads yet, then `scoreCandidates`, `planWaves`,
+`planWaveWrite`, `insertOfferWave`, the audit row and the ring. That loader is the one piece of dispatch that is
+data rather than decision, and it is next.

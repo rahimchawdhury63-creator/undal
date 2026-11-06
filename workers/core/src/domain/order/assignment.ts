@@ -135,6 +135,17 @@ export interface ScoredCandidate {
   readonly riderId: string;
   /** The probability this rider accepts this offer, in `0..1`. */
   readonly acceptanceProbability: number;
+  /**
+   * The weighted ranking score from `11 §5` (D124), when the caller has one.
+   *
+   * Two numbers, two jobs, and they were one number until this field existed. The **ordering** of candidates is the
+   * weighted sum: fourteen factors, and a rider who is close, idle, reliable and familiar outranks one who merely
+   * tends to tap *accept*. The **confidence** arithmetic is the acceptance probability: `pNone` multiplies
+   * `(1 − acceptance)` and a weighted sum is not a probability it can multiply. Lacking this field, `planWaves` falls
+   * back to ranking by acceptance probability, which is what it did before and is correct only when the score is
+   * unavailable — not a default worth pretending is equivalent.
+   */
+  readonly score?: number;
 }
 
 /** One wave: who is asked, when, and for how long. */
@@ -156,7 +167,15 @@ export interface Wave {
  * shuffled between retries would page the same rider twice and skip another entirely.
  */
 export function planWaves(candidates: readonly ScoredCandidate[], maxWaves = MAX_WAVES): readonly Wave[] {
-  const ranked = [...candidates].sort((left, right) => right.acceptanceProbability - left.acceptanceProbability);
+  // Rank on the weighted score when both have one, on acceptance probability otherwise; ties fall back to acceptance
+  // so that a caller with no scores still gets a deterministic order.
+  const ranked = [...candidates].sort((left, right) => {
+    if (right.score !== undefined && left.score !== undefined && right.score !== left.score) {
+      return right.score - left.score;
+    }
+    return right.acceptanceProbability - left.acceptanceProbability;
+  });
+
   const waves: Wave[] = [];
   let cursor = 0;
 
