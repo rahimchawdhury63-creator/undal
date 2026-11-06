@@ -53,6 +53,8 @@ function shiftDb(
     pendingClaimAt?: string | null;
     /** When that claim was escalated to a senior reviewer, if it was (D146). */
     escalatedAt?: string | null;
+    /** A live declaration's `lifted_until`, when the rider declared an emergency (D148). */
+    declaredUntil?: string | null;
   } = {},
 ): ReturnType<typeof stubDb> {
   const rider = options.rider === undefined ? RIDER_ROW : options.rider;
@@ -71,6 +73,7 @@ function shiftDb(
         }];
   return stubDb([
     { match: /FROM `riders` WHERE `user_id`/u, rows: rider === null ? [] : [rider] },
+    { match: /SELECT `lifted_until` FROM `rider_cash_declarations`/u, rows: options.declaredUntil === undefined || options.declaredUntil === null ? [] : [{ lifted_until: options.declaredUntil }] },
     { match: /`status` = 'PENDING' ORDER BY/u, rows: claim },
     { match: /FROM `rider_cash_settlements` WHERE `rider_id` = \? ORDER BY/u, rows: claim },
     {
@@ -352,6 +355,24 @@ describe("POST /v1/rider/shift/start", () => {
       "the escalation is already the record; a platform-failure row here would blame the wrong party",
     );
     assert.ok(audits.some((call) => call.params[9] === "rider.shift.start"), "the shift itself is still audited");
+  });
+
+  test("an emergency declaration opens the door for the day it was granted for (D148)", async () => {
+    const inTwentyHours = new Date(Date.now() + 20 * 60 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = shiftDb({ rider: { ...RIDER_ROW, shift_state: "CASH_LOCKED" }, declaredUntil: inTwentyHours });
+    const served = serveInternal(true);
+    let response: Response;
+    try {
+      response = await route().run(ctxFor(db), { params: {}, body: BODY, reason: null });
+    } finally {
+      served.restore();
+    }
+    assert.equal(response.status, 200, "§7: not to punish people who do not have the money");
+    assert.ok(db.calls.some((call) => call.sql === "UPDATE `riders` SET `shift_state` = ? WHERE `id` = ?" && call.params[0] === "OFFLINE"));
+    assert.ok(
+      !db.calls.some((call) => call.sql.startsWith("INSERT INTO `audit_log`") && call.params[9] === "rider.cash.auto_lift"),
+      "the declaration is the record; the platform was not slow",
+    );
   });
 
   test("a deployment with no realtime configured cannot claim a shift is trackable", async () => {

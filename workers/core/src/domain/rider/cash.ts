@@ -297,3 +297,41 @@ export function auditReasonFor(reason: RejectionReason): string {
 export function refusalNeedsNote(reason: RejectionReason): boolean {
   return reason === "OTHER";
 }
+
+/**
+ * How long a rider's emergency lift lasts: 24 hours (`25 §7`).
+ *
+ * A day, not a shift. The rider's next working day is the point — an emergency that costs them an evening should not cost
+ * them the morning too — and a window that ends at the next shift boundary would make the emergency path useless to
+ * exactly the people who need it, since a shift boundary is when the block is checked.
+ */
+export const EMERGENCY_LIFT_MS = 24 * 60 * 60 * 1_000;
+
+/** How often the emergency button may be used: once per 30 days (`25 §7`). */
+export const EMERGENCY_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1_000;
+
+/** The declarations `25 §7` lets a rider make about cash they cannot settle. */
+export const DECLARATION_KINDS = ["EMERGENCY", "ROBBED", "DISPUTE"] as const;
+
+/** One of the three. */
+export type DeclarationKind = (typeof DECLARATION_KINDS)[number];
+
+/** Whether a string is one of the three, for a body that arrives as `unknown`. */
+export function isDeclarationKind(value: unknown): value is DeclarationKind {
+  return typeof value === "string" && (DECLARATION_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * Whether this declaration is the second emergency inside the cooldown.
+ *
+ * `25 §7` says a second use in the window "routes to a human instead of being refused", so this function never decides
+ * whether the lift happens — every path in that section lifts the block. It decides whether somebody is woken up: the
+ * lift is a promise the platform makes, and using it twice in a month is the signal that a conversation is owed.
+ *
+ * A rider with no previous emergency is never a repeat, and a clock it cannot read counts as no previous emergency
+ * rather than as a violation: the cooldown exists to notice a pattern, not to catch an unparseable row.
+ */
+export function repeatedEmergency(lastEmergencyAtMs: number | null, nowMs: number): boolean {
+  if (lastEmergencyAtMs === null || !Number.isFinite(lastEmergencyAtMs)) return false;
+  return nowMs - lastEmergencyAtMs < EMERGENCY_COOLDOWN_MS;
+}

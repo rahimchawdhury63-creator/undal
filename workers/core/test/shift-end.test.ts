@@ -57,6 +57,8 @@ function endDb(
     closed?: number;
     /** The rider's pending claim, if any. An escalated one means the end must not re-block them (D146). */
     pending?: Record<string, unknown> | null;
+    /** A live emergency declaration's `lifted_until`, when there is one (D148). */
+    declaredUntil?: string | null;
   } = {},
 ): ReturnType<typeof stubDb> {
   const rider = options.rider === undefined ? RIDER_ROW : options.rider;
@@ -68,6 +70,7 @@ function endDb(
     },
     { match: /COUNT\(\*\) AS `n` FROM `orders`/u, rows: [{ n: options.activeOrders ?? 0 }] },
     { match: /outstanding_paisa` FROM `rider_cash_balances`/u, rows: options.outstanding === undefined || options.outstanding === null ? [] : [{ outstanding_paisa: options.outstanding }] },
+    { match: /SELECT `lifted_until` FROM `rider_cash_declarations`/u, rows: options.declaredUntil === undefined || options.declaredUntil === null ? [] : [{ lifted_until: options.declaredUntil }] },
     {
       match: /FROM `rider_cash_settlements` WHERE `rider_id` = \? AND `status` = 'PENDING'/u,
       rows: options.pending === undefined || options.pending === null ? [] : [options.pending],
@@ -226,6 +229,21 @@ describe("POST /v1/rider/shift/end", () => {
     const response = await route().run(ctxFor(db), { params: {}, body: { point: { lat: 999, lon: 0 } }, reason: null });
     assert.equal(response.status, 422);
     assert.deepEqual(db.calls, []);
+  });
+
+  test("a shift that ends inside an emergency window does not end the window early (D148)", async () => {
+    const served = serveErase(true);
+    const inTwentyHours = new Date(Date.now() + 20 * 60 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = endDb({ outstanding: 214_000, declaredUntil: inTwentyHours });
+    let response: Response;
+    try {
+      response = await route().run(ctxFor(db), { params: {}, body: null, reason: null });
+    } finally {
+      served.restore();
+    }
+    assert.equal(response.status, 200);
+    const stateWrite = db.calls.find((call) => call.sql === "UPDATE `riders` SET `shift_state` = ? WHERE `id` = ?");
+    assert.equal(stateWrite?.params[0], "OFFLINE", "the rider declared an emergency, not a permanent exemption");
   });
 
   test("a debt under escalation is not re-blocked at the end of the next shift (D146)", async () => {

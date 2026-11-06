@@ -1,6 +1,6 @@
 {
   "note": "Derived from db/migrations by scripts/db/expected.py \u2014 do not edit by hand.",
-  "table_count": 115,
+  "table_count": 116,
   "tables": {
     "_smoke": {
       "columns": [
@@ -2430,6 +2430,45 @@
       ],
       "inline_checks": 2,
       "source": "005_riders.sql"
+    },
+    "rider_cash_declarations": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "rider_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "kind",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "note",
+          "type": "VARCHAR(280)"
+        },
+        {
+          "name": "lifted_until",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "routed_to_review",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        }
+      ],
+      "generated": [],
+      "indexes": [
+        "idx_cash_declaration_rider",
+        "idx_cash_declaration_review"
+      ],
+      "inline_checks": 1,
+      "source": "023_rider_cash_declarations.sql"
     },
     "rider_cash_settlements": {
       "columns": [

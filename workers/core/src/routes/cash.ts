@@ -11,15 +11,26 @@ import { uuidBytes } from "../middleware/auth.ts";
 import { parseDatetime } from "../db/time.ts";
 import { cashDueAtMs, cashOutstandingPaisa, findRiderByUserId, type RiderRow } from "../repositories/riders.ts";
 import {
+  activeLiftUntil,
+  lastDeclaration,
   lastShiftId,
   latestSettlement,
   payoutIdentity,
   pendingSettlement,
+  writeDeclaration,
   settlementByTrx,
   writeSettlement,
   type SettlementRow,
 } from "../repositories/cash.ts";
-import { AUTO_LIFT_MS, autoLiftDue, checkClaim, parseSettlement } from "../domain/rider/cash.ts";
+import {
+  AUTO_LIFT_MS,
+  autoLiftDue,
+  checkClaim,
+  EMERGENCY_LIFT_MS,
+  isDeclarationKind,
+  parseSettlement,
+  repeatedEmergency,
+} from "../domain/rider/cash.ts";
 
 /**
  * The rider's cash: the balance they are blocked on, and the settlement they submit to clear it (`25`, D140–D141).
@@ -64,6 +75,8 @@ export interface CashLift {
   readonly autoLiftDue: boolean;
   /** A reviewer said "a human is looking into this" and released the rider while it is decided (D146). */
   readonly escalated: boolean;
+  /** The rider declared an emergency and the platform lifted the block for a day (D148). */
+  readonly declared: boolean;
 }
 
 /** When the pending claim arrived, in epoch ms, or `null` if there is nothing pending. */
@@ -86,14 +99,25 @@ export function submittedAtMs(row: SettlementRow | null): number | null {
  * escalated the claim and released the rider while it is decided. Neither forgives the debt — `outstanding_paisa` is
  * untouched by both — because the block is a collection mechanism and a rider's livelihood is on the other side of it.
  */
-export function liftStateOf(shiftState: string, latest: SettlementRow | null, nowMs: number): CashLift {
-  if (shiftState !== "CASH_LOCKED") return { locked: false, autoLiftDue: false, escalated: false };
+export function liftStateOf(
+  shiftState: string,
+  latest: SettlementRow | null,
+  declaredUntilMs: number | null,
+  nowMs: number,
+): CashLift {
+  if (shiftState !== "CASH_LOCKED") return { locked: false, autoLiftDue: false, escalated: false, declared: false };
+  // `25 §7`'s fourth way out: the rider said they cannot settle tonight and the platform believed them for a day. The
+  // window is computed here rather than written into `shift_state`, for the same reason as the other two — a timer that
+  // has to fire is a timer this platform does not have.
+  if (declaredUntilMs !== null && declaredUntilMs > nowMs) {
+    return { locked: false, autoLiftDue: false, escalated: false, declared: true };
+  }
   // An escalation is a human promising to look, so the rider stops waiting the moment it is made (D146). It is checked
   // before the clock because a promise made is better evidence than a promise that ran out — and because the audit trail
   // should say "escalated", not "the platform was slow", when a reviewer was already on it.
-  if (latest !== null && latest.escalatedAt !== null) return { locked: false, autoLiftDue: false, escalated: true };
+  if (latest !== null && latest.escalatedAt !== null) return { locked: false, autoLiftDue: false, escalated: true, declared: false };
   const overdue = autoLiftDue(submittedAtMs(latest), nowMs);
-  return { locked: !overdue, autoLiftDue: overdue, escalated: false };
+  return { locked: !overdue, autoLiftDue: overdue, escalated: false, declared: false };
 }
 
 /** The settlement as the app reads it: identity, amount, status and when it arrived. */
@@ -136,7 +160,8 @@ async function cashPosition(ctx: Ctx): Promise<Response> {
   const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
   const dueAtMs = await cashDueAtMs(ctx.db, rider.id);
   const latest = await latestSettlement(ctx.db, rider.id);
-  const lift = liftStateOf(rider.shiftState, latest, Date.now());
+  const declaredUntilMs = await activeLiftUntil(ctx.db, rider.id, Date.now());
+  const lift = liftStateOf(rider.shiftState, latest, declaredUntilMs, Date.now());
   return successResponse(
     {
       cashInHandPaisa: outstanding,
@@ -145,6 +170,7 @@ async function cashPosition(ctx: Ctx): Promise<Response> {
       locked: lift.locked,
       autoLiftDue: lift.autoLiftDue,
       escalated: lift.escalated,
+      declared: lift.declared,
       settlementRequired: outstanding > 0,
       shiftState: rider.shiftState,
       settlement: latest === null ? null : serialiseSettlement(latest),
@@ -298,6 +324,112 @@ async function settleCash(ctx: Ctx, body: unknown): Promise<Response> {
   );
 }
 
+/**
+ * Declare why the rider cannot settle: `POST /v1/rider/cash/declare` (`25 §7`, D148).
+ *
+ * The section opens with a screen and four buttons, and closes with the rule they exist for: *"The block exists to
+ * collect money from people who have it and are about to go home — not to punish people who do not."* This route is the
+ * first of the four buttons: **I have an emergency**.
+ *
+ * **It lifts the block for 24 hours, and the lift is computed.** No state write here — `activeLiftUntil` answers the
+ * same question from the declaration's `lifted_until`, and `liftStateOf` treats a live window like an escalation. The
+ * rider's next request opens the door and writes `OFFLINE`; the read stops showing a wall immediately. One rule about the
+ * block, three ways out of it (`§8`'s two-hour rule, `§6.1`'s escalation, this).
+ *
+ * **The second use in thirty days still lifts, and also wakes somebody.** `§7` says it "routes to a human instead of
+ * being refused", which is a promise about the lift as much as about the routing: every path in that section lifts the
+ * block. So the declaration is written either way, `routed_to_review` marks the second, and the audit row goes from
+ * `NOTICE` to `WARNING` so the morning's reviewer list has it at the top.
+ *
+ * **Two of the four buttons are not built, and they say so.** "I was robbed" needs a case a human owns and a police
+ * report to attach; "I disagree" needs the order-by-order breakdown `§7` describes. Both answer `NOT_IMPLEMENTED` rather
+ * than pretending: an app that shows a button and gets a 422 will show an error, and one that gets a 501 can hide it.
+ */
+async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
+  const rider = await riderFor(ctx);
+  if (rider instanceof Response) return rider;
+
+  const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const kind = fields["kind"];
+  if (!isDeclarationKind(kind)) {
+    return failureResponse(
+      { code: "VALIDATION_ENUM", details: { field: "kind", allowed: ["EMERGENCY"] } },
+      ctx.locale,
+      ctx.requestId,
+    );
+  }
+  if (kind !== "EMERGENCY") {
+    // ROBBED and DISPUTE are `§7`'s other two buttons, and neither has the machinery behind it yet: one needs a case
+    // with a human owner, the other the order-by-order list a rider disputes line by line.
+    return failureResponse({ code: "NOT_IMPLEMENTED" }, ctx.locale, ctx.requestId);
+  }
+
+  const noteRaw = fields["note"] ?? null;
+  if (noteRaw !== null && (typeof noteRaw !== "string" || noteRaw.trim().length > 280)) {
+    return failureResponse({ code: "VALIDATION_REQUIRED", details: { fields: ["note"] } }, ctx.locale, ctx.requestId);
+  }
+  const note = noteRaw === null ? null : (noteRaw as string).trim();
+
+  const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
+  if (outstanding === 0) {
+    // Nothing is owed, so there is nothing to be unable to settle. This is a 409 rather than a 422 because the rider's
+    // state is the reason, and the app's answer is "you're clear", not "check your input".
+    return failureResponse({ code: "CASH_ALREADY_SETTLED", details: { settled_at: new Date().toISOString() } }, ctx.locale, ctx.requestId);
+  }
+
+  const nowMs = Date.now();
+  const previous = await lastDeclaration(ctx.db, rider.id, "EMERGENCY");
+  const previousMs = previous === null ? null : parseDatetime(previous.createdAt)?.getTime() ?? null;
+  const repeated = repeatedEmergency(previousMs, nowMs);
+  const liftedUntilMs = nowMs + EMERGENCY_LIFT_MS;
+  const id = await writeDeclaration(
+    ctx.db,
+    { riderId: rider.id, kind, note, liftedUntilMs, routedToReview: repeated },
+    nowMs,
+  );
+
+  await audit.appendAudit(
+    ctx.db,
+    {
+      actorId: ctx.principal?.userId ?? null,
+      actorType: "RIDER",
+      actorRole: ctx.principal?.role ?? null,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      requestId: ctx.requestId,
+      action: "rider.cash.declare",
+      resourceType: "RIDER_CASH_DECLARATION",
+      resourceId: toHexId(id),
+      subjectId: toHexId(rider.id),
+      before: { shiftState: rider.shiftState, outstandingPaisa: outstanding },
+      after: { kind, note, liftedUntil: new Date(liftedUntilMs).toISOString(), routedToReview: repeated },
+      // A rider's own declaration is not an admin reason, and the register is a list of admin reasons. The `after` block
+      // carries everything a reviewer needs, and putting a word from that list here would attribute it to the rider.
+      reason: null,
+      severity: repeated ? "WARNING" : "NOTICE",
+    },
+    nowMs,
+  );
+
+  return successResponse(
+    {
+      declaration: {
+        id: toHexId(id),
+        kind,
+        note,
+        liftedUntil: new Date(liftedUntilMs).toISOString(),
+        routedToReview: repeated,
+      },
+      released: true,
+      outstandingPaisa: outstanding,
+      // Said explicitly: the debt is untouched. `§7` lifts the block; it does not forgive the money.
+      stillOwedPaisa: outstanding,
+    },
+    ctx.locale,
+    ctx.requestId,
+  );
+}
+
 /** Where the settlement's `submittedAt` came from, for the tests that assert the two agree. */
 export function submittedAtOf(row: SettlementRow): number | null {
   const parsed = parseDatetime(row.createdAt);
@@ -321,5 +453,14 @@ export const CASH_ROUTES: readonly RouteDefinition[] = [
     group: "PRESENCE",
     maxBodyBytes: 4_096,
     run: async (ctx, input) => settleCash(ctx, input.body),
+  },
+  {
+    method: "POST",
+    path: "/v1/rider/cash/declare",
+    permission: "rider.view_finance",
+    write: true,
+    group: "PRESENCE",
+    maxBodyBytes: 1_024,
+    run: async (ctx, input) => declareCash(ctx, input.body),
   },
 ];

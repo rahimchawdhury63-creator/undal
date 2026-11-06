@@ -3580,3 +3580,51 @@ and a claim nobody accepted still reporting `null`).
 
 *Open:* `§7`'s partial and disputed paths — "I was robbed", "I have an emergency", "I disagree" — are still screens, and
 they are the only route by which a claim could legitimately exceed or undercut the balance.
+
+## D148 — The emergency lift: a rider is believed for a day
+
+`25 §7` opens with four buttons and closes with the rule they exist for: *"The block exists to collect money from people
+who have it and are about to go home — not to punish people who do not."* Until now none of the four existed, so a rider
+robbed at 11 pm had exactly one option: stay blocked. `POST /v1/rider/cash/declare` with `kind: "EMERGENCY"` is the first
+of them, and migration `023` adds `rider_cash_declarations` to hold it.
+
+**A table, not a column.** `§7`'s three constraints are the reason: the emergency path is "limited to once per 30 days",
+which is a query over history rather than a flag; every path is "logged", and a log kept in a column holds one entry; and
+a declaration is evidence a human reads later, so it needs its own id for the audit chain's `resource_id`. The table
+carries `kind`, `note`, `lifted_until` and `routed_to_review`, and the inventory in `06 §2` grows by one name (114).
+
+**The lift is computed, like the other two.** `liftStateOf` now answers the block question from four facts instead of
+three, and a live `lifted_until` releases the rider exactly the way D142's clock and D146's escalation do: the read says
+`locked: false, declared: true`, and the door writes `OFFLINE` on the next request. No cron, and no timer that has to
+fire — the window is arithmetic on a datetime, which is the only kind of deadline this platform can keep. `endShift` also
+respects it, so a shift that ends inside the window does not write the block back on.
+
+**Twenty-four hours, not a shift boundary.** A day is the point: an emergency that costs an evening should not cost the
+morning too, and a window ending at the next shift boundary would expire exactly when the door checks it.
+
+**The second use in thirty days lifts too, and wakes somebody.** `§7`: "A second use in the window routes to a human
+instead of being refused." Both halves matter. *Instead of being refused* is a promise about the lift: every path in that
+section lifts the block, and a platform that answers a second emergency with a wall has punished the rider for a pattern
+rather than noticed it. So the declaration is written either way, `routed_to_review` marks the second, and the audit row
+goes from `NOTICE` to `WARNING` so the reviewer's morning list has it at the top. `repeatedEmergency` is one domain
+function with a clock it can read: an unparseable previous timestamp counts as no previous emergency, because a cooldown
+exists to notice a pattern, not to manufacture one.
+
+**No reason code, and the register is not consulted.** The rider is not an admin, and `audit/reasons.ts` is a closed list
+of admin reasons. The audit row's `after` block carries the kind, the note, the window and the routing flag — everything a
+reviewer needs — and `reason` is `null` rather than borrowed from a list that would attribute an admin's vocabulary to a
+rider's statement.
+
+**Two buttons answer `501`.** `ROBBED` needs a case with a human owner, a police-report upload and a lift with no expiry
+(the column already allows `NULL`); `DISPUTE` needs the order-by-order breakdown `§7` describes, which means reading a
+shift's deliveries back to the rider. Both are named in the table's check constraint and in the enum refusal, so the app
+can render the button and hide it on a `501` rather than guessing.
+
+Tests: six — four in `test/cash-declare.test.ts` (the day-long lift with the debt intact, the second-in-window lift that
+also routes to review, a use outside the cooldown counting as the first, and the two `501`s plus the `422` and `409`),
+one each in `rider-cash.test.ts` (a live window and an expired one on the read) and `shift-start.test.ts`/`shift-end.test.ts`
+(the door opening without an `auto_lift` row, and a shift ending inside the window staying `OFFLINE`).
+
+*Open:* robbed, dispute and partial. The partial path is the odd one out — "I'll settle part of it now" is not a
+declaration but a settlement for less than the balance, which `POST /rider/cash/settle` refuses today with
+`CASH_UNDERPAYMENT`. It is the next rung.

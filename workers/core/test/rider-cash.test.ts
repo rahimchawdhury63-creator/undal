@@ -14,6 +14,7 @@ import type { Principal } from "../src/rbac/guard.ts";
 import {
   AUTO_LIFT_MS,
   autoLiftDue,
+  EMERGENCY_LIFT_MS,
   BKASH_NUMBER_PATTERN,
   checkClaim,
   nameSimilarity,
@@ -72,6 +73,10 @@ interface Options {
   readonly pending?: Record<string, unknown> | null;
   /** The rider's most recent settlement of any status. */
   readonly latest?: Record<string, unknown> | null;
+  /** A live declaration's `lifted_until`, as text, when the rider has one (D148). */
+  readonly declaredUntil?: string | null;
+  /** The rider's last emergency declaration, for the thirty-day cooldown. */
+  readonly lastEmergencyAt?: string | null;
   readonly shiftId?: boolean;
 }
 
@@ -100,6 +105,15 @@ function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
     },
     { match: /MAX\(`ended_at`\)/u, rows: [{ ended_at: options.endedAt ?? null }] },
     { match: /FROM `rider_shifts` WHERE `rider_id` = \? ORDER BY `started_at`/u, rows: options.shiftId === false ? [] : [{ id: bytes(SHIFT_HEX) }] },
+    { match: /SELECT `lifted_until` FROM `rider_cash_declarations`/u, rows: options.declaredUntil === undefined || options.declaredUntil === null ? [] : [{ lifted_until: options.declaredUntil }] },
+    {
+      match: /FROM `rider_cash_declarations`/u,
+      rows:
+        options.lastEmergencyAt === undefined || options.lastEmergencyAt === null
+          ? []
+          : [{ id: bytes(SHIFT_HEX), kind: "EMERGENCY", note: null, lifted_until: null, routed_to_review: 0, created_at: options.lastEmergencyAt }],
+    },
+    { match: /INSERT INTO `rider_cash_declarations`/u, affectedRows: 1 },
     { match: /FROM `rider_cash_settlements` WHERE `trx_id`/u, rows: options.byTrx === undefined || options.byTrx === null ? [] : [options.byTrx] },
     { match: /`status` = 'PENDING' ORDER BY/u, rows: options.pending === undefined || options.pending === null ? [] : [options.pending] },
     { match: /FROM `rider_cash_settlements` WHERE `rider_id` = \? ORDER BY/u, rows: options.latest === undefined || options.latest === null ? [] : [options.latest] },
@@ -323,6 +337,30 @@ describe("what was accepted, when it is not what was claimed (D147)", () => {
     const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
     const parsed = (await response.json()) as { data: { settlement: { approvedPaisa: unknown } } };
     assert.equal(parsed.data.settlement.approvedPaisa, null);
+  });
+});
+
+describe("the emergency lift, as the read reports it (D148)", () => {
+  test("a live window is not a block, and the app is told which release it is", async () => {
+    const inTwoHours = new Date(Date.now() + 2 * 60 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = dbFor({ outstanding: 214_000, declaredUntil: inTwoHours });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    const parsed = (await response.json()) as {
+      data: { locked: boolean; declared: boolean; autoLiftDue: boolean; cashInHandPaisa: number };
+    };
+    assert.equal(parsed.data.locked, false);
+    assert.equal(parsed.data.declared, true);
+    assert.equal(parsed.data.autoLiftDue, false, "a rider's emergency is not the platform failing to review");
+    assert.equal(parsed.data.cashInHandPaisa, 214_000, "the money is still owed the next morning");
+  });
+
+  test("a window that has run out is a block again, without anybody having to write anything", async () => {
+    const anHourAgo = new Date(Date.now() - 60 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = dbFor({ outstanding: 214_000, declaredUntil: anHourAgo });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    const parsed = (await response.json()) as { data: { locked: boolean; declared: boolean } };
+    assert.equal(parsed.data.locked, true);
+    assert.equal(parsed.data.declared, false);
   });
 });
 

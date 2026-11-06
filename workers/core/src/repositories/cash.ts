@@ -19,7 +19,7 @@
  */
 
 import type { Db } from "../db/client.ts";
-import { sqlDatetime } from "../db/time.ts";
+import { parseDatetime, sqlDatetime } from "../db/time.ts";
 import { newId, toHexId } from "../lib/ids.ts";
 import type { SettlementMethod } from "../domain/rider/cash.ts";
 
@@ -363,4 +363,85 @@ export async function escalateSettlement(
     [sqlDatetime(new Date(nowMs)), escalatedBy, note, id],
   );
   return result.affectedRows > 0;
+}
+
+/** A declaration a rider made about cash they could not settle (`25 §7`). */
+export interface DeclarationRow {
+  readonly id: Uint8Array;
+  readonly kind: string;
+  readonly note: string | null;
+  /** When the lift a declaration granted ends; `null` on a path whose lift has no expiry, or on one that lifted nothing. */
+  readonly liftedUntil: string | null;
+  readonly routedToReview: boolean;
+  readonly createdAt: string;
+}
+
+/** The most recent declaration of a kind, which is what the cooldown is measured from. */
+export async function lastDeclaration(db: Db, riderId: Uint8Array, kind: string): Promise<DeclarationRow | null> {
+  const row = await db.first<Record<string, unknown>>(
+    "SELECT `id`, `kind`, `note`, `lifted_until`, `routed_to_review`, `created_at` FROM `rider_cash_declarations` " +
+      "WHERE `rider_id` = ? AND `kind` = ? ORDER BY `created_at` DESC LIMIT 1",
+    [riderId, kind],
+  );
+  return row === null ? null : declarationOf(row);
+}
+
+/**
+ * The lift a declaration currently grants, as the instant it ends — `null` when there is none.
+ *
+ * `lifted_until IS NULL` is ambiguous in the table and deliberately resolved here: a `ROBBED` declaration lifts the block
+ * with no expiry, which reads as "lifted forever" rather than "not lifted". The query therefore selects rows with either
+ * a null or a future expiry, and a null one is returned as `Infinity` by the caller's convention — see `activeLiftMs`.
+ */
+export async function activeLiftUntil(db: Db, riderId: Uint8Array, nowMs: number): Promise<number | null> {
+  const row = await db.first<{ lifted_until: unknown }>(
+    "SELECT `lifted_until` FROM `rider_cash_declarations` WHERE `rider_id` = ? " +
+      "AND (`lifted_until` IS NULL OR `lifted_until` > ?) ORDER BY `lifted_until` IS NULL DESC, `created_at` DESC LIMIT 1",
+    [riderId, sqlDatetime(new Date(nowMs))],
+  );
+  if (row === null) return null;
+  if (row.lifted_until === null || row.lifted_until === undefined) return Number.POSITIVE_INFINITY;
+  const parsed = parseDatetime(String(row.lifted_until));
+  return parsed === null ? null : parsed.getTime();
+}
+
+/** One declaration as the driver returns it. */
+function declarationOf(raw: Record<string, unknown>): DeclarationRow {
+  return {
+    id: raw["id"] instanceof Uint8Array ? raw["id"] : new Uint8Array(16),
+    kind: String(raw["kind"] ?? ""),
+    note: typeof raw["note"] === "string" ? raw["note"] : null,
+    liftedUntil: typeof raw["lifted_until"] === "string" ? raw["lifted_until"] : null,
+    routedToReview: Number(raw["routed_to_review"] ?? 0) === 1,
+    createdAt: String(raw["created_at"] ?? ""),
+  };
+}
+
+/** What one declaration records. */
+export interface DeclarationWrite {
+  readonly riderId: Uint8Array;
+  readonly kind: string;
+  readonly note: string | null;
+  /** The instant the lift ends, `null` for a lift with no expiry. */
+  readonly liftedUntilMs: number | null;
+  readonly routedToReview: boolean;
+}
+
+/** Record a declaration and return its id. */
+export async function writeDeclaration(db: Db, write: DeclarationWrite, nowMs: number): Promise<Uint8Array> {
+  const id = newId(nowMs);
+  await db.execute(
+    "INSERT INTO `rider_cash_declarations` (`id`, `rider_id`, `kind`, `note`, `lifted_until`, `routed_to_review`, " +
+      "`created_at`) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [
+      id,
+      write.riderId,
+      write.kind,
+      write.note,
+      write.liftedUntilMs === null ? null : sqlDatetime(new Date(write.liftedUntilMs)),
+      write.routedToReview ? 1 : 0,
+      sqlDatetime(new Date(nowMs)),
+    ],
+  );
+  return id;
 }

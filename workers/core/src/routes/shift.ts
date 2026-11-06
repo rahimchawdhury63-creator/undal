@@ -23,7 +23,7 @@ import {
   setShiftState,
   zoneIsAssigned,
 } from "../repositories/riders.ts";
-import { latestSettlement, pendingSettlement } from "../repositories/cash.ts";
+import { activeLiftUntil, latestSettlement, pendingSettlement } from "../repositories/cash.ts";
 import { liftStateOf, submittedAtMs } from "./cash.ts";
 
 /**
@@ -129,11 +129,16 @@ async function startShift(ctx: Ctx, body: unknown): Promise<Response> {
     // anything; what a deadline can do is change what a door decides. A rider whose claim has waited past the SLA is not
     // blocked, and the door is where that stops being a calculation and becomes a fact — one state write and one audit
     // row, made when it matters, rather than a sweep that would need a schedule nobody has.
-    const lift = liftStateOf(rider.shiftState, await latestSettlement(ctx.db, rider.id), Date.now());
-    if (lift.escalated) {
-      // A reviewer already promised to look at this claim (`25 §6.1`), so the door opens without a second audit row: the
-      // escalation itself is the record, and a system row here would read like the platform's failure rather than a
-      // human's decision (D146).
+    const lift = liftStateOf(
+      rider.shiftState,
+      await latestSettlement(ctx.db, rider.id),
+      await activeLiftUntil(ctx.db, rider.id, Date.now()),
+      Date.now(),
+    );
+    if (lift.escalated || lift.declared) {
+      // A reviewer already promised to look at this claim (`25 §6.1`, D146), or the rider declared an emergency and the
+      // platform believed them for a day (`25 §7`, D148). Either way the door opens without a second audit row: the
+      // escalation or the declaration is the record, and a system row here would read as the platform's failure.
       await setShiftState(ctx.db, rider.id, "OFFLINE");
     } else if (lift.autoLiftDue) {
       await setShiftState(ctx.db, rider.id, "OFFLINE");
@@ -350,7 +355,10 @@ async function endShift(ctx: Ctx, body: unknown): Promise<Response> {
   // pending and a human is still on it, so setting `CASH_LOCKED` here would make them prove that again at the next door.
   const review = await pendingSettlement(ctx.db, rider.id);
   const underReview = review !== null && review.escalatedAt !== null;
-  const shiftState = outstanding > 0 && !underReview ? "CASH_LOCKED" : "OFFLINE";
+  // The same applies to a live declaration (`25 §7`, D148): an emergency lift is 24 hours, so a shift that ends inside
+  // the window must not end it early by writing the block back on.
+  const declared = (await activeLiftUntil(ctx.db, rider.id, Date.now())) !== null;
+  const shiftState = outstanding > 0 && !underReview && !declared ? "CASH_LOCKED" : "OFFLINE";
   await setShiftState(ctx.db, rider.id, shiftState);
 
   const base = ctx.env.REALTIME_BASE;

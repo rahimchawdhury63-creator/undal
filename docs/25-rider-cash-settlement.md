@@ -383,6 +383,16 @@ accounting disagreement.
 Every one of these paths lifts the block. The block exists to collect money from people who have
 it and are about to go home — not to punish people who do not.
 
+> **The emergency button is built (D148), and the other three are not.** `POST /v1/rider/cash/declare` with
+> `{kind:"EMERGENCY", note?}` writes a `rider_cash_declarations` row with `lifted_until = now + 24 h` and **lifts the
+> block for a day**; the debt is untouched, and the rider's next request opens the door the same way an escalation does.
+> A second use inside thirty days still lifts — `§7` says it "routes to a human instead of being refused" — and marks the
+> row `routed_to_review` with a `WARNING` audit so the morning's list has it first. `kind:"ROBBED"` and `kind:"DISPUTE"`
+> answer `501 NOT_IMPLEMENTED`: one needs a case with a human owner and a police report, the other the order-by-order
+> list a rider disputes line by line. The declaration table has a column for each of them and no route yet, which is the
+> honest shape of a half-built feature. A rider who owes nothing gets `409` rather than a lift, because there is nothing
+> to be unable to settle.
+
 ---
 
 ## 8. Platform-fault escape hatches
@@ -442,6 +452,7 @@ collection mechanism behind the blocking screen.
 | Outstanding cash across the fleet | < ৳15 000 at any time |
 | Settlements per rider with a mismatch | tracked; 3 in 30 days triggers a conversation |
 | Auto-lifts | tracked as a **platform failure metric**, not a rider metric |
+| Emergency declarations | counted, and *two per rider per 30 days* is a conversation rather than a statistic |
 
 The last row matters: an auto-lift means admin review was too slow, and it is counted against the
 operations team.
