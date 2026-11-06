@@ -28,6 +28,7 @@ import { DISPATCH_LOG_ROUTES } from "./routes/dispatch-log.ts";
 import { COORDINATION_ROUTES } from "./routes/coordination.ts";
 import { SHIFT_ROUTES } from "./routes/shift.ts";
 import { CASH_ROUTES } from "./routes/cash.ts";
+import { CASH_REVIEW_ROUTES } from "./routes/cash-review.ts";
 import { DISPATCH_ROUTES } from "./routes/dispatch.ts";
 import { OFFER_ROUTES } from "./routes/offers.ts";
 import { PUSH_RETRY_ROUTES } from "./routes/push-retry.ts";
@@ -57,6 +58,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   ...COORDINATION_ROUTES,
   ...SHIFT_ROUTES,
   ...CASH_ROUTES,
+  ...CASH_REVIEW_ROUTES,
   ...OFFER_ROUTES,
   ...DISPATCH_ROUTES,
   ...PUSH_RETRY_ROUTES,

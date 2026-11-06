@@ -115,6 +115,14 @@ export async function setShiftState(db: Db, riderId: Uint8Array, state: string):
   return result.affectedRows;
 }
 
+/** The rider's stored state, or `null` when there is no such rider. */
+export async function shiftStateOf(db: Db, riderId: Uint8Array): Promise<string | null> {
+  const row = await db.first<{ shift_state: unknown }>("SELECT `shift_state` FROM `riders` WHERE `id` = ? LIMIT 1", [
+    riderId,
+  ]);
+  return row === null || typeof row.shift_state !== "string" ? null : row.shift_state;
+}
+
 /** Remove a shift that never really opened. Used only to unwind a start whose live row could not be written. */
 export async function deleteShift(db: Db, shiftId: Uint8Array): Promise<number> {
   const result = await db.execute("DELETE FROM `rider_shifts` WHERE `id` = ?", [shiftId]);

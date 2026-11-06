@@ -167,3 +167,69 @@ export async function writeSettlement(db: Db, write: SettlementWrite, nowMs: num
   );
   return id;
 }
+
+/** A settlement as a reviewer reads it: the claim, its status, and who decided it. */
+export interface ReviewRow extends SettlementRow {
+  readonly confirmedAt: string | null;
+}
+
+/** One settlement by id, whatever its status — the row an approval is about. */
+export async function settlementById(db: Db, id: Uint8Array): Promise<ReviewRow | null> {
+  const row = await db.first<Record<string, unknown>>(
+    `SELECT ${SETTLEMENT_COLUMNS}, \`confirmed_at\` FROM \`rider_cash_settlements\` WHERE \`id\` = ? LIMIT 1`,
+    [id],
+  );
+  if (row === null) return null;
+  return { ...rowOf(row), confirmedAt: row["confirmed_at"] === null ? null : String(row["confirmed_at"]) };
+}
+
+/**
+ * Take the decision, and learn whether this request took it.
+ *
+ * `AND status = 'PENDING'` is the whole concurrency story: two reviewers opening the same claim at 09:00 and 09:01 both
+ * see it pending, and exactly one of them gets `affectedRows = 1`. The loser is told the settlement is already settled
+ * rather than silently posting a second entry — which is what a plain `UPDATE ... WHERE id = ?` would do.
+ */
+export async function claimSettlement(
+  db: Db,
+  id: Uint8Array,
+  confirmedBy: Uint8Array,
+  nowMs: number,
+): Promise<boolean> {
+  const result = await db.execute(
+    "UPDATE `rider_cash_settlements` SET `status` = 'CONFIRMED', `confirmed_by` = ?, `confirmed_at` = ? " +
+      "WHERE `id` = ? AND `status` = 'PENDING'",
+    [confirmedBy, sqlDatetime(new Date(nowMs)), id],
+  );
+  return result.affectedRows > 0;
+}
+
+/**
+ * Give the claim back, for the one case where the platform could not finish.
+ *
+ * Approving is three statements — the status, the deposit, the ledger entry — and TiDB autocommits each, so a failure in
+ * the third leaves a `CONFIRMED` row with no ledger entry behind it: a rider released against money the books never saw.
+ * Rather than leave that, the route unwinds and answers `500`; a reviewer retries and the retry takes the claim cleanly.
+ */
+export async function releaseClaim(db: Db, id: Uint8Array): Promise<void> {
+  await db.execute(
+    "UPDATE `rider_cash_settlements` SET `status` = 'PENDING', `confirmed_by` = NULL, `confirmed_at` = NULL " +
+      "WHERE `id` = ? AND `status` = 'CONFIRMED'",
+    [id],
+  );
+}
+
+/**
+ * Credit the deposit that the approval recognises.
+ *
+ * `deposited_paisa` is the only mutable column: `outstanding_paisa` is generated as `collected - deposited`, so the
+ * balance and the block both follow from this one update rather than being recomputed and written by hand. `false`
+ * means the rider has no balance row at all, which is a data question rather than a state: the route unwinds.
+ */
+export async function creditDeposit(db: Db, riderId: Uint8Array, amountPaisa: number, nowMs: number): Promise<boolean> {
+  const result = await db.execute(
+    "UPDATE `rider_cash_balances` SET `deposited_paisa` = `deposited_paisa` + ?, `updated_at` = ? WHERE `rider_id` = ?",
+    [amountPaisa, sqlDatetime(new Date(nowMs)), riderId],
+  );
+  return result.affectedRows > 0;
+}

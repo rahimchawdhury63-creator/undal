@@ -298,6 +298,17 @@ orders that generated the cash.
 
 Every decision is audited with the reviewer, the evidence they saw, and the reason.
 
+> **Approve is built; the other three are not (D143).** `POST /v1/finance/cash/settlements/{id}/approve` is the row
+> above with a route attached: it requires `finance.cash.approve_settlement`, which is one of the twenty-three step-up
+> keys, so a reviewer must have entered a TOTP code within the last five minutes. It takes the claim with
+> `UPDATE ... WHERE status = 'PENDING'` — one affected row, one poster — credits `deposited_paisa`, posts
+> `CASH_SETTLED` to the ledger, releases the rider to `OFFLINE` if the balance is now zero, and writes one audit row that
+> carries the ledger entry's id. A clean approval cites **no** reason code, because the register has none for "the money
+> arrived as claimed"; a reviewer who is approving despite a discrepancy may cite `CASH_COUNTED_SHORT` or
+> `CASH_NOT_HANDED_OVER`, and anything outside the register is refused before a row is read. **Reject, escalate and
+> approve-a-different-amount are still screens with no route behind them**, and `§6.2`'s reason vocabulary therefore has
+> no consumer yet.
+
 ### 6.2 Rejection reasons
 
 `TRXID_NOT_FOUND` · `TRXID_ALREADY_USED` · `AMOUNT_MISMATCH` · `SCREENSHOT_UNREADABLE` ·
@@ -370,7 +381,7 @@ slowness.
 | Event | Postings |
 | --- | --- |
 | Order delivered | `RIDER_CASH:{id} +total` ([`24 §2.2`](24-finance-payouts-invoices.md)) |
-| Settlement approved | `RIDER_CASH:{id} −amount`, `PLATFORM:BANK +amount` |
+| Settlement approved | `RIDER_CASH:{id} −amount`, `PLATFORM:BANK +amount`. Implemented (D143) — the first live caller of `postEntry` |
 | Cash-out charge reimbursed | `PLATFORM:EXPENSE_PAYOUT_FEES +charge`, `RIDER:{id} −charge` |
 | Shortfall written off | `PLATFORM:EXPENSE_CASH_LOSS +amount`, `RIDER_CASH:{id} −amount`. Requires `SUPER_ADMIN` and a reason |
 | Shortfall recovered from a payout | `RIDER:{id} +amount`, `RIDER_CASH:{id} −amount`. Capped at 25% of a single payout, so a recovery never takes somebody's whole week |

@@ -3368,3 +3368,53 @@ claim still gets `SHIFT_CASH_OVERDUE`; a rider who never submitted is never lift
 *Open:* the review half itself. There is still no approve, reject or escalate route, so every settlement that is not
 auto-lifted waits for a human who has no screen. The auto-lift now bounds the wait, which is what `§8` asks for, but
 "bounded" and "resolved" are different promises and only one of them is kept.
+
+## D143 — Approving a settlement, and the first live ledger entry
+
+D141 built the rider's side of a cash settlement and D142 bounded how long the platform may ignore one. Neither gave a
+reviewer a route, so `25 §6`'s screenshot review had nobody behind it and every claim that was not auto-lifted waited on
+a screen that does not exist. `POST /v1/finance/cash/settlements/{id}/approve` is that screen's only button.
+
+**Approval is where money moves, so it moves in the ledger.** A rider holding ৳2 140 of the platform's cash is the asset
+`RIDER_CASH:{id}`; the handover is `RIDER_CASH −amount` / `PLATFORM:BANK +amount`, which is `24 §6` and `25 §9` row for
+row. This is the first live caller of `postEntry`, which means the closure assertion that has only ever run in tests now
+runs inside a request — and if the rows the database wrote do not sum to zero, `postEntry` deletes the entry, throws, and
+the route answers `500`.
+
+**The status transition is the lock, and it is the only one.** `UPDATE ... SET status = 'CONFIRMED' ... WHERE status =
+'PENDING'` returns one affected row to exactly one caller. Two reviewers who open the same claim a minute apart cannot
+both post an entry; the loser gets `CASH_ALREADY_SETTLED` with the instant the other one decided. A plain `UPDATE ...
+WHERE id = ?` would have been simpler and would have doubled the books the first time two tabs were open.
+
+**Approval is three statements and no transaction, so it unwinds by hand.** TiDB auto-commits each statement and the HTTP
+driver's interactive transactions are documented as not concurrency-safe, so the order is chosen for what a failure
+leaves behind: take the claim (a retry can no longer double-post), credit `deposited_paisa`, then post the entry. If the
+ledger write fails, the deposit is credited back, the claim is released to `PENDING`, and the reviewer gets `500` with a
+settlement they can simply approve again. The alternative ordering would leave a confirmed settlement with no entry —
+a rider released against money the books never saw — which is the one failure this route must not produce.
+
+**`outstanding_paisa` is generated, so the release is one query.** Crediting `deposited_paisa` recomputes the balance
+because the column is `collected - deposited`; the route then reads that figure and, only if it is zero and the stored
+state is `CASH_LOCKED`, writes `OFFLINE`. An approval that leaves cash outstanding — `25 §7`'s partial case — does not
+open the door, which is asserted rather than assumed.
+
+**A clean approval has no reason code, and inventing one would be the bug.** The register holds six operational reasons
+plus `CASH_NOT_HANDED_OVER` and `CASH_COUNTED_SHORT` for this key, and all of them describe something anomalous. A
+reviewer confirming that the money arrived as claimed has nothing to name, so `reason` is optional and `null` is the
+honest record; a supplied reason is checked with `reasonAllowed`, so `BKASH_TRANSFER_CONFIRMED` — a payout's vocabulary
+— is refused. That keeps `§6.2`'s list honest: it is a vocabulary of complaints, not a dropdown every approval must
+clear.
+
+**Two smaller decisions.** A settlement id that names no row answers `MONEY_PAYOUT_NOT_FOUND`: the pinned registry has
+no settlement-not-found code and the register is closed, so the route borrows the nearest 404 and says so in `25 §6.1`
+rather than adding a thirty-second code for a noun. And the route lives in `routes/cash-review.ts` rather than in
+`routes/cash.ts`, because the rider's screen and the reviewer's screen answer to different people and a 500-line file
+that serves both is a file where a rider-shaped assumption eventually lands on an admin path.
+
+Tests: eight in `test/cash-review.test.ts` — the ledger postings and the entry's settlement id, the release and the audit
+row that names the entry, a partial debt that does not release, an already-decided claim (409, nothing posted), a lost
+race between read and write, an entry that fails closure (500 with the deposit given back, the claim released and no
+state write), the reason register's four answers, and an id judged before any query.
+
+*Open:* reject, escalate, and approve-a-different-amount. The reviewer can now say yes; every other answer still has no
+route, and `§6.2`'s rejection vocabulary remains unused until one does.
