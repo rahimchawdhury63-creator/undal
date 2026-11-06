@@ -2259,3 +2259,52 @@ filters, `planWaves`, the `order_offers` insert — and the three fields that ev
 (`distanceToZoneEdgeM` needs the zone polygon core holds, `routedDistanceToVendorM` needs routing that is not
 built, `notificationsAllowed` needs the device table). Those are core's to fill, and stating which side owns each
 is the point of this rung.
+
+## D118 — The numbers the filters compare against, and who owns them
+
+`assignment.ts` reads `rider.vehicleMaxRadiusM` and `rider.cashLimitPaisa` off the snapshot, which is the right
+shape: the module that decides *whether* a rule passes should not know *what* the rule's threshold is. But that
+only pays off if the thresholds live somewhere with a citation — and two of them (`max_concurrent`, the vehicle
+radius) lived nowhere at all. Not wrong: **absent**. No column in `riders`, no constant, no owner. A wave writer
+would have had to type `12_000` at the call site, and the next person would have typed it again, and one of the
+two would have been for a bicycle.
+
+**So the numbers get a file.** `domain/order/dispatch-policy.ts` holds `VEHICLE_POLICY` (bicycle 4 000 m / 1
+order, motorbike 12 000 m / 3), `DEFAULT_CASH_LIMIT_PAISA` (৳3 500) and `FALLBACK_RELAXATION` (×1.2 radius, ×1.2
+cash, 3 000 m outside the boundary), each carrying the section it came from. Frozen, because a policy table is
+read by everything and written by nobody.
+
+**An unknown vehicle gets no limits.** `vehiclePolicy("TRUCK")` is `null`, not a default. The column's CHECK
+constraint makes a third value a bug, and a `default` branch could only ever fire on that bug — silently handing
+it a radius. `null` makes filter 8 refuse the rider *by name*, which is the difference between "no riders
+available" and "there is a rider here whose vehicle nobody described".
+
+**The relaxation is three factors and no boolean.** The tempting shape is `relax: true` threaded into the filters,
+and it would be wrong in a specific way: a boolean relaxes *everything*, so a slow order would also start
+admitting stale positions and unverified faces. `FALLBACK_RELAXATION` loosens radius, cash cap and the zone-edge
+allowance — the three that a slow order is genuinely a reason to loosen — and leaves freshness, verification,
+suspension and the reject cooldown untouched. `Math.ceil` rather than `Math.round`, because `350 000 × 1.2` is
+`419 999.99999999994` in binary and the documented promise is `420 000`: the rounding direction is chosen so the
+rider is never a paisa short of the figure the document states.
+
+**And the TiDB half of a candidate gets read.** `repositories/dispatch.ts` `ridersInZone` is one statement per
+zone — `riders` joined to an **open** `rider_shifts`, `APPROVED` only, `shift_state` in the three dispatchable
+values, with the active load as a correlated count over the three states a delivered order is not in, `LIMIT 200`.
+Everything it excludes is something no relaxation could ever re-admit: a closed shift, a rider who is not
+approved, a `CASH_LOCKED` rider, the selfie check in progress. A bicycle is *not* excluded even though most orders
+are too far for it, because "too far for your vehicle" is a sentence the rider's app can only say if the row
+arrived.
+
+**Both identities on the row, named.** `riderId` is the `riders` row an offer points at; `userId` is the token's
+`sub`, which is what `rider_current.rider_id` holds and therefore what the D117 feed joins on. D110's bug was
+exactly this confusion in the other direction; carrying both fields on one type is how the wave writer avoids
+repeating it.
+
+Tests: sixteen in `dispatch-candidates.test.ts` — the table's values and its immutability, an unknown vehicle
+getting no limits, the relaxation's three loosened limits and its unchanged load ceiling, the float rounding, the
+statement's exclusions and its bound, and the mapper's handling of `BREAK`, an unexpected state, an unknown
+vehicle and a numeric string from TiDB.
+
+*Open:* the wave writer that consumes this — join to the D117 feed by `userId`, fill the three fields neither side
+supplies (`distanceToZoneEdgeM` needs core's zone polygon, `routedDistanceToVendorM` needs routing that is not
+built, `notificationsAllowed` needs the device table), run `FILTERS`, `planWaves`, insert the offers, ring.

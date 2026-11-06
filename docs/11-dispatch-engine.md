@@ -103,6 +103,13 @@ rider who fails any one of them is not ranked at all.
 | 7 | Shift zone matches the order's zone, **or** the rider is within 1 500 m of the zone boundary | Edge-of-zone riders are useful and excluding them creates dead corners |
 | 8 | **Vehicle radius**: `routed_distance ≤ max_radius_m` for their vehicle (bicycle 4 000 m, motorbike 12 000 m) | [`10 §7.2`](10-fare-engine-math.md) |
 | 9 | Current load `< max_concurrent` (1 for bicycle, 3 for motorbike) | A bicycle rider cannot carry three bags of hot food |
+
+> **Where these numbers live (D118).** Filters 8 and 9 are the two whose thresholds had no column and no
+> constant, so they now sit in `domain/order/dispatch-policy.ts` as `VEHICLE_POLICY`, with the cash ceiling in
+> `DEFAULT_CASH_LIMIT_PAISA` and the T+112 s relaxation in `FALLBACK_RELAXATION`. The rule and its number are
+> deliberately in different files: `assignment.ts` decides *whether* a filter passes, the policy file decides
+> *what* it passes against, and a wave writer joins them rather than writing `12_000` at a call site. The
+> relaxation loosens exactly three things — radius, cash cap, zone-edge allowance — and nothing about trust.
 | 10 | If already on an order: the new order must pass the batch feasibility proof ([`12 §5`](12-batching-engine.md)) | |
 | 11 | `cash_in_hand_paisa + order.total_paisa ≤ cash_limit_paisa` (default ৳3 500) | Cash-risk cap; see §8 |
 | 12 | Not offered this order already in a previous wave with a rejection | No re-offering after an explicit no |
