@@ -122,6 +122,13 @@ export interface WaveOffer {
   readonly rankInWave: number;
   readonly score: number;
   readonly payoutPaisa: number;
+  /**
+   * The acceptance model's features, as the scorer computed them (`09 §7.4`, D134), or `null`.
+   *
+   * `null` rather than an array of zeroes: an offer judged without a model must not later train one, and a row of zeroes
+   * would look like a perfectly ordinary sample whose offer had nothing to recommend it.
+   */
+  readonly propensity: readonly number[] | null;
 }
 
 /** Everything a wave insert needs besides the offers themselves. */
@@ -139,7 +146,8 @@ export interface WaveInsert {
 }
 
 const OFFER_COLUMNS =
-  "(`id`, `order_id`, `rider_id`, `wave`, `rank_in_wave`, `score`, `trace_id`, `payout_paisa`, `offered_at`, `expires_at`)";
+  "(`id`, `order_id`, `rider_id`, `wave`, `rank_in_wave`, `score`, `trace_id`, `payout_paisa`, " +
+  "`propensity_features`, `offered_at`, `expires_at`)";
 
 /**
  * Write one wave of offers, in one statement.
@@ -185,11 +193,13 @@ export async function insertOfferWave(db: Db, insert: WaveInsert): Promise<numbe
       offer.score,
       insert.traceId,
       offer.payoutPaisa,
+      // `JSON`, so the driver gets a string. The array is the model's own wire format (`PROPENSITY_FEATURES`' order).
+      offer.propensity === null ? null : JSON.stringify(offer.propensity),
       offeredAt,
       expiresAt,
     );
   }
-  const row = `(${new Array(10).fill("?").join(", ")})`;
+  const row = `(${new Array(11).fill("?").join(", ")})`;
   const sql = `INSERT INTO \`order_offers\` ${OFFER_COLUMNS} VALUES ${insert.offers.map(() => row).join(", ")}`;
   const result = await db.execute(sql, params);
   return result.affectedRows;

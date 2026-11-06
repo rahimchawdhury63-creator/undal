@@ -26,6 +26,8 @@ export interface PlannedOffer {
   readonly rankInWave: number;
   readonly score: number;
   readonly payoutPaisa: number;
+  /** The acceptance model's eight features, or `null` when the zone has no model (`09 §7.4`, D134). */
+  readonly propensity: readonly number[] | null;
 }
 
 /** A wave, with the instant it expires, ready to be written. */
@@ -70,6 +72,7 @@ export function planWaveWrite(wave: Wave, context: PlanContext): PlannedWave {
       rankInWave: index + 1,
       score: candidate.score ?? candidate.acceptanceProbability,
       payoutPaisa: context.payoutPaisa,
+      propensity: candidate.propensity ?? null,
     };
   });
   return {

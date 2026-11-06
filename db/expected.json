@@ -1858,7 +1858,12 @@
       "source": "006_orders.sql"
     },
     "order_offers": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "propensity_features",
+          "type": "JSON"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 1,

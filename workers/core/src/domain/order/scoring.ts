@@ -205,11 +205,18 @@ export function acceptance(rate: number): number {
  * outcomes trained it, so a zone's first offers are still judged by the record and a trained zone is judged by what it
  * has learned about its own hours and geography.
  */
-export function acceptanceFactor(facts: ScoringFacts, zone: ZoneFeatures): number {
-  const rate = unit(facts.acceptanceRate);
+/**
+ * The eight features this candidate and this offer were judged on, or `null` when the zone has no model.
+ *
+ * Returned rather than recomputed by the caller because the vector is *evidence*: it is written onto the offer row
+ * (`017_offer_propensity.sql`, D134) so that the outcome can train the model that made the decision. A vector rebuilt
+ * later from a rider's current idle time would be a different vector, and a model trained on it would learn from facts
+ * that were not the ones it saw.
+ */
+export function propensityVector(facts: ScoringFacts, zone: ZoneFeatures): readonly number[] | null {
   const model = zone.acceptanceModel;
-  if (model === undefined) return rate;
-  const features = propensityFeatures({
+  if (model === undefined) return null;
+  return propensityFeatures({
     payoutPaisa: model.payoutPaisa,
     pickupDistanceM: facts.routedDistanceToVendorM,
     tripDistanceM: model.tripDistanceM ?? 0,
@@ -218,6 +225,14 @@ export function acceptanceFactor(facts: ScoringFacts, zone: ZoneFeatures): numbe
     ...(model.weatherSeverity === undefined ? {} : { weatherSeverity: model.weatherSeverity }),
     ...(model.batch === undefined ? {} : { batch: model.batch }),
   });
+}
+
+/** Factor 3, with the model consulted through the same vector the offer will record. */
+export function acceptanceFactor(facts: ScoringFacts, zone: ZoneFeatures): number {
+  const rate = unit(facts.acceptanceRate);
+  const model = zone.acceptanceModel;
+  const features = propensityVector(facts, zone);
+  if (model === undefined || features === null) return rate;
   return unit(blendPropensity(predictAcceptance(model.weights, features), rate, model.samples));
 }
 
@@ -301,6 +316,13 @@ export interface Scored {
   readonly score: number;
   /** Factor 3 alone, which is what `pNobodyAccepts` multiplies — not the total score. */
   readonly acceptanceProbability: number;
+  /**
+   * The features factor 3 was computed from, or `null` without a model (`09 §7.4`, D134).
+   *
+   * Written onto the offer row, so the row is both the decision and the evidence: the outcome it later records was
+   * produced by *this* vector, and a training loop that rebuilt the vector would be learning from a different offer.
+   */
+  readonly propensity: readonly number[] | null;
   readonly factors: {
     readonly proximity: number;
     readonly etaFit: number;
@@ -380,6 +402,7 @@ export function scoreCandidates(
       riderId: facts.riderId,
       score: score(factors, weights),
       acceptanceProbability: factors.acceptance,
+      propensity: propensityVector(facts, zone),
       factors,
     };
   });

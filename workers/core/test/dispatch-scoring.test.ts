@@ -32,6 +32,7 @@ import {
   rating,
   reliability,
   score,
+  propensityVector,
   scoreCandidates,
   vendorFamiliarity,
   vehicleFit,
@@ -382,5 +383,40 @@ describe("factor 3 — the acceptance model (D133)", () => {
     );
     assert.equal(ranked[0]?.riderId, "rider-near");
     assert.notEqual(ranked[0]?.acceptanceProbability, ranked[1]?.acceptanceProbability);
+  });
+});
+
+/**
+ * The vector itself (`09 §7.4`, D134).
+ *
+ * Factor 3 is a number and an offer row needs evidence: the features the number was computed from travel with the offer,
+ * so the outcome can train the model that made the choice. A vector rebuilt later is a different vector — idle time and
+ * the routing snapshot are gone — which is why it is returned by the scorer rather than recomputed by whoever wants it.
+ */
+describe("the feature vector, as the row records it (D134)", () => {
+  const withModel = {
+    ...ZONE,
+    acceptanceModel: {
+      weights: PROPENSITY_PRIOR,
+      samples: 12,
+      atMs: Date.UTC(2026, 0, 15, 12, 0, 0),
+      payoutPaisa: 10_100,
+    },
+  } as ZoneFeatures;
+
+  test("a zone with a model produces eight numbers for the offer", () => {
+    const vector = propensityVector(facts(), withModel);
+    assert.equal(vector?.length, 8);
+    assert.ok((vector?.[0] ?? 0) > 0, "the payout is normalised, not signed");
+  });
+
+  test("a zone with no model records nothing at all", () => {
+    assert.equal(propensityVector(facts(), ZONE), null, "a vector of zeroes would train the next model on a lie");
+  });
+
+  test("the scored candidate carries the same vector its factor 3 used", () => {
+    const [scored] = scoreCandidates([{ facts: facts() }], withModel, PAISA);
+    assert.deepEqual(scored?.propensity, propensityVector(facts(), withModel));
+    assert.ok((scored?.factors.acceptance ?? 0) > 0);
   });
 });

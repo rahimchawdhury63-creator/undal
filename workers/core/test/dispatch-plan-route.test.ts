@@ -214,10 +214,11 @@ describe("planning a wave (D126)", () => {
     await route().run(ctxFor(db), INPUT);
     const insert = db.calls.find((call) => /INSERT INTO `order_offers`/u.test(call.sql));
     assert.ok(insert !== undefined);
-    assert.equal(insert.params.length, 10, "one offer, ten columns");
+    assert.equal(insert.params.length, 11, "one offer, eleven columns: the feature vector among them (D134)");
     assert.equal(insert.params[3], 1, "wave 1");
     assert.equal(insert.params[4], 1, "rank 1");
     assert.equal(insert.params[7], 8_400, "the order's rider payout");
+    assert.equal(insert.params[8], null, "no zone model in this fixture, so no vector to record");
   });
 
   test("the plan travels with the answer, so the caller knows when to come back", async () => {
@@ -475,6 +476,20 @@ describe("the zone's acceptance model (D133)", () => {
     assert.notEqual(read, undefined, "the zone's row is read once per plan");
     assert.match(read?.sql ?? "", /`key` = \?/u);
     assert.match(read?.sql ?? "", /ORDER BY `effective_at` DESC/u, "the latest version wins, as every config read does");
+  });
+
+  test("a trained zone writes the features it judged the offer on (D134)", async () => {
+    stubFeed([USER_HEX]);
+    pending.length = 0;
+    const db = dbFor({ propensity: { weights: [3, -3, -1, 0.5, 0, 0, -1, -2], samples: 50 } });
+    await route().run(ctxFor(db, true), INPUT);
+    const insert = db.calls.find((call) => /INSERT INTO `order_offers`/u.test(call.sql));
+    const stored = insert?.params[8];
+    assert.equal(typeof stored, "string", "a JSON column takes a string");
+    const vector = JSON.parse(String(stored)) as number[];
+    assert.equal(vector.length, 8, "the eight features, in PROPENSITY_FEATURES' order");
+    assert.ok((vector[0] ?? 0) > 0, "the payout was present and positive");
+    assert.ok(vector.every((value) => value >= 0 && value <= 1), "magnitudes, with the signs in the weights");
   });
 
   test("a zone with no row plans exactly as it did before the model existed", async () => {

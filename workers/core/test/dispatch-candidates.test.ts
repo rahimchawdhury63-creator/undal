@@ -198,7 +198,7 @@ describe("writing a wave (D121)", () => {
   const OTHER_RIDER_HEX = "0193f2a17c3e7890abcdef0123456711";
 
   function offer(rider: string, rank: number, score = 0.75): WaveOffer {
-    return { id: bytes(rider), riderId: bytes(rider), rankInWave: rank, score, payoutPaisa: 8_400 };
+    return { id: bytes(rider), riderId: bytes(rider), rankInWave: rank, score, payoutPaisa: 8_400, propensity: null };
   }
 
   test("eight offers are one statement with one instant", async () => {
@@ -218,11 +218,12 @@ describe("writing a wave (D121)", () => {
     assert.equal(db.calls.length, 1, "one statement, not eight");
     const [insert] = db.calls;
     assert.ok(insert !== undefined);
-    assert.equal(insert.params.length, 80, "ten bindings per row");
-    assert.match(insert.sql, /VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?\),/u);
+    assert.equal(insert.params.length, 88, "eleven bindings per row: the feature vector rides with the offer (D134)");
+    assert.match(insert.sql, /VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\),/u);
+    assert.match(insert.sql, /`propensity_features`/u);
     // Every row carries the same offered_at and expires_at: the TTL is a promise about the wave.
-    const offeredAt = new Set(insert.params.filter((_, i) => i % 10 === 8));
-    const expiresAt = new Set(insert.params.filter((_, i) => i % 10 === 9));
+    const offeredAt = new Set(insert.params.filter((_, i) => i % 11 === 9));
+    const expiresAt = new Set(insert.params.filter((_, i) => i % 11 === 10));
     assert.equal(offeredAt.size, 1, "one offered_at for the whole wave");
     assert.equal(expiresAt.size, 1, "one expires_at for the whole wave");
     assert.notEqual([...offeredAt][0], [...expiresAt][0]);
@@ -241,7 +242,26 @@ describe("writing a wave (D121)", () => {
     });
     const params = db.calls[0]?.params ?? [];
     assert.deepEqual(params.slice(3, 6), [3, 1, 0.9]);
-    assert.deepEqual(params.slice(13, 16), [3, 2, 0.8]);
+    assert.deepEqual(params.slice(14, 17), [3, 2, 0.8]);
+  });
+
+  test("the feature vector rides with the offer, as JSON (D134)", async () => {
+    const db = stubDb([{ match: /INSERT INTO `order_offers`/u, affectedRows: 2 }]);
+    const vector = [0.84, 0.15, 0.3, 0.5, 0.62, 0.38, 0, 0];
+    await insertOfferWave(db, {
+      orderId: bytes(ORDER_HEX),
+      wave: 1,
+      traceId: bytes(TRACE_HEX),
+      offeredAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_025_000,
+      offers: [
+        { ...offer(RIDER_HEX, 1, 0.9), propensity: vector },
+        { ...offer(OTHER_RIDER_HEX, 2, 0.8), propensity: null },
+      ],
+    });
+    const params = db.calls[0]?.params ?? [];
+    assert.equal(params[8], JSON.stringify(vector), "the column is JSON, so the driver gets a string");
+    assert.equal(params[19], null, "an offer judged without a model records nothing, not zeroes");
   });
 
   test("an empty wave writes nothing at all", async () => {

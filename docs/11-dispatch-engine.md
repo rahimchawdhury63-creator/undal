@@ -249,6 +249,15 @@ rider who fails any one of them is not ranked at all.
 > the record rather than failing a dispatch. Nothing is trained yet — the learning step exists as `learnStep` and the
 > rung that calls it is next — so every zone currently scores with the prior, whose signs an operator can check by eye.
 
+> **And the offer carries the evidence (D134).** A model can only be trained on the facts it saw, and three of the eight
+> are facts about a moment: a rider's idle time at 12:04, the routing snapshot that measured their distance, the weather
+> that minute. None is recoverable afterwards. So each offer row now records its own eight-number vector
+> (`order_offers.propensity_features`, JSON), taken from the same call that produced its factor 3 — a vector rebuilt
+> later would be a different vector, and a model trained on it would learn from an offer that never existed. `null` when
+> the zone had no model: an offer judged without one must not later train one, and a row of zeroes would read as an
+> ordinary sample whose offer had nothing to recommend it. The outcome sits next door in `response`, so one offer row is
+> one training sample and the loop reads `offered_at` to know how far it has got.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep

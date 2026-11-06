@@ -413,6 +413,8 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
       riderId: entry.riderId,
       acceptanceProbability: entry.acceptanceProbability,
       score: entry.score,
+      // Carried so the offer row records the features that produced its factor 3 (`09 §7.4`, D134).
+      propensity: entry.propensity,
     }));
     const plan = planWaves(candidatesForPlan);
     // The wave to write is the *next* one for this order, not wave 1: a second call (the advance driver, D129) must not

@@ -146,6 +146,13 @@ export interface ScoredCandidate {
    * unavailable — not a default worth pretending is equivalent.
    */
   readonly score?: number;
+  /**
+   * The acceptance model's features for this candidate, when the scorer produced them (`09 §7.4`, D134).
+   *
+   * Carried through the planner untouched: this module decides who is asked, not what they were judged on, and the
+   * vector's only consumer is the row the offer is written as.
+   */
+  readonly propensity?: readonly number[] | null;
 }
 
 /** One wave: who is asked, when, and for how long. */
