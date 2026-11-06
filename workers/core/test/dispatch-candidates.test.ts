@@ -185,6 +185,22 @@ describe("reading a zone's candidates from TiDB (D118)", () => {
     assert.equal(candidate?.selfieVerified, false, "selfie_verified 0 is not verified");
   });
 
+  test("cash the rider still owes is read with them, because the ceiling counts it (D152)", async () => {
+    const db = stubDb([
+      {
+        match: /FROM `riders` r/u,
+        rows: [candidateRow({ cash_collected_paisa: 12_500, cash_owed_paisa: "114000" })],
+      },
+    ]);
+    const [candidate] = await ridersInZone(db, ZONE_HEX);
+    assert.equal(candidate?.cashOwedPaisa, 114_000, "a balance read back as a string is still a number");
+    assert.equal(candidate?.cashCollectedPaisa, 12_500);
+
+    const sql = String(db.calls[0]?.sql);
+    assert.match(sql, /FROM `rider_cash_balances` b/u, "the balance rides along in the same statement, not a second query");
+    assert.match(sql, /outstanding_paisa/u);
+  });
+
   test("a zone with nobody in it costs one statement and returns nothing", async () => {
     const db = stubDb([{ match: /FROM `riders` r/u, rows: [] }]);
     assert.deepEqual(await ridersInZone(db, ZONE_HEX), []);

@@ -60,6 +60,7 @@ function candidate(overrides: Partial<DispatchCandidate> = {}): DispatchCandidat
     zoneId: ZONE_HEX,
     selfieVerified: true,
     cashCollectedPaisa: 0,
+    cashOwedPaisa: 0,
     activeLoad: 0,
     policy: VEHICLE_POLICY.MOTORBIKE,
     cashLimitPaisa: 350_000,
@@ -246,5 +247,15 @@ describe("what the assembly refuses instead of guessing", () => {
     assert.equal(snapshots.length, 1);
     assert.equal(refusals.length, 1);
     assert.equal(snapshots[0]?.riderId, "0193f2a17c3e7890abcdef0123456711", "the second candidate survived");
+  });
+
+  test("a part-paid rider goes online with the ceiling reduced by what they still owe (D152)", async () => {
+    // `25 §7`: the rider who paid part of a balance may work, "with a reduced cash limit equal to their remaining
+    // headroom". The debt is not in this shift's collections, so it has to come from the balance.
+    const { snapshots } = assembleSnapshots(
+      input({ candidates: [candidate({ cashCollectedPaisa: 12_500, cashOwedPaisa: 114_000 })] }),
+    );
+    assert.equal(snapshots[0]?.cashInHandPaisa, 126_500, "both halves of what the rider is carrying");
+    assert.equal(snapshots[0]?.cashLimitPaisa, 350_000, "the ceiling itself is unchanged; the headroom is what shrinks");
   });
 });

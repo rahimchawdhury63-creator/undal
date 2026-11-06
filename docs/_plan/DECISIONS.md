@@ -3727,3 +3727,33 @@ non-boolean and an overpayment) and three in `test/cash-review.test.ts` (the rel
 claim that leaves a balance and therefore releases nobody, and the queue's marking).
 
 *Open:* the dispatch ceiling reading the balance (above), and `kind: "DISPUTE"`.
+
+## D152 — The ceiling counts what the rider owes
+
+D151 released a part-paid rider on the strength of `25 §7`'s sentence — "the rider can go online with a reduced cash
+limit equal to their remaining headroom" — and then admitted the second half was not built: dispatch's ৳3 500 ceiling
+read a shift's `cash_collected_paisa` and nothing else, so a rider who had just declared they could not pay the whole
+balance was offered work against the full ceiling on their next shift. A promise with a hole in it is worse than an
+unbuilt one, because the rider has already been let through.
+
+**`DispatchCandidate` gained `cashOwedPaisa`, and it comes from the same statement.** The candidate query already joins
+`rider_shifts`; it now carries a correlated subquery over `rider_cash_balances` for `outstanding_paisa`. A second query
+per candidate would have been a second round trip per rider per wave — the path that runs every time an order needs a
+rider — so the balance rides along with the row that was being read anyway. `COALESCE` and `LIMIT 1` keep a rider with no
+balance row at zero rather than dropping them out of the candidate list.
+
+**The snapshot's cash in hand is the sum, and the ceiling is untouched.** `cashInHandPaisa = cash_collected_paisa +
+outstanding_paisa`. The limit stays ৳3 500 for everybody; a rider who owes ৳1 140 simply has ৳2 360 of headroom, which is
+what `§7` describes and what the dispatch filter already enforces (`cashHeadroom` in scoring, filter 8 in `11 §7`). No new
+refusal, no new constant, no second rule about who may work — one number changed meaning, from "what this shift collected"
+to "what this rider is carrying".
+
+**It is also more honest for a rider who has not declared anything.** A rider who ended a shift owing cash and was
+blocked has an outstanding balance by definition; if they are out on an emergency lift or an escalation, the ceiling now
+counts the money they are carrying instead of pretending the earlier shift never happened.
+
+Tests: two — the mapping and the statement in `test/dispatch-candidates.test.ts` (a balance read back as a string is still
+a number, and the join is in the same query), and the snapshot in `test/dispatch-assembly.test.ts` (a rider carrying
+৳12 500 from today and owing ৳114 000 has ৳126 500 in hand and the same ৳350 000 ceiling).
+
+*Open:* `25 §7`'s remaining button is `DISPUTE`, and the delivery breakdown it needs already exists (D150).

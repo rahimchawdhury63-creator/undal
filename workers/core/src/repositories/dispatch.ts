@@ -37,6 +37,15 @@ export interface DispatchCandidate {
   readonly zoneId: string;
   readonly selfieVerified: boolean;
   readonly cashCollectedPaisa: number;
+  /**
+   * Cash from earlier shifts that the rider still owes (`rider_cash_balances.outstanding_paisa`, D152).
+   *
+   * The second half of "cash in hand", and the half that did not exist until `25 §7`'s part-payment needed it: a rider who
+   * paid part of a balance is out on the road carrying the platform's money from a shift that has already ended. Counting
+   * only this shift's collections would offer them work at the full ceiling on the strength of a debt the platform
+   * already knows about.
+   */
+  readonly cashOwedPaisa: number;
   readonly activeLoad: number;
   /** `null` when the vehicle is not one the policy describes — such a rider cannot be offered work. */
   readonly policy: VehiclePolicy | null;
@@ -55,6 +64,8 @@ export interface DispatchCandidate {
 const SELECT_CANDIDATES = `SELECT r.\`id\` AS \`rider_id\`, r.\`user_id\`, r.\`code\`, r.\`status\`, r.\`shift_state\`,
     r.\`vehicle\`, s.\`zone_id\` AS \`zone_id\`, s.\`selfie_verified\` AS \`selfie_verified\`,
     s.\`cash_collected_paisa\` AS \`cash_collected_paisa\`,
+    (SELECT COALESCE(b.\`outstanding_paisa\`, 0) FROM \`rider_cash_balances\` b
+       WHERE b.\`rider_id\` = r.\`id\` LIMIT 1) AS \`cash_owed_paisa\`,
     (SELECT COUNT(*) FROM \`orders\` o WHERE o.\`rider_id\` = r.\`id\`
        AND o.\`state\` IN ('RIDER_ASSIGNED', 'PICKED_UP', 'ARRIVED')) AS \`active_load\`
   FROM \`riders\` r
@@ -107,6 +118,7 @@ export async function ridersInZone(db: Db, zoneId: string): Promise<readonly Dis
       zoneId: String(row["zone_id"] ?? zoneId),
       selfieVerified: Number(row["selfie_verified"] ?? 0) === 1,
       cashCollectedPaisa: Number(row["cash_collected_paisa"] ?? 0),
+      cashOwedPaisa: Math.max(0, Number(row["cash_owed_paisa"] ?? 0)),
       activeLoad: Number(row["active_load"] ?? 0),
       policy: vehiclePolicy(vehicle),
       cashLimitPaisa: DEFAULT_CASH_LIMIT_PAISA,

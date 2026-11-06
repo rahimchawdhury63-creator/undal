@@ -158,7 +158,10 @@ export function assembleSnapshots(input: AssemblyInput): AssemblyResult {
       routedDistanceToVendorM: point === null ? 0 : estimateRoute(point, input.vendor).distanceM,
       currentLoad: candidate.activeLoad,
       maxConcurrent: candidate.policy.maxConcurrent,
-      cashInHandPaisa: candidate.cashCollectedPaisa,
+      // Both halves of what the rider is carrying (D152): this shift's collections plus whatever earlier shifts still
+      // owe. `25 §7` promises a rider who paid part of a balance that they go online "with a reduced cash limit equal to
+      // their remaining headroom", and this line is what makes that sentence true — the ৳3 500 ceiling counts the debt.
+      cashInHandPaisa: candidate.cashCollectedPaisa + candidate.cashOwedPaisa,
       cashLimitPaisa: candidate.cashLimitPaisa,
       rejectedWaves: input.signals.rejectedWavesByRider.get(rowId) ?? [],
       vendorCooldown: input.signals.vendorCooldownRiders.has(rowId),
