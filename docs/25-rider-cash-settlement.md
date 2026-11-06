@@ -298,7 +298,7 @@ orders that generated the cash.
 | Decision | Effect |
 | --- | --- |
 | **Approve** | `RIDER_CASH −amount`, `PLATFORM:BANK +amount`. `shift_state = OFFLINE`. Screen releases. Notification. The rider can go online again immediately |
-| **Approve a different amount** | For a partial or over-payment. Requires a reason. The difference stays in `RIDER_CASH` and the rider is told clearly what remains |
+| **Approve a different amount** | For a partial or over-payment. Requires a reason. The difference stays in `RIDER_CASH` and the rider is told clearly what remains. **Implemented (D147)**, partial only |
 | **Reject** | Reason required from a controlled list. The rider returns to the blocking screen with the specific reason displayed and a correction path |
 | **Escalate** | Routes to a senior reviewer; the rider is released from the block and told a human is looking into it — because an escalation is the platform's problem, not the rider's |
 
@@ -332,6 +332,15 @@ Every decision is audited with the reviewer, the evidence they saw, and the reas
 > cash the platform has not seen is precisely the consequence step-up exists to guard, and a lesser permission for the
 > same consequence would be the wrong direction. The end of a *later* shift does not re-block an escalated rider either,
 > so the door does not make them prove the same promise twice.
+>
+> **Approve-a-different-amount is built, for the partial case only (D147).** Approval takes an optional `amountPaisa`;
+> when it differs from the claim it **must** arrive with a reason, it cannot exceed what the rider claimed
+> (`MONEY_REFUND_EXCEEDS_PAID`) and it cannot be zero — accepting nothing is a refusal wearing an approval's clothes. The
+> accepted figure is stored in `approved_paisa` (`022`), and the ledger entry and the deposit credit are both built from
+> it, so the books and the claim cannot disagree about how much moved. The difference stays in `RIDER_CASH` and
+> `GET /v1/rider/cash` returns both numbers, because "confirmed" beside an unchanged balance is exactly the confusion
+> `§6.1` promises to prevent. Over-payment is *not* built: a claim cannot exceed what was owed in the first place, so
+> there is nothing above it to accept until `§7`'s disputed paths exist.
 
 ### 6.2 Rejection reasons
 

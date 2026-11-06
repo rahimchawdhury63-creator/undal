@@ -303,6 +303,29 @@ describe("the escalation the rider is told about (D146)", () => {
   });
 });
 
+describe("what was accepted, when it is not what was claimed (D147)", () => {
+  test("a partial approval reaches the rider as two numbers, because the difference is what they still owe", async () => {
+    const db = dbFor({
+      outstanding: 114_000,
+      latest: settlementRow({ status: "CONFIRMED", approved_paisa: 100_000 }),
+    });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    const parsed = (await response.json()) as {
+      data: { settlement: { amountPaisa: number; approvedPaisa: number }; cashInHandPaisa: number };
+    };
+    assert.equal(parsed.data.settlement.amountPaisa, 214_000);
+    assert.equal(parsed.data.settlement.approvedPaisa, 100_000);
+    assert.equal(parsed.data.cashInHandPaisa, 114_000, "confirmed and still owing is the state the screen must explain");
+  });
+
+  test("a claim nobody accepted has no accepted amount, which is not the same as zero", async () => {
+    const db = dbFor({ outstanding: 214_000, latest: settlementRow({ status: "PENDING" }) });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    const parsed = (await response.json()) as { data: { settlement: { approvedPaisa: unknown } } };
+    assert.equal(parsed.data.settlement.approvedPaisa, null);
+  });
+});
+
 describe("the two comparisons a reviewer sees (D141)", () => {
   test("a number matches across the spellings a rider types", () => {
     assert.equal(sameNumber("+8801812345678", "01812345678"), true);

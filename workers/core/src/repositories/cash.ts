@@ -28,6 +28,14 @@ export interface SettlementRow {
   readonly id: Uint8Array;
   readonly riderId: string;
   readonly amountPaisa: number;
+  /**
+   * What the platform actually accepted, which is the claim itself unless a reviewer took a partial payment (D147).
+   *
+   * `null` on anything not accepted — a rejected or escalated row, or a `CONFIRMED` one written before migration `022`.
+   * Null means "not stated", never zero: an approval of nothing that released a rider would be the one reading this
+   * column must not produce.
+   */
+  readonly approvedPaisa: number | null;
   readonly method: string;
   readonly trxId: string | null;
   readonly status: string;
@@ -48,7 +56,8 @@ export interface SettlementRow {
 }
 
 const SETTLEMENT_COLUMNS =
-  "`id`, `rider_id`, `amount_paisa`, `method`, `trx_id`, `status`, `created_at`, `rejection_reason`, `rejection_note`, " +
+  "`id`, `rider_id`, `amount_paisa`, `approved_paisa`, `method`, `trx_id`, `status`, `created_at`, `rejection_reason`, "
+  "`rejection_note`, " +
   "`escalated_at`, `escalation_note`";
 
 /** One row, as the driver returns it. */
@@ -57,6 +66,7 @@ function rowOf(raw: Record<string, unknown>): SettlementRow {
     id: raw["id"] instanceof Uint8Array ? raw["id"] : new Uint8Array(16),
     riderId: raw["rider_id"] instanceof Uint8Array ? toHexId(raw["rider_id"]) : "",
     amountPaisa: Number(raw["amount_paisa"] ?? 0),
+    approvedPaisa: raw["approved_paisa"] === null || raw["approved_paisa"] === undefined ? null : Number(raw["approved_paisa"]),
     method: String(raw["method"] ?? ""),
     trxId: typeof raw["trx_id"] === "string" ? raw["trx_id"] : null,
     status: String(raw["status"] ?? ""),
@@ -212,12 +222,13 @@ export async function claimSettlement(
   db: Db,
   id: Uint8Array,
   confirmedBy: Uint8Array,
+  approvedPaisa: number,
   nowMs: number,
 ): Promise<boolean> {
   const result = await db.execute(
-    "UPDATE `rider_cash_settlements` SET `status` = 'CONFIRMED', `confirmed_by` = ?, `confirmed_at` = ? " +
-      "WHERE `id` = ? AND `status` = 'PENDING'",
-    [confirmedBy, sqlDatetime(new Date(nowMs)), id],
+    "UPDATE `rider_cash_settlements` SET `status` = 'CONFIRMED', `confirmed_by` = ?, `confirmed_at` = ?, " +
+      "`approved_paisa` = ? WHERE `id` = ? AND `status` = 'PENDING'",
+    [confirmedBy, sqlDatetime(new Date(nowMs)), approvedPaisa, id],
   );
   return result.affectedRows > 0;
 }
@@ -231,8 +242,8 @@ export async function claimSettlement(
  */
 export async function releaseClaim(db: Db, id: Uint8Array): Promise<void> {
   await db.execute(
-    "UPDATE `rider_cash_settlements` SET `status` = 'PENDING', `confirmed_by` = NULL, `confirmed_at` = NULL " +
-      "WHERE `id` = ? AND `status` = 'CONFIRMED'",
+    "UPDATE `rider_cash_settlements` SET `status` = 'PENDING', `confirmed_by` = NULL, `confirmed_at` = NULL, " +
+      "`approved_paisa` = NULL WHERE `id` = ? AND `status` = 'CONFIRMED'",
     [id],
   );
 }

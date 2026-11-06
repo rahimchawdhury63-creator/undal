@@ -495,3 +495,70 @@ describe("escalating a settlement (D146)", () => {
     assert.equal(rows[1].escalationNote, null);
   });
 });
+
+describe("approving a different amount (D147)", () => {
+  test("a partial acceptance credits what it says, and leaves the rest owed", async () => {
+    const db = dbFor({ remaining: 114_000 });
+    const answer = await run(db, { amountPaisa: 100_000, reason: "CASH_COUNTED_SHORT" });
+    assert.equal(answer.status, 200);
+    const data = answer.body["data"] as Record<string, any>;
+    assert.equal(data.settlement.amountPaisa, 214_000, "the claim is unchanged: it is what the rider said");
+    assert.equal(data.settlement.approvedPaisa, 100_000, "and this is what was accepted");
+    assert.equal(data.outstandingPaisa, 114_000, "the difference stays in RIDER_CASH");
+    assert.equal(data.released, false);
+
+    const credits = db.calls.filter((call) => call.sql.includes("UPDATE `rider_cash_balances`"));
+    assert.equal(credits[0]?.params[0], 100_000, "the deposit follows the accepted amount, not the claim");
+
+    const postings = db.calls.find((call) => call.sql.includes("INSERT INTO `ledger_postings`"));
+    assert.equal(postings?.params[3], -100_000);
+    assert.equal(postings?.params[8], 100_000);
+
+    const claim = db.calls.find((call) => call.sql.includes("SET `status` = 'CONFIRMED'"));
+    assert.equal(claim?.params[2], 100_000, "the row records how much of the claim was accepted");
+
+    const auditRow = db.calls.find((call) => call.sql.includes("INSERT INTO `audit_log`"));
+    const after = JSON.parse(String(auditRow?.params[14])) as Record<string, unknown>;
+    assert.equal(after["claimedPaisa"], 214_000);
+    assert.equal(after["approvedPaisa"], 100_000);
+  });
+
+  test("a partial acceptance must say why, and cannot accept more than was claimed", async () => {
+    const unexplained = await run(dbFor(), { amountPaisa: 100_000 });
+    assert.equal(unexplained.status, 422, "a figure that disagrees with the rider's is the approval they will question");
+    assert.deepEqual((unexplained.body["error"] as Record<string, unknown>)["details"], {
+      fields: ["reason"],
+      allowed: [
+        "CUSTOMER_REQUESTED",
+        "OPERATOR_ERROR",
+        "SYSTEM_RECONCILIATION",
+        "DUPLICATE_POSTING",
+        "LEGAL_REQUEST",
+        "FRAUD_INVESTIGATION",
+        "CASH_NOT_HANDED_OVER",
+        "CASH_COUNTED_SHORT",
+      ],
+    });
+
+    const tooMuch = await run(dbFor(), { amountPaisa: 300_000, reason: "CASH_COUNTED_SHORT" });
+    assert.equal(tooMuch.status, 422);
+    assert.equal((tooMuch.body["error"] as Record<string, unknown>)["code"], "MONEY_REFUND_EXCEEDS_PAID");
+
+    const nothing = await run(dbFor(), { amountPaisa: 0, reason: "CASH_COUNTED_SHORT" });
+    assert.equal(nothing.status, 422, "accepting nothing is a rejection wearing an approval's clothes");
+
+    const nonsense = await run(dbFor(), { amountPaisa: 12.5 });
+    assert.equal(nonsense.status, 422, "the money law holds here too");
+  });
+
+  test("the full amount with a stated figure is the ordinary approval, and needs no reason", async () => {
+    const db = dbFor({ remaining: 0 });
+    const answer = await run(db, { amountPaisa: 214_000 });
+    assert.equal(answer.status, 200);
+    const data = answer.body["data"] as Record<string, unknown>;
+    assert.equal(data["released"], true);
+    assert.equal((data["settlement"] as Record<string, unknown>)["approvedPaisa"], 214_000);
+    const auditRow = db.calls.find((call) => call.sql.includes("INSERT INTO `audit_log`"));
+    assert.equal(auditRow?.params[15], null, "a full acceptance explains nothing because nothing needs explaining");
+  });
+});

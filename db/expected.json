@@ -2520,6 +2520,10 @@
         {
           "name": "escalation_note",
           "type": "VARCHAR(280)"
+        },
+        {
+          "name": "approved_paisa",
+          "type": "BIGINT"
         }
       ],
       "generated": [],

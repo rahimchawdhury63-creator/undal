@@ -58,6 +58,14 @@ import { postEntry } from "../domain/ledger/post-entry.ts";
  * the audit row carries the nearest *register* code (`CASH_COUNTED_SHORT` or `SETTLEMENT_DISPUTED`), because the audit
  * register is a closed list shared with every other action and cannot grow a settlement-shaped corner.
  *
+ * **A partial approval is an approval with a number, and it must say why (D147).** `25 §6.1`'s second decision is
+ * "approve a different amount": the reviewer accepts less than the rider claimed, the difference stays `RIDER_CASH`, and
+ * the rider is told what remains. The amount is validated against the claim rather than against the balance — an
+ * approval larger than the claim would credit money the rider never claimed — and a partial acceptance **requires** a
+ * reason, because a number that disagrees with the rider's own figure is the one approval a rider will question. The
+ * stored `approved_paisa` is what the ledger entry and the deposit credit are built from, so the books and the claim
+ * cannot disagree about how much moved.
+ *
  * **A clean approval has no reason code, and that is not an oversight.** The register in `audit/reasons.ts` holds six
  * operational reasons plus `CASH_NOT_HANDED_OVER` and `CASH_COUNTED_SHORT` for this permission key — all of them describe
  * something *anomalous*. A reviewer confirming that the money arrived as claimed has nothing to name, so `reason` is
@@ -65,8 +73,10 @@ import { postEntry } from "../domain/ledger/post-entry.ts";
  * reviewer flags "counted short" while still approving (`25 §7`'s partial path, which is not otherwise built).
  */
 
-/** What a reviewer may send with an approval: a register reason, and a sentence for the audit row. */
+/** What a reviewer may send with an approval: an amount, a register reason, and a sentence for the audit row. */
 interface Decision {
+  /** What was accepted, in paisa, or `null` for "the whole claim". Validated against the claim in `approveSettlement`. */
+  readonly amountPaisa: number | null;
   readonly reason: string | null;
   readonly note: string | null;
 }
@@ -75,13 +85,17 @@ interface Decision {
 function parseDecision(
   body: unknown,
 ): Decision | { readonly code: "VALIDATION_REQUIRED"; readonly details: Record<string, unknown> } {
-  if (body === null || body === undefined) return { reason: null, note: null };
+  if (body === null || body === undefined) return { amountPaisa: null, reason: null, note: null };
   if (typeof body !== "object" || Array.isArray(body)) {
     return { code: "VALIDATION_REQUIRED", details: { fields: ["reason", "note"] } };
   }
   const raw = body as Record<string, unknown>;
   const reason = raw["reason"] ?? null;
   const note = raw["note"] ?? null;
+  const amount = raw["amountPaisa"] ?? null;
+  if (amount !== null && (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0)) {
+    return { code: "VALIDATION_REQUIRED", details: { fields: ["amountPaisa"] } };
+  }
   if (reason !== null && (typeof reason !== "string" || reason.trim().length === 0)) {
     return { code: "VALIDATION_REQUIRED", details: { fields: ["reason"] } };
   }
@@ -94,7 +108,11 @@ function parseDecision(
       details: { fields: ["reason"], allowed: reasonsFor("finance.cash.approve_settlement").map((entry) => entry.code) },
     };
   }
-  return { reason: reason === null ? null : (reason as string), note: note === null ? null : (note as string).trim() };
+  return {
+    amountPaisa: amount === null ? null : (amount as number),
+    reason: reason === null ? null : (reason as string),
+    note: note === null ? null : (note as string).trim(),
+  };
 }
 
 /** A parsed id, or the refusal for one that is not a UUID. */
@@ -135,6 +153,35 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
     );
   }
 
+  const accepted = decision.amountPaisa ?? row.amountPaisa;
+  const partial = accepted !== row.amountPaisa;
+  if (accepted > row.amountPaisa) {
+    // More than the claim: the rider claimed a figure and the platform cannot accept more than was claimed for it.
+    return failureResponse(
+      { code: "MONEY_REFUND_EXCEEDS_PAID", details: { paid: row.amountPaisa, requested: accepted } },
+      ctx.locale,
+      ctx.requestId,
+    );
+  }
+  if (accepted === 0) {
+    // Accepting nothing is a rejection wearing an approval's clothes, and it would release nobody while closing the claim.
+    return failureResponse({ code: "VALIDATION_REQUIRED", details: { fields: ["amountPaisa"] } }, ctx.locale, ctx.requestId);
+  }
+  if (partial && decision.reason === null) {
+    // A number that disagrees with the rider's own figure is the one approval they will question, so it must be explained.
+    return failureResponse(
+      {
+        code: "VALIDATION_REQUIRED",
+        details: {
+          fields: ["reason"],
+          allowed: reasonsFor("finance.cash.approve_settlement").map((entry) => entry.code),
+        },
+      },
+      ctx.locale,
+      ctx.requestId,
+    );
+  }
+
   const nowMs = Date.now();
   const riderBytes = uuidBytes(row.riderId);
   let adminBytes: Uint8Array;
@@ -144,7 +191,7 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
     return failureResponse({ code: "PERM_DENIED", details: { reason: "not_an_admin" } }, ctx.locale, ctx.requestId);
   }
 
-  if (!(await claimSettlement(ctx.db, id, adminBytes, nowMs))) {
+  if (!(await claimSettlement(ctx.db, id, adminBytes, accepted, nowMs))) {
     // Two reviewers, one claim: the other one won between the read above and this write.
     const latest = await settlementById(ctx.db, id);
     return failureResponse(
@@ -154,7 +201,7 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
     );
   }
 
-  if (!(await creditDeposit(ctx.db, riderBytes, row.amountPaisa, nowMs))) {
+  if (!(await creditDeposit(ctx.db, riderBytes, accepted, nowMs))) {
     await releaseClaim(ctx.db, id);
     return failureResponse({ code: "INTERNAL", details: { trace_id: ctx.requestId } }, ctx.locale, ctx.requestId);
   }
@@ -163,10 +210,10 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
   try {
     const posted = await postEntry(ctx.db, {
       entryType: "CASH_SETTLED",
-      description: `Cash settlement ${toHexId(id)}: ${row.amountPaisa} paisa handed over`,
+      description: `Cash settlement ${toHexId(id)}: ${accepted} paisa handed over`,
       postings: [
-        { account: riderCashAccount(row.riderId), amountPaisa: -row.amountPaisa },
-        { account: PLATFORM_ACCOUNTS.BANK, amountPaisa: row.amountPaisa },
+        { account: riderCashAccount(row.riderId), amountPaisa: -accepted },
+        { account: PLATFORM_ACCOUNTS.BANK, amountPaisa: accepted },
       ],
       settlementId: toHexId(id),
       createdBy: ctx.principal.userId,
@@ -175,7 +222,7 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
     entryId = posted.entryId;
   } catch {
     // The books could not be written, so nothing happened: give the deposit back and let the claim be retried.
-    await creditDeposit(ctx.db, riderBytes, -row.amountPaisa, nowMs);
+    await creditDeposit(ctx.db, riderBytes, -accepted, nowMs);
     await releaseClaim(ctx.db, id);
     return failureResponse({ code: "INTERNAL", details: { trace_id: ctx.requestId } }, ctx.locale, ctx.requestId);
   }
@@ -198,12 +245,13 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
       resourceType: "RIDER_CASH_SETTLEMENT",
       resourceId: toHexId(id),
       subjectId: row.riderId,
-      before: { status: "PENDING", shiftState: before, outstandingPaisa: outstanding + row.amountPaisa },
+      before: { status: "PENDING", shiftState: before, outstandingPaisa: outstanding + accepted },
       after: {
         status: "CONFIRMED",
         shiftState: released ? "OFFLINE" : before,
         outstandingPaisa: outstanding,
-        amountPaisa: row.amountPaisa,
+        claimedPaisa: row.amountPaisa,
+        approvedPaisa: accepted,
         ledgerEntryId: entryId,
         note: decision.note,
       },
@@ -220,6 +268,8 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
         status: "CONFIRMED",
         method: row.method,
         amountPaisa: row.amountPaisa,
+        // Both numbers, so the reviewer and the rider's screen can say "৳1 000 of ৳2 140 accepted, ৳1 140 still owed".
+        approvedPaisa: accepted,
         trxId: row.trxId,
         submittedAt: row.createdAt,
         confirmedAt: new Date(nowMs).toISOString(),

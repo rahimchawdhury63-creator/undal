@@ -103,6 +103,9 @@ function serialiseSettlement(row: SettlementRow): Record<string, unknown> {
     status: row.status,
     method: row.method,
     amountPaisa: row.amountPaisa,
+    // What the platform actually accepted, when that differs from the claim: `25 §6.1` promises the rider is told what
+    // remains, and "confirmed" beside an unchanged balance is exactly the confusion that promise prevents (D147).
+    approvedPaisa: row.approvedPaisa,
     trxId: row.trxId,
     submittedAt: row.createdAt,
     // A refusal the rider cannot read is indistinguishable from being ignored (D144): `25 §6.2` asks for the reason.

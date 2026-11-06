@@ -3538,3 +3538,45 @@ Tests: seven new — two in `shift-start.test.ts`/`shift-end.test.ts` (an escala
 
 *Open:* approve-a-different-amount is now the only `§6.1` decision without a route, and `§7`'s partial paths —
 robbed/lost, emergency, "I disagree" — remain screens.
+
+## D147 — Approving a different amount, and the two numbers a rider needs
+
+`25 §6.1`'s second decision is the last of the four to be built: "Approve a different amount — for a partial or
+over-payment. Requires a reason. The difference stays in `RIDER_CASH` and the rider is told clearly what remains." Three
+claims in that sentence, and each one is a design choice.
+
+**The accepted amount is stored, not inferred.** Approval now takes an optional `amountPaisa`, and migration `022` adds
+`approved_paisa BIGINT NULL` with a check that it is between zero and the claim. `amount_paisa` keeps meaning *what the
+rider claimed* — the evidence is the claim — and `approved_paisa` means *what the platform accepted*. The ledger entry,
+the `deposited_paisa` credit and the audit row are all built from the accepted figure, so there is one number that moves
+money and no path where the books and the settlement disagree about how much.
+
+**A differing figure must be explained; the same figure need not.** A reviewer who accepts the full amount states nothing,
+because there is nothing to explain (D143). A reviewer who accepts less must cite a register reason — `CASH_COUNTED_SHORT`
+in the ordinary case — because the rider is about to see their claim and the credit disagree, and an unexplained
+disagreement is exactly the thing the screen exists to avoid. The reason list in the refusal is the register's list for
+this key, so the app can render the choice instead of describing it.
+
+**Two bounds, and both are refusals rather than clamps.** More than the claim is `MONEY_REFUND_EXCEEDS_PAID` — the one
+existing code whose shape (`{paid, requested}`) fits "you asked to accept more than is there" — because the claim is the
+ceiling: a rider who owes ৳2 140 cannot have ৳3 000 accepted. Zero is `VALIDATION_REQUIRED`, because accepting nothing
+while marking the claim `CONFIRMED` would close the claim, release nobody and read as an approval. A non-integer is
+refused like every other amount in this codebase. Over-payment is deliberately **not** implemented: `POST /rider/cash/settle`
+already refuses a claim above the balance, so there is nothing above the claim to accept until `§7`'s disputed paths can
+produce one.
+
+**Both numbers reach the rider.** `GET /v1/rider/cash` returns `amountPaisa` and `approvedPaisa` under the settlement, and
+the read's `cashInHandPaisa` does the arithmetic. A settlement that says "confirmed" beside an unchanged balance is the
+confusion `§6.1` promises to prevent, and the fix is not a sentence in the app — it is the two numbers that let the app
+write one.
+
+**`null` is not zero.** A rejected, escalated, or pre-`022` confirmed row has no accepted amount, and the reader treats
+`null` as "not stated". A zero would read as "the platform accepted nothing and released the rider", which is the one
+interpretation this column must never produce.
+
+Tests: five new — three in `cash-review.test.ts` (the partial credit and its audit row, the four refusals with the reason
+list, the full amount stated explicitly needing no reason) and two in `rider-cash.test.ts` (the two numbers on the read,
+and a claim nobody accepted still reporting `null`).
+
+*Open:* `§7`'s partial and disputed paths — "I was robbed", "I have an emergency", "I disagree" — are still screens, and
+they are the only route by which a claim could legitimately exceed or undercut the balance.
