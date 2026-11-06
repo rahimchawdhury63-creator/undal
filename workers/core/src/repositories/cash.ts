@@ -32,10 +32,14 @@ export interface SettlementRow {
   readonly trxId: string | null;
   readonly status: string;
   readonly createdAt: string;
+  /** Why a rejection was made, in the register's vocabulary. Null on anything not rejected. */
+  readonly rejectionReason: string | null;
+  /** The reviewer's own sentence, which the rider's screen shows beneath the code. */
+  readonly rejectionNote: string | null;
 }
 
 const SETTLEMENT_COLUMNS =
-  "`id`, `rider_id`, `amount_paisa`, `method`, `trx_id`, `status`, `created_at`";
+  "`id`, `rider_id`, `amount_paisa`, `method`, `trx_id`, `status`, `created_at`, `rejection_reason`, `rejection_note`";
 
 /** One row, as the driver returns it. */
 function rowOf(raw: Record<string, unknown>): SettlementRow {
@@ -47,6 +51,8 @@ function rowOf(raw: Record<string, unknown>): SettlementRow {
     trxId: typeof raw["trx_id"] === "string" ? raw["trx_id"] : null,
     status: String(raw["status"] ?? ""),
     createdAt: String(raw["created_at"] ?? ""),
+    rejectionReason: typeof raw["rejection_reason"] === "string" ? raw["rejection_reason"] : null,
+    rejectionNote: typeof raw["rejection_note"] === "string" ? raw["rejection_note"] : null,
   };
 }
 
@@ -230,6 +236,30 @@ export async function creditDeposit(db: Db, riderId: Uint8Array, amountPaisa: nu
   const result = await db.execute(
     "UPDATE `rider_cash_balances` SET `deposited_paisa` = `deposited_paisa` + ?, `updated_at` = ? WHERE `rider_id` = ?",
     [amountPaisa, sqlDatetime(new Date(nowMs)), riderId],
+  );
+  return result.affectedRows > 0;
+}
+
+/**
+ * Record a refusal: the one statement a rejection needs.
+ *
+ * Unlike approval this touches no balance and posts no entry — a refusal moves no money, which is the whole difference
+ * between the two decisions and the reason this route needs no compensation path. It rewrites the same `PENDING` guard,
+ * so a reviewer who approves while another rejects gets one answer and one audit row rather than two verdicts in the
+ * table.
+ */
+export async function rejectSettlement(
+  db: Db,
+  id: Uint8Array,
+  confirmedBy: Uint8Array,
+  reason: string,
+  note: string | null,
+  nowMs: number,
+): Promise<boolean> {
+  const result = await db.execute(
+    "UPDATE `rider_cash_settlements` SET `status` = 'REJECTED', `confirmed_by` = ?, `confirmed_at` = ?, " +
+      "`rejection_reason` = ?, `rejection_note` = ? WHERE `id` = ? AND `status` = 'PENDING'",
+    [confirmedBy, sqlDatetime(new Date(nowMs)), reason, note, id],
   );
   return result.affectedRows > 0;
 }

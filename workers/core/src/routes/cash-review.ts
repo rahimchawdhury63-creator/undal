@@ -5,12 +5,14 @@
 
 import * as audit from "../audit/write.ts";
 import { reasonAllowed, reasonsFor } from "../audit/reasons.ts";
+import { auditReasonFor, isRejectionReason, REJECTION_REASONS, refusalNeedsNote } from "../domain/rider/cash.ts";
 import { toHexId } from "../lib/ids.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
 import { cashOutstandingPaisa, setShiftState, shiftStateOf } from "../repositories/riders.ts";
-import { claimSettlement, creditDeposit, releaseClaim, settlementById } from "../repositories/cash.ts";
+import type { RejectionReason } from "../domain/rider/cash.ts";
+import { claimSettlement, creditDeposit, rejectSettlement, releaseClaim, settlementById } from "../repositories/cash.ts";
 import { PLATFORM_ACCOUNTS, riderCashAccount } from "../domain/ledger/accounts.ts";
 import { postEntry } from "../domain/ledger/post-entry.ts";
 
@@ -36,6 +38,18 @@ import { postEntry } from "../domain/ledger/post-entry.ts";
  * a failure leaves behind: the claim is taken first (so a retry cannot double-post), then the deposit is credited, then
  * the ledger entry is posted. If the ledger fails, the deposit is credited back and the claim released, and the reviewer
  * gets `500` and a settlement that is still pending — which is the only failure shape a reviewer can safely retry.
+ *
+ * **A rejection is the cheaper decision and the one that has to explain itself.** No money moves, no balance changes, no
+ * ledger entry: one `UPDATE ... WHERE status = 'PENDING'` and one audit row. What it must carry is a reason, because
+ * `25 §6.2` requires one from a controlled list and requires the rider to *see* it — and the rider cannot read the audit
+ * log. The reason is therefore stored on the settlement itself (migration `020`), checked against `§6.2`'s nine codes,
+ * and returned by `GET /v1/rider/cash` under the rejected row. A refusal the rider cannot read is indistinguishable from
+ * the platform ignoring them.
+ *
+ * Two vocabularies meet here and neither is bent to fit the other. The settlement carries the *rider's* word — one of the
+ * nine `§6.2` codes, because that string is what the blocking screen translates and pairs with a correction path — and
+ * the audit row carries the nearest *register* code (`CASH_COUNTED_SHORT` or `SETTLEMENT_DISPUTED`), because the audit
+ * register is a closed list shared with every other action and cannot grow a settlement-shaped corner.
  *
  * **A clean approval has no reason code, and that is not an oversight.** The register in `audit/reasons.ts` holds six
  * operational reasons plus `CASH_NOT_HANDED_OVER` and `CASH_COUNTED_SHORT` for this permission key — all of them describe
@@ -213,7 +227,137 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
   );
 }
 
-/** The finance routes (`08 §8`, D143): one decision, one settlement. */
+/** A rejection's body: one of `25 §6.2`'s nine codes, and the reviewer's sentence when the code needs it. */
+interface Refusal {
+  readonly reason: RejectionReason;
+  readonly note: string | null;
+}
+
+/**
+ * Parse a rejection's body, which is not optional in the way an approval's is.
+ *
+ * Three refusals of the refusal: no `reason` at all (the rider would get a wall with no explanation), a code that is not
+ * one of `§6.2`'s nine (the rider's screen has no translation and no instruction for it), and `OTHER` without a note (the
+ * reviewer picked the escape hatch and left the other side of it blank). A note longer than 280 characters is refused
+ * rather than truncated, because a silently shortened explanation is worse than a visible one.
+ */
+function parseRefusal(body: unknown): Refusal | { readonly code: "VALIDATION_REQUIRED"; readonly details: Record<string, unknown> } {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return { code: "VALIDATION_REQUIRED", details: { fields: ["reason"], allowed: [...REJECTION_REASONS] } };
+  }
+  const raw = body as Record<string, unknown>;
+  const reason = raw["reason"];
+  const note = raw["note"] ?? null;
+  if (!isRejectionReason(reason)) {
+    return { code: "VALIDATION_REQUIRED", details: { fields: ["reason"], allowed: [...REJECTION_REASONS] } };
+  }
+  if (note !== null && (typeof note !== "string" || note.trim().length > 280)) {
+    return { code: "VALIDATION_REQUIRED", details: { fields: ["note"] } };
+  }
+  const trimmed = note === null ? null : (note as string).trim();
+  if (refusalNeedsNote(reason) && (trimmed === null || trimmed.length === 0)) {
+    return { code: "VALIDATION_REQUIRED", details: { fields: ["note"] } };
+  }
+  return { reason, note: trimmed };
+}
+
+/**
+ * Reject a settlement: `POST /v1/finance/cash/settlements/{id}/reject` (D144).
+ *
+ * The mirror of approval with three deliberate asymmetries. It moves no money, so there is nothing to unwind and no
+ * ledger entry; it *requires* a reason, because `25 §6.2` makes the reason the rider's correction path and a refusal
+ * without one is a dead end; and it does not need a step-up code, because refusing a claim is not the act of releasing
+ * somebody against cash the platform has not seen. The rider stays `CASH_LOCKED` — the block is the platform's only
+ * collection mechanism and a rejection is the platform saying "not this evidence", not "never mind".
+ */
+async function refuseSettlement(ctx: Ctx, rawId: string, body: unknown): Promise<Response> {
+  if (ctx.principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+
+  const id = idBytes(rawId);
+  if (id === null) {
+    return failureResponse({ code: "VALIDATION_ID_MALFORMED", details: { field: "id" } }, ctx.locale, ctx.requestId);
+  }
+
+  const refusal = parseRefusal(body);
+  if ("code" in refusal) {
+    return failureResponse({ code: refusal.code, details: refusal.details }, ctx.locale, ctx.requestId);
+  }
+
+  const row = await settlementById(ctx.db, id);
+  if (row === null) {
+    return failureResponse({ code: "MONEY_PAYOUT_NOT_FOUND", details: { payout_id: rawId } }, ctx.locale, ctx.requestId);
+  }
+  if (row.status !== "PENDING") {
+    return failureResponse(
+      { code: "CASH_ALREADY_SETTLED", details: { settled_at: row.confirmedAt ?? row.createdAt } },
+      ctx.locale,
+      ctx.requestId,
+    );
+  }
+
+  const nowMs = Date.now();
+  let adminBytes: Uint8Array;
+  try {
+    adminBytes = uuidBytes(ctx.principal.userId);
+  } catch {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_an_admin" } }, ctx.locale, ctx.requestId);
+  }
+
+  if (!(await rejectSettlement(ctx.db, id, adminBytes, refusal.reason, refusal.note, nowMs))) {
+    const latest = await settlementById(ctx.db, id);
+    return failureResponse(
+      { code: "CASH_ALREADY_SETTLED", details: { settled_at: latest?.confirmedAt ?? row.createdAt } },
+      ctx.locale,
+      ctx.requestId,
+    );
+  }
+
+  const outstanding = await cashOutstandingPaisa(ctx.db, uuidBytes(row.riderId));
+  await audit.appendAudit(
+    ctx.db,
+    {
+      actorId: ctx.principal.userId,
+      actorType: "ADMIN",
+      actorRole: ctx.principal.role ?? null,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      requestId: ctx.requestId,
+      action: "finance.cash.reject_settlement",
+      resourceType: "RIDER_CASH_SETTLEMENT",
+      resourceId: toHexId(id),
+      subjectId: row.riderId,
+      before: { status: "PENDING", amountPaisa: row.amountPaisa, trxId: row.trxId, outstandingPaisa: outstanding },
+      after: { status: "REJECTED", rejectionReason: refusal.reason, note: refusal.note, outstandingPaisa: outstanding },
+      // The register's word, not the rider's: the audit register is shared with every other action (see the module note).
+      reason: auditReasonFor(refusal.reason),
+      severity: "WARNING",
+    },
+    nowMs,
+  );
+
+  return successResponse(
+    {
+      settlement: {
+        id: toHexId(id),
+        status: "REJECTED",
+        method: row.method,
+        amountPaisa: row.amountPaisa,
+        trxId: row.trxId,
+        submittedAt: row.createdAt,
+        rejectedAt: new Date(nowMs).toISOString(),
+        rejectionReason: refusal.reason,
+        rejectionNote: refusal.note,
+      },
+      outstandingPaisa: outstanding,
+      // Stated rather than implied: a rejection does not open the door, and the reviewer should see that it did not.
+      released: false,
+    },
+    ctx.locale,
+    ctx.requestId,
+  );
+}
+
+/** The finance routes (`08 §8`, D143–D144): two decisions, one settlement. */
 export const CASH_REVIEW_ROUTES: readonly RouteDefinition[] = [
   {
     method: "POST",
@@ -223,5 +367,14 @@ export const CASH_REVIEW_ROUTES: readonly RouteDefinition[] = [
     group: "ADMIN_WRITE",
     maxBodyBytes: 1_024,
     run: async (ctx, input) => approveSettlement(ctx, input.params["id"] ?? "", input.body),
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/cash/settlements/{id}/reject",
+    permission: "finance.cash.reject_settlement",
+    write: true,
+    group: "ADMIN_WRITE",
+    maxBodyBytes: 1_024,
+    run: async (ctx, input) => refuseSettlement(ctx, input.params["id"] ?? "", input.body),
   },
 ];

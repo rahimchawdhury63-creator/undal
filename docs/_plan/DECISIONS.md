@@ -3418,3 +3418,46 @@ state write), the reason register's four answers, and an id judged before any qu
 
 *Open:* reject, escalate, and approve-a-different-amount. The reviewer can now say yes; every other answer still has no
 route, and `§6.2`'s rejection vocabulary remains unused until one does.
+
+## D144 — Refusing a settlement, and the two vocabularies that meet there
+
+D143 gave a reviewer one button. A review with only "yes" is not a review: `25 §6.1` names four decisions and the second
+most common is refusal, which until now had no route, no stored reason and no way for the rider to learn what was wrong
+with their evidence. `POST /v1/finance/cash/settlements/{id}/reject` is that.
+
+**A refusal is one statement and it is the cheap decision.** No ledger entry, no balance change, no release: `UPDATE ...
+SET status = 'REJECTED' ... WHERE status = 'PENDING'` and one audit row. That asymmetry with D143 is the point — money
+moves only on approval, so only approval needs a compensation path, and a reviewer who refuses cannot put the books in a
+state that needs unwinding.
+
+**The reason is stored on the settlement, because the person it is for cannot read the audit log.** `§6.2` requires the
+rider to see the specific reason on the blocking screen, and the audit log is an admin surface. Migration `020` adds
+`rejection_reason VARCHAR(32)` and `rejection_note VARCHAR(280)`, both nullable — an approval has neither — and
+`GET /v1/rider/cash` returns them under the rejected row. A refusal the rider cannot read is indistinguishable from the
+platform ignoring them, which is the exact failure D142 spent a rung removing from the other direction.
+
+**Two vocabularies meet in this route and neither is bent to fit the other.** `§6.2`'s nine codes
+(`TRXID_NOT_FOUND` … `OTHER`) are the rider's vocabulary: the blocking screen translates them into Bangla and pairs each
+with a correction path. The audit register is the platform's: a closed list shared with every other action, holding two
+settlement words that describe the *reviewer's* situation. Storing the register's word on the settlement would give the
+rider "settlement disputed" where they need "retake the selfie"; adding nine codes to the register would put
+settlement-specific nouns in a list twenty other actions match against. So the settlement carries the precise word and
+the audit row carries the nearest register code — `CASH_COUNTED_SHORT` for `AMOUNT_MISMATCH`, `SETTLEMENT_DISPUTED`
+otherwise — through one function, `auditReasonFor`, rather than a reviewer's memory.
+
+**`OTHER` without a sentence is refused.** It is the one code that explains nothing, so the route requires a note beside
+it; a note longer than 280 characters is refused rather than truncated, because a silently shortened explanation is worse
+than a visible one. The code list is closed in the domain (`REJECTION_REASONS`), so the refusal answer can hand the app
+the exact list to render.
+
+**No step-up, and that is deliberate rather than an omission.** Refusing a claim neither releases a rider nor moves money;
+`finance.cash.reject_settlement` is a HIGH-risk key and the seventeen other HIGH keys behave the same way. Step-up guards
+the moment the platform gives something away, and this is the moment it declines to.
+
+Tests: six more in `test/cash-review.test.ts` (thirteen there now) and two in `test/rider-cash.test.ts` — the refusal that
+posts nothing and keeps the block, the mandatory reason with the nine-code list in the error details, an outsider word
+(`CASH_NOT_HANDED_OVER`) refused, `OTHER` bare and `OTHER` explained, `AMOUNT_MISMATCH` mapping to the register's count,
+the already-decided and lost-race conflicts, and the rider's read surfacing both the code and the sentence.
+
+*Open:* escalate, and approve-a-different-amount. `§6.2` also says `PAYMENT_NOT_RECEIVED` should open a support call
+rather than sit as a silent refusal; the code is storable today, and the call is not.

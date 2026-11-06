@@ -249,3 +249,51 @@ export function checkClaim(
   const nameMatches = reference === null ? null : nameSimilarity(reference, draft.accountName) >= NAME_MATCH_THRESHOLD;
   return { numberMatches, nameMatches };
 }
+
+/**
+ * The nine reasons a reviewer may refuse a settlement, in `25 §6.2`'s order (D144).
+ *
+ * A closed list rather than free text, because this string is not a note for a file: the rider's blocking screen
+ * translates it into Bangla, renders the specific instruction that goes with it, and offers the correction path that
+ * makes the refusal survivable. A reviewer typing prose would be inventing a translation at 1 am.
+ *
+ * `OTHER` is the escape hatch and therefore the one entry that is incomplete on its own — see `parseRefusal`, which
+ * requires the reviewer's sentence beside it. A code the rider cannot act on is a wall with a label.
+ */
+export const REJECTION_REASONS = [
+  "TRXID_NOT_FOUND",
+  "TRXID_ALREADY_USED",
+  "AMOUNT_MISMATCH",
+  "SCREENSHOT_UNREADABLE",
+  "SCREENSHOT_MISMATCH",
+  "SELFIE_UNCLEAR",
+  "NUMBER_MISMATCH",
+  "PAYMENT_NOT_RECEIVED",
+  "OTHER",
+] as const;
+
+/** One of the nine. */
+export type RejectionReason = (typeof REJECTION_REASONS)[number];
+
+/** Whether a string is one of the nine, for a body that arrives as `unknown`. */
+export function isRejectionReason(value: unknown): value is RejectionReason {
+  return typeof value === "string" && (REJECTION_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * The audit register's word for the same decision.
+ *
+ * Two vocabularies meet in this route: the settlement's nine codes are what the *rider* reads, and the audit register's
+ * codes are what the *platform* groups by. They are not the same list, and forcing one to be the other would either
+ * narrow the rider's screen to two reasons or put nine settlement words into a register every other action shares. So the
+ * audit row carries the nearest register code — `CASH_COUNTED_SHORT` when the money is the problem, `SETTLEMENT_DISPUTED`
+ * otherwise — and the settlement row carries the precise one the rider is shown.
+ */
+export function auditReasonFor(reason: RejectionReason): string {
+  return reason === "AMOUNT_MISMATCH" ? "CASH_COUNTED_SHORT" : "SETTLEMENT_DISPUTED";
+}
+
+/** `OTHER` alone tells a rider nothing, so it is the one code that must arrive with a sentence. */
+export function refusalNeedsNote(reason: RejectionReason): boolean {
+  return reason === "OTHER";
+}

@@ -306,8 +306,16 @@ Every decision is audited with the reviewer, the evidence they saw, and the reas
 > carries the ledger entry's id. A clean approval cites **no** reason code, because the register has none for "the money
 > arrived as claimed"; a reviewer who is approving despite a discrepancy may cite `CASH_COUNTED_SHORT` or
 > `CASH_NOT_HANDED_OVER`, and anything outside the register is refused before a row is read. **Reject, escalate and
-> approve-a-different-amount are still screens with no route behind them**, and `§6.2`'s reason vocabulary therefore has
-> no consumer yet.
+> approve-a-different-amount are still screens with no route behind them.**
+>
+> **Reject is built, and its reason has a reader (D144).** `POST /v1/finance/cash/settlements/{id}/reject` requires one
+> of the nine codes above, stores it on the settlement (`020` adds `rejection_reason` and `rejection_note`), and
+> `GET /v1/rider/cash` returns both under the rejected row — because the reason exists for a rider who cannot read the
+> audit log. `OTHER` must arrive with a sentence: the one code that explains nothing is the one that cannot be sent
+> bare. The refusal posts no ledger entry, credits no deposit and leaves the rider `CASH_LOCKED`, because "not this
+> evidence" is not "never mind". The audit row records the *register's* nearest word instead — `CASH_COUNTED_SHORT` for
+> `AMOUNT_MISMATCH`, `SETTLEMENT_DISPUTED` otherwise — so the audit list groups on one closed vocabulary rather than
+> nine that only this route uses.
 
 ### 6.2 Rejection reasons
 
@@ -317,6 +325,12 @@ Every decision is audited with the reviewer, the evidence they saw, and the reas
 Each carries a bilingual explanation and a specific instruction. `PAYMENT_NOT_RECEIVED` triggers a
 support call rather than a silent rejection, because the most likely explanation is a delay at
 bKash rather than dishonesty.
+
+> **Why these nine are not the audit register's codes (D144).** The register in `audit/reasons.ts` holds two words for
+> settlements — `CASH_COUNTED_SHORT` and `SETTLEMENT_DISPUTED` — and both describe the *reviewer's* situation rather than
+> the rider's. A rider refused for `SELFIE_UNCLEAR` needs to be told to retake a photo; "settlement disputed" tells them
+> nothing they can act on. So the settlement row carries the borrower's word and the audit row carries the platform's,
+> and the mapping between them lives in one function (`auditReasonFor`) rather than in a reviewer's memory.
 
 ---
 

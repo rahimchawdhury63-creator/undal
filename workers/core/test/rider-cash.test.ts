@@ -250,6 +250,34 @@ describe("the two-hour rule (D142)", () => {
   });
 });
 
+describe("the refusal the rider can read (D144)", () => {
+  test("a rejected claim reaches the blocking screen with its reason and its sentence", async () => {
+    const db = dbFor({
+      outstanding: 214_000,
+      latest: settlementRow({
+        status: "REJECTED",
+        rejection_reason: "SCREENSHOT_MISMATCH",
+        rejection_note: "the screenshot shows a different transaction",
+      }),
+    });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    const parsed = (await response.json()) as {
+      data: { locked: boolean; settlement: { status: string; rejectionReason: string; rejectionNote: string } };
+    };
+    assert.equal(parsed.data.locked, true, "a refusal is the platform saying \"not this evidence\", not \"never mind\"");
+    assert.equal(parsed.data.settlement.rejectionReason, "SCREENSHOT_MISMATCH");
+    assert.equal(parsed.data.settlement.rejectionNote, "the screenshot shows a different transaction");
+  });
+
+  test("an approval carries no refusal, and the fields are null rather than empty strings", async () => {
+    const db = dbFor({ outstanding: 0, latest: settlementRow({ status: "CONFIRMED" }) });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    const parsed = (await response.json()) as { data: { settlement: { rejectionReason: unknown; rejectionNote: unknown } } };
+    assert.equal(parsed.data.settlement.rejectionReason, null);
+    assert.equal(parsed.data.settlement.rejectionNote, null);
+  });
+});
+
 describe("the two comparisons a reviewer sees (D141)", () => {
   test("a number matches across the spellings a rider types", () => {
     assert.equal(sameNumber("+8801812345678", "01812345678"), true);

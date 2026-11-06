@@ -2500,6 +2500,14 @@
         {
           "name": "name_matches",
           "type": "TINYINT(1)"
+        },
+        {
+          "name": "rejection_reason",
+          "type": "VARCHAR(32)"
+        },
+        {
+          "name": "rejection_note",
+          "type": "VARCHAR(280)"
         }
       ],
       "generated": [],

@@ -32,6 +32,7 @@ const bytes = (hex: string): Uint8Array => {
 };
 
 const PATH = "/v1/finance/cash/settlements/{id}/approve";
+const REJECT_PATH = "/v1/finance/cash/settlements/{id}/reject";
 
 const PRINCIPAL: Principal = {
   userId: ADMIN_HEX,
@@ -63,6 +64,8 @@ interface Options {
   readonly afterRace?: Record<string, unknown> | null;
   /** Whether the status transition reports that it took the claim. */
   readonly claimed?: boolean;
+  /** Whether the refusal's single update reports that it took the claim. */
+  readonly rejected?: boolean;
   /** Whether the rider has a balance row to credit. */
   readonly credited?: boolean;
   /** The outstanding balance the rider is left with, after the deposit. */
@@ -79,6 +82,7 @@ function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
   return stubDb([
     { match: /FROM `rider_cash_settlements` WHERE `id`/u, rows: settlement === null ? [] : [settlement] },
     { match: /UPDATE `rider_cash_settlements` SET `status` = 'CONFIRMED'/u, affectedRows: options.claimed === false ? 0 : 1 },
+    { match: /UPDATE `rider_cash_settlements` SET `status` = 'REJECTED'/u, affectedRows: options.rejected === false ? 0 : 1 },
     { match: /UPDATE `rider_cash_settlements` SET `status` = 'PENDING'/u, affectedRows: 1 },
     { match: /UPDATE `rider_cash_balances`/u, affectedRows: options.credited === false ? 0 : 1 },
     { match: /outstanding_paisa` FROM `rider_cash_balances`/u, rows: [{ outstanding_paisa: options.remaining ?? 0 }] },
@@ -114,14 +118,18 @@ function ctxFor(db: ReturnType<typeof stubDb>, path: string): Ctx {
   } as Ctx;
 }
 
-const route = (): (typeof CASH_REVIEW_ROUTES)[number] => {
-  const found = CASH_REVIEW_ROUTES.find((candidate) => candidate.path === PATH);
-  if (found === undefined) throw new Error(`no route ${PATH}`);
+const route = (path: string = PATH): (typeof CASH_REVIEW_ROUTES)[number] => {
+  const found = CASH_REVIEW_ROUTES.find((candidate) => candidate.path === path);
+  if (found === undefined) throw new Error(`no route ${path}`);
   return found;
 };
 
-async function run(db: ReturnType<typeof stubDb>, body: unknown = null): Promise<{ status: number; body: Record<string, unknown> }> {
-  const response = await route().run(ctxFor(db, "/v1/finance/cash/settlements/x/approve"), {
+async function run(
+  db: ReturnType<typeof stubDb>,
+  body: unknown = null,
+  path: string = PATH,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await route(path).run(ctxFor(db, "/v1/finance/cash/settlements/x/approve"), {
     params: { id: SETTLEMENT_HEX },
     body,
     reason: null,
@@ -247,5 +255,97 @@ describe("approving a settlement (D143)", () => {
     const missing = await run(dbFor({ settlement: null }));
     assert.equal(missing.status, 404);
     assert.equal((missing.body["error"] as Record<string, unknown>)["code"], "MONEY_PAYOUT_NOT_FOUND");
+  });
+});
+
+describe("refusing a settlement (D144)", () => {
+  test("a refusal moves no money, keeps the block on, and stores the reason the rider must see", async () => {
+    const db = dbFor();
+    const answer = await run(db, { reason: "SCREENSHOT_MISMATCH", note: "screenshot shows a different TrxID" }, REJECT_PATH);
+    assert.equal(answer.status, 200);
+    const data = answer.body["data"] as Record<string, unknown>;
+    assert.equal(data["released"], false);
+    assert.equal((data["settlement"] as Record<string, unknown>)["rejectionReason"], "SCREENSHOT_MISMATCH");
+
+    const written = db.calls.find((call) => call.sql.includes("SET `status` = 'REJECTED'"));
+    assert.ok(written !== undefined);
+    assert.deepEqual(written.params.slice(2, 4), ["SCREENSHOT_MISMATCH", "screenshot shows a different TrxID"]);
+
+    const sql = sqls(db);
+    assert.equal(sql.some((statement) => statement.includes("ledger")), false, "a refusal posts nothing");
+    assert.equal(sql.some((statement) => statement.includes("UPDATE `rider_cash_balances`")), false);
+    assert.equal(sql.some((statement) => statement.includes("UPDATE `riders` SET `shift_state`")), false);
+
+    const auditRow = db.calls.find((call) => call.sql.includes("INSERT INTO `audit_log`"));
+    assert.equal(auditRow?.params[9], "finance.cash.reject_settlement");
+    assert.equal(auditRow?.params[15], "SETTLEMENT_DISPUTED", "the register's word, not the rider's");
+    assert.equal(auditRow?.params[16], "WARNING", "a refusal is something a human will be asked about later");
+  });
+
+  test("the reason is mandatory and is one of the nine the rider's screen can explain", async () => {
+    const none = await run(dbFor(), {}, REJECT_PATH);
+    assert.equal(none.status, 422);
+    assert.deepEqual((none.body["error"] as Record<string, unknown>)["details"], {
+      fields: ["reason"],
+      allowed: [
+        "TRXID_NOT_FOUND",
+        "TRXID_ALREADY_USED",
+        "AMOUNT_MISMATCH",
+        "SCREENSHOT_UNREADABLE",
+        "SCREENSHOT_MISMATCH",
+        "SELFIE_UNCLEAR",
+        "NUMBER_MISMATCH",
+        "PAYMENT_NOT_RECEIVED",
+        "OTHER",
+      ],
+    });
+
+    const outsider = await run(dbFor(), { reason: "CASH_NOT_HANDED_OVER" }, REJECT_PATH);
+    assert.equal(outsider.status, 422, "the audit register's words are not what a rider reads");
+
+    const wrongType = await run(dbFor(), { reason: 42 }, REJECT_PATH);
+    assert.equal(wrongType.status, 422);
+
+    const longNote = await run(dbFor(), { reason: "TRXID_NOT_FOUND", note: "x".repeat(281) }, REJECT_PATH);
+    assert.equal(longNote.status, 422);
+  });
+
+  test("OTHER is the escape hatch, so it must carry the sentence that makes it one", async () => {
+    const bare = await run(dbFor(), { reason: "OTHER" }, REJECT_PATH);
+    assert.equal(bare.status, 422);
+    assert.deepEqual((bare.body["error"] as Record<string, unknown>)["details"], { fields: ["note"] });
+
+    const explained = dbFor();
+    const answer = await run(explained, { reason: "OTHER", note: "paid to the wrong bKash number" }, REJECT_PATH);
+    assert.equal(answer.status, 200);
+    const auditRow = explained.calls.find((call) => call.sql.includes("INSERT INTO `audit_log`"));
+    assert.equal(auditRow?.params[15], "SETTLEMENT_DISPUTED");
+    const after = JSON.parse(String(auditRow?.params[14])) as Record<string, unknown>;
+    assert.equal(after["note"], "paid to the wrong bKash number");
+  });
+
+  test("an amount mismatch is a register's count, not a dispute", async () => {
+    const db = dbFor();
+    await run(db, { reason: "AMOUNT_MISMATCH" }, REJECT_PATH);
+    const auditRow = db.calls.find((call) => call.sql.includes("INSERT INTO `audit_log`"));
+    assert.equal(auditRow?.params[15], "CASH_COUNTED_SHORT");
+  });
+
+  test("a settled or vanished claim cannot be refused, and losing the race is the same answer", async () => {
+    const decided = await run(dbFor({ settlement: settlementRow({ status: "CONFIRMED" }) }), { reason: "TRXID_ALREADY_USED" }, REJECT_PATH);
+    assert.equal(decided.status, 409);
+    assert.equal((decided.body["error"] as Record<string, unknown>)["code"], "CASH_ALREADY_SETTLED");
+
+    const missing = await run(dbFor({ settlement: null }), { reason: "TRXID_ALREADY_USED" }, REJECT_PATH);
+    assert.equal(missing.status, 404);
+
+    const raced = dbFor({ rejected: false, afterRace: settlementRow({ status: "CONFIRMED" }) });
+    const racedAnswer = await run(raced, { reason: "TRXID_ALREADY_USED" }, REJECT_PATH);
+    assert.equal(racedAnswer.status, 409);
+    assert.equal(
+      sqls(raced).some((statement) => statement.includes("INSERT INTO `audit_log`")),
+      false,
+      "no verdict is recorded for a decision this reviewer did not make",
+    );
   });
 });

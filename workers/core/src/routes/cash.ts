@@ -94,6 +94,9 @@ function serialiseSettlement(row: SettlementRow): Record<string, unknown> {
     amountPaisa: row.amountPaisa,
     trxId: row.trxId,
     submittedAt: row.createdAt,
+    // A refusal the rider cannot read is indistinguishable from being ignored (D144): `25 §6.2` asks for the reason.
+    rejectionReason: row.rejectionReason,
+    rejectionNote: row.rejectionNote,
   };
 }
 
