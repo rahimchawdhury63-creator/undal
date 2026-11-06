@@ -36,6 +36,18 @@ export interface RealtimeClient {
     readonly audience?: { readonly vendorUserId?: string; readonly riderUserId?: string };
   }): Promise<Result<true>>;
   /**
+   * The live riders in a zone, for the wave writer (D121).
+   *
+   * The one question this Worker cannot answer for itself: D1 holds the position, its accuracy and the deadline it
+   * was accepted against, and dispatch's filter 4 is a comparison against exactly that deadline. Per zone rather
+   * than per rider — a wave of eight out of sixty connected riders would otherwise be sixty calls to answer one
+   * question (`D117`).
+   *
+   * Unlike `broadcast`, this result is *not* discarded: dispatch cannot plan a wave without it, and a routing that
+   * silently produced an empty candidate list would look like a zone with no riders.
+   */
+  candidates(input: { readonly zoneId: string }): Promise<Result<readonly LiveCandidate[]>>;
+  /**
    * Open a shift's live row in D1 (D108, D109).
    *
    * Every flush is judged against that row, and the first flush of a shift is refused without it. This is the
@@ -64,6 +76,21 @@ export interface RealtimeClient {
     readonly zoneId: string;
     readonly riderId: string;
   }): Promise<Result<{ online: boolean; lastSeenAt: string | null }>>;
+}
+
+/** One live rider, as realtime's `/internal/candidates` returns them (D117). */
+export interface LiveCandidate {
+  /** The token's `sub`. **Not** a `riders` row id — the assembly joins on this and emits the row id. */
+  readonly riderId: string;
+  readonly zoneId: string;
+  readonly vehicle: string;
+  readonly state: string;
+  readonly latE7: number;
+  readonly lonE7: number;
+  readonly accuracyM: number;
+  readonly batteryPct: number | null;
+  readonly updatedAtMs: number;
+  readonly staleAfterMs: number;
 }
 
 /** How long a Worker-to-Worker call may take before it is abandoned. */
@@ -119,6 +146,17 @@ export function createRealtimeClient(baseUrl: string, token: string): RealtimeCl
       const result = await call("/internal/erase", input);
       if (!result.ok) return result;
       return ok(result.value as { positions: number; current: number });
+    },
+    async candidates(input) {
+      const result = await call("/internal/candidates", input);
+      if (!result.ok) return result;
+      const body = result.value as { candidates?: unknown };
+      if (!Array.isArray(body.candidates)) {
+        // A 200 with no array is not "no riders in this zone": it is a stream that answered something else, and
+        // telling dispatch the zone is empty would be the lie this whole call exists to avoid.
+        return fail("SERVICE_DEGRADED", { details: { path: "/internal/candidates", reason: "no_candidate_list" } });
+      }
+      return ok(body.candidates as readonly LiveCandidate[]);
     },
     async presenceOf(input) {
       const result = await call("/internal/presence", input);

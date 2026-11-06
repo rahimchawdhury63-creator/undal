@@ -17,6 +17,7 @@
  */
 
 import type { Db } from "../db/client.ts";
+import { sqlDatetime } from "../db/time.ts";
 import { vehiclePolicy, DEFAULT_CASH_LIMIT_PAISA, type VehiclePolicy } from "../domain/order/dispatch-policy.ts";
 
 /** A rider in a zone who holds an open shift, with the limits the filters will judge them against. */
@@ -69,9 +70,15 @@ function shiftStateOf(raw: string): DispatchCandidate["shiftState"] | null {
   return null;
 }
 
-function hex(value: unknown): Uint8Array {
+function bytes(value: unknown): Uint8Array {
   if (value instanceof Uint8Array) return value;
   return Uint8Array.from(Buffer.from(String(value ?? ""), "hex"));
+}
+
+/** The hex form of a binary column, which is how callers key maps (`assembly`'s signals, for one). */
+function hex(value: unknown): string {
+  if (value instanceof Uint8Array) return Buffer.from(value).toString("hex");
+  return String(value ?? "").toLowerCase();
 }
 
 /**
@@ -89,8 +96,8 @@ export async function ridersInZone(db: Db, zoneId: string): Promise<readonly Dis
     if (shiftState === null) continue;
     const vehicle = String(row["vehicle"] ?? "");
     out.push({
-      riderId: hex(row["rider_id"]),
-      userId: hex(row["user_id"]),
+      riderId: bytes(row["rider_id"]),
+      userId: bytes(row["user_id"]),
       code: String(row["code"] ?? ""),
       status: String(row["status"] ?? ""),
       shiftState,
@@ -102,6 +109,112 @@ export async function ridersInZone(db: Db, zoneId: string): Promise<readonly Dis
       policy: vehiclePolicy(vehicle),
       cashLimitPaisa: DEFAULT_CASH_LIMIT_PAISA,
     });
+  }
+  return out;
+}
+
+/** One rider a wave asks: the row id an offer points at, and where they ranked. */
+export interface WaveOffer {
+  readonly id: Uint8Array;
+  readonly riderId: Uint8Array;
+  readonly rankInWave: number;
+  readonly score: number;
+  readonly payoutPaisa: number;
+}
+
+/** Everything a wave insert needs besides the offers themselves. */
+export interface WaveInsert {
+  readonly orderId: Uint8Array;
+  /** The cascade wave number, 1-based (`007_dispatch.sql`). */
+  readonly wave: number;
+  /** Links the offers to the trace that produced them, for the audit trail. */
+  readonly traceId: Uint8Array;
+  /** The instant the offers were written; also the base the TTL is measured from. */
+  readonly offeredAtMs: number;
+  /** `offeredAtMs + waveExpiryMs(wave)` — computed by the caller from `11 §7`'s schedule, not here. */
+  readonly expiresAtMs: number;
+  readonly offers: readonly WaveOffer[];
+}
+
+const OFFER_COLUMNS =
+  "(`id`, `order_id`, `rider_id`, `wave`, `rank_in_wave`, `score`, `trace_id`, `payout_paisa`, `offered_at`, `expires_at`)";
+
+/**
+ * Write one wave of offers, in one statement.
+ *
+ * One statement rather than a loop, because a wave is one act: eight offers written one at a time would let a wave
+ * be half-visible to a rider refreshing their list mid-write, and the readers (`GET /v1/rider/offers`) do not take a
+ * transaction. It is also the only way the TTL stays a single instant — eight separate `now`s would give wave 1
+ * eight different deadlines, and `11 §7`'s twenty-five seconds is a promise about the wave, not about each row.
+ *
+ * **Duplicates throw rather than collapse.** `uq_offers_order_rider_wave` would reject them anyway, but a wave that
+ * asked the same rider twice is a planner bug, and a `DatabaseError` a hundred lines away from the cause is not
+ * where that should be discovered.
+ *
+ * An empty wave writes nothing and returns 0: a wave with nobody in it is a legitimate outcome (the fallback ladder
+ * reached its end), and an `INSERT` with no tuples is a syntax error, not a no-op.
+ */
+export async function insertOfferWave(db: Db, insert: WaveInsert): Promise<number> {
+  if (insert.offers.length === 0) return 0;
+  const seen = new Set<string>();
+  for (const offer of insert.offers) {
+    const key = Buffer.from(offer.riderId).toString("hex");
+    if (seen.has(key)) {
+      throw new RangeError(`wave ${String(insert.wave)} asks rider ${key} twice`);
+    }
+    seen.add(key);
+  }
+  const offeredAt = sqlDatetime(new Date(insert.offeredAtMs));
+  const expiresAt = sqlDatetime(new Date(insert.expiresAtMs));
+  if (insert.expiresAtMs <= insert.offeredAtMs) {
+    // An offer that expires when it was written is a rider who has already lost, and the claim route would answer
+    // `OFFER_EXPIRED` to a tap that arrived instantly. Refusing here keeps that impossible rather than unlikely.
+    throw new RangeError("a wave must expire after it is offered");
+  }
+
+  const params: unknown[] = [];
+  for (const offer of insert.offers) {
+    params.push(
+      offer.id,
+      insert.orderId,
+      offer.riderId,
+      insert.wave,
+      offer.rankInWave,
+      offer.score,
+      insert.traceId,
+      offer.payoutPaisa,
+      offeredAt,
+      expiresAt,
+    );
+  }
+  const row = `(${new Array(10).fill("?").join(", ")})`;
+  const sql = `INSERT INTO \`order_offers\` ${OFFER_COLUMNS} VALUES ${insert.offers.map(() => row).join(", ")}`;
+  const result = await db.execute(sql, params);
+  return result.affectedRows;
+}
+
+/**
+ * The waves each rider was already asked in for this order and declined, keyed by rider id hex.
+ *
+ * Only `REJECTED` counts. An `EXPIRED` or `WITHDRAWN` offer is silence or a change of plan, and `11 §9.3` weighs it
+ * at half a refusal — but filter 12's sentence is "no re-offering after an explicit no", and a rider who never
+ * answered did not say no. The distinction is the difference between a zone that has gone quiet and a rider who has
+ * told the platform something.
+ */
+const SELECT_REJECTED_WAVES = `SELECT \`rider_id\`, \`wave\` FROM \`order_offers\`
+  WHERE \`order_id\` = ? AND \`response\` = 'REJECTED' ORDER BY \`wave\` ASC`;
+
+export async function rejectedWavesForOrder(
+  db: Db,
+  orderId: Uint8Array,
+): Promise<ReadonlyMap<string, readonly number[]>> {
+  const rows = await db.query<{ rider_id: unknown; wave: unknown }>(SELECT_REJECTED_WAVES, [orderId]);
+  const out = new Map<string, number[]>();
+  for (const row of rows) {
+    const key = hex(row.rider_id);
+    const waves = out.get(key) ?? [];
+    waves.push(Number(row.wave));
+    out.set(key, waves);
   }
   return out;
 }

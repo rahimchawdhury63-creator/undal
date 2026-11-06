@@ -23,12 +23,22 @@ import {
   relaxForFallback,
   vehiclePolicy,
 } from "../src/domain/order/dispatch-policy.ts";
-import { ridersInZone } from "../src/repositories/dispatch.ts";
+import {
+  insertOfferWave,
+  rejectedWavesForOrder,
+  ridersInZone,
+  type WaveOffer,
+} from "../src/repositories/dispatch.ts";
 import { stubDb } from "../src/db/client.ts";
 
 const ZONE_HEX = "0193f2a17c3e7890abcdef0123456703";
 const RIDER_HEX = "0193f2a17c3e7890abcdef0123456707";
 const USER_HEX = "0193f2a17c3e7890abcdef0123456701";
+const ORDER_HEX_2 = "0193f2a17c3e7890abcdef0123456705";
+
+function bytes(value: string): Uint8Array {
+  return Uint8Array.from(Buffer.from(value, "hex"));
+}
 
 function candidateRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -179,5 +189,134 @@ describe("reading a zone's candidates from TiDB (D118)", () => {
     const db = stubDb([{ match: /FROM `riders` r/u, rows: [] }]);
     assert.deepEqual(await ridersInZone(db, ZONE_HEX), []);
     assert.equal(db.calls.length, 1);
+  });
+});
+
+describe("writing a wave (D121)", () => {
+  const ORDER_HEX = "0193f2a17c3e7890abcdef0123456705";
+  const TRACE_HEX = "0193f2a17c3e7890abcdef0123456721";
+  const OTHER_RIDER_HEX = "0193f2a17c3e7890abcdef0123456711";
+
+  function offer(rider: string, rank: number, score = 0.75): WaveOffer {
+    return { id: bytes(rider), riderId: bytes(rider), rankInWave: rank, score, payoutPaisa: 8_400 };
+  }
+
+  test("eight offers are one statement with one instant", async () => {
+    const db = stubDb([{ match: /INSERT INTO `order_offers`/u, affectedRows: 8 }]);
+    const riders = Array.from({ length: 8 }, (_, i) =>
+      offer(`0193f2a17c3e7890abcdef01234567${(16 + i).toString(16).padStart(2, "0")}`, i + 1),
+    );
+    const written = await insertOfferWave(db, {
+      orderId: bytes(ORDER_HEX),
+      wave: 1,
+      traceId: bytes(TRACE_HEX),
+      offeredAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_025_000,
+      offers: riders,
+    });
+    assert.equal(written, 8);
+    assert.equal(db.calls.length, 1, "one statement, not eight");
+    const [insert] = db.calls;
+    assert.ok(insert !== undefined);
+    assert.equal(insert.params.length, 80, "ten bindings per row");
+    assert.match(insert.sql, /VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?\),/u);
+    // Every row carries the same offered_at and expires_at: the TTL is a promise about the wave.
+    const offeredAt = new Set(insert.params.filter((_, i) => i % 10 === 8));
+    const expiresAt = new Set(insert.params.filter((_, i) => i % 10 === 9));
+    assert.equal(offeredAt.size, 1, "one offered_at for the whole wave");
+    assert.equal(expiresAt.size, 1, "one expires_at for the whole wave");
+    assert.notEqual([...offeredAt][0], [...expiresAt][0]);
+    assert.equal(insert.params[3], 1, "the wave number is on every row");
+  });
+
+  test("rank and score travel with the rider they belong to", async () => {
+    const db = stubDb([{ match: /INSERT INTO `order_offers`/u, affectedRows: 2 }]);
+    await insertOfferWave(db, {
+      orderId: bytes(ORDER_HEX),
+      wave: 3,
+      traceId: bytes(TRACE_HEX),
+      offeredAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_020_000,
+      offers: [offer(RIDER_HEX, 1, 0.9), offer(OTHER_RIDER_HEX, 2, 0.8)],
+    });
+    const params = db.calls[0]?.params ?? [];
+    assert.deepEqual(params.slice(3, 6), [3, 1, 0.9]);
+    assert.deepEqual(params.slice(13, 16), [3, 2, 0.8]);
+  });
+
+  test("an empty wave writes nothing at all", async () => {
+    const db = stubDb([{ match: /INSERT INTO `order_offers`/u, affectedRows: 0 }]);
+    const written = await insertOfferWave(db, {
+      orderId: bytes(ORDER_HEX),
+      wave: 5,
+      traceId: bytes(TRACE_HEX),
+      offeredAtMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_020_000,
+      offers: [],
+    });
+    assert.equal(written, 0);
+    assert.equal(db.calls.length, 0, "no statement, not a malformed one");
+  });
+
+  test("asking the same rider twice in one wave is refused before the database sees it", async () => {
+    const db = stubDb([{ match: /INSERT INTO `order_offers`/u, affectedRows: 2 }]);
+    await assert.rejects(
+      insertOfferWave(db, {
+        orderId: bytes(ORDER_HEX),
+        wave: 1,
+        traceId: bytes(TRACE_HEX),
+        offeredAtMs: 1_700_000_000_000,
+        expiresAtMs: 1_700_000_025_000,
+        offers: [offer(RIDER_HEX, 1), offer(RIDER_HEX, 2)],
+      }),
+      RangeError,
+    );
+    assert.equal(db.calls.length, 0, "the unique index is the second line of defence, not the first");
+  });
+
+  test("an offer that expires when it was written is refused", async () => {
+    const db = stubDb([{ match: /INSERT INTO `order_offers`/u, affectedRows: 1 }]);
+    await assert.rejects(
+      insertOfferWave(db, {
+        orderId: bytes(ORDER_HEX),
+        wave: 1,
+        traceId: bytes(TRACE_HEX),
+        offeredAtMs: 1_700_000_000_000,
+        expiresAtMs: 1_700_000_000_000,
+        offers: [offer(RIDER_HEX, 1)],
+      }),
+      RangeError,
+    );
+    assert.equal(db.calls.length, 0);
+  });
+});
+
+describe("the rejections filter 12 needs (D121)", () => {
+  test("only explicit refusals count, and they are grouped by rider", async () => {
+    const db = stubDb([
+      {
+        match: /FROM `order_offers`\s+WHERE `order_id` = \? AND `response` = 'REJECTED'/u,
+        rows: [
+          { rider_id: bytes(RIDER_HEX), wave: 1 },
+          { rider_id: bytes(RIDER_HEX), wave: 3 },
+          { rider_id: bytes("0193F2A17C3E7890ABCDEF0123456711"), wave: 2 },
+        ],
+      },
+    ]);
+    const rejected = await rejectedWavesForOrder(db, bytes(ORDER_HEX_2));
+    assert.equal(db.calls.length, 1);
+    assert.match(db.calls[0]?.sql ?? "", /AND `response` = 'REJECTED'/u, "expiry and withdrawal are not refusals");
+    assert.match(db.calls[0]?.sql ?? "", /ORDER BY `wave` ASC/u);
+    assert.deepEqual([...(rejected.get(RIDER_HEX) ?? [])], [1, 3]);
+    assert.deepEqual(
+      [...(rejected.get("0193f2a17c3e7890abcdef0123456711") ?? [])],
+      [2],
+      "TiDB's hex is normalised to lower case so the assembly's lookups match",
+    );
+  });
+
+  test("an order nobody refused is an empty map, not an empty entry", async () => {
+    const db = stubDb([{ match: /FROM `order_offers`/u, rows: [] }]);
+    assert.equal((await rejectedWavesForOrder(db, bytes(ORDER_HEX_2))).size, 0);
   });
 });

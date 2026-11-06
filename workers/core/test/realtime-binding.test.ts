@@ -110,3 +110,51 @@ describe("realtime client", () => {
     assert.equal(result.ok, false);
   });
 });
+
+describe("the candidate feed (D121)", () => {
+  test("a zone's riders come back as a list, from the internal path", async () => {
+    const stub = stubFetch(async () =>
+      Response.json({
+        ok: true,
+        data: {
+          zoneId: "zone-1",
+          atMs: 1_700_000_000_000,
+          candidates: [
+            {
+              riderId: "rider-a",
+              zoneId: "zone-1",
+              vehicle: "MOTORBIKE",
+              state: "ONLINE",
+              latE7: 248_981_000,
+              lonE7: 918_698_000,
+              accuracyM: 8,
+              batteryPct: 71,
+              updatedAtMs: 1_699_999_996_000,
+              staleAfterMs: 1_700_000_026_000,
+            },
+          ],
+        },
+      }),
+    );
+    const result = await createRealtimeClient(BASE, TOKEN).candidates({ zoneId: "zone-1" });
+    assert.equal(result.ok, true);
+    assert.equal(result.ok ? result.value.length : -1, 1);
+    assert.equal(result.ok ? result.value[0]?.staleAfterMs : 0, 1_700_000_026_000);
+    assert.equal(stub.calls[0]?.url, `${BASE}/internal/candidates`);
+    assert.equal(JSON.parse(String(stub.calls[0]?.init.body)).zoneId, "zone-1");
+  });
+
+  test("a 200 with no list is a degraded dependency, not an empty zone", async () => {
+    stubFetch(async () => Response.json({ ok: true, data: { zoneId: "zone-1" } }));
+    const result = await createRealtimeClient(BASE, TOKEN).candidates({ zoneId: "zone-1" });
+    assert.equal(result.ok, false, "dispatch must not read this as \"nobody is online\"");
+    assert.equal(result.ok ? null : result.error.code, "SERVICE_DEGRADED");
+  });
+
+  test("unlike a broadcast, this failure is the caller's to act on", async () => {
+    stubFetch(async () => new Response("cold", { status: 503 }));
+    const result = await createRealtimeClient(BASE, TOKEN).candidates({ zoneId: "zone-1" });
+    assert.equal(result.ok, false);
+    assert.equal(result.ok ? null : result.error.code, "SERVICE_DEGRADED");
+  });
+});

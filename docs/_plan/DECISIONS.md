@@ -2396,3 +2396,45 @@ beside a bad one.
 *Open:* the writer — read the zone's TiDB candidates, call the feed, assemble, run `FILTERS`, `planWaves`, insert
 `order_offers` for wave 1, and ring the phones. That is the last rung of dispatch and it is now ordinary plumbing
 plus one alarm, because every decision it needs has been made in the nine rungs before it.
+
+## D121 — A wave is one statement, and one refusal is not another
+
+D120 produced the snapshots; this rung gives the writer its two database verbs and the client call that closes the
+loop to realtime. Small by comparison, and two of the decisions in it are the kind that get lost in a loop.
+
+**A wave is written in one statement.** Eight offers inserted one at a time would be eight opportunities for a rider
+refreshing their list to see a half-written wave, and `GET /v1/rider/offers` (D115) does not read inside a
+transaction. Worse, eight `now`s would give wave 1 eight different deadlines — and `11 §7`'s twenty-five seconds is a
+promise about the *wave*, which is why the insert takes `offeredAtMs` and `expiresAtMs` from the caller and repeats
+them on every row. An empty wave writes nothing and returns zero rather than attempting `INSERT … VALUES` with no
+tuples: the fallback ladder reaching its end is a legitimate outcome, not an error.
+
+**Two things are refused before the database sees them.** The same rider twice in one wave — the unique index would
+reject it, but a planner bug should surface at the planner, not as a `DatabaseError` a hundred lines downstream. And
+an offer whose expiry is not after its offer, because that is a rider who has lost before they were asked, and the
+claim route would answer `OFFER_EXPIRED` to an instantaneous tap.
+
+**Filter 12 counts refusals, not silence.** `rejectedWavesForOrder` reads only `response = 'REJECTED'`. An `EXPIRED`
+offer is silence and a `WITHDRAWN` one is a change of plan — `11 §9.3` weighs the expiry at half a refusal in the
+acceptance statistic, but the *re-offering* rule is a sentence about something the rider said. Treating silence as a
+no would quietly shrink the candidate pool every time a phone slept, which is the same class of error as the sweep
+in D116 counting nobody: a statistic and a refusal are different objects. Keys are lower-cased hex so the assembly's
+lookups match whatever case TiDB returns.
+
+**The candidate call does not degrade quietly.** `broadcast` discards its failure because a notification that fails
+is not a reason to fail an order; `candidates` returns it, because dispatch cannot plan without it. Specifically, a
+`200` whose envelope has no `candidates` array is `SERVICE_DEGRADED` and **not** an empty list: "nobody is online"
+and "the feed answered something else" look identical downstream, and only one of them means the wave should be
+abandoned as a zone with no riders. That is the same distinction D117 drew on the other side of the wire,
+deliberately made twice.
+
+Tests: three in `realtime-binding.test.ts` (the list unwrapped from the envelope; a listless 200 as degraded; a
+non-2xx as the caller's to handle) and seven in `dispatch-candidates.test.ts` (one statement for eight offers with
+matching statement text and eighty bindings, one instant across the wave, rank and score keeping their rider, an
+empty wave writing nothing, the duplicate rider refused with no statement issued, the already-expired offer refused,
+and the rejection read grouping by rider in lower-case hex while ignoring expiry).
+
+*Open:* the route that composes D117–D121 — order by code, its zone polygon, the vendor point, the feed, the
+assembly, `FILTERS`, `planWaves`, `insertOfferWave`, and the ring. Everything it needs now exists; what is left is
+the order of operations, the `dispatch_locks` guard that stops two coordinators planning the same order, and the
+audit row.

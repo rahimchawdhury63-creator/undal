@@ -136,6 +136,14 @@ rider who fails any one of them is not ranked at all.
 > with no polygon — because both are data errors, and a filter refusal would be a judgement about a rider nobody
 > could judge.
 
+> **A wave is one statement and one instant (D121).** `insertOfferWave` writes every offer of a wave in a single
+> `INSERT`, because a wave is one act: eight separate writes would let a rider refreshing mid-write see half of it,
+> and eight separate `now`s would give wave 1 eight different deadlines when `11 §7`'s twenty-five seconds is a
+> promise about the wave. The same instinct refuses two things before the database sees them — the same rider twice
+> in one wave, and an offer that expires when it was written. The reader that feeds filter 12 is
+> `rejectedWavesForOrder`: **only** `REJECTED` counts, because an expiry is silence and a withdrawal is a change of
+> plan, and filter 12's sentence is "no re-offering after an explicit no".
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep
