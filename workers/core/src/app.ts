@@ -27,6 +27,7 @@ import { AUTO_CANCEL_ROUTES } from "./routes/auto-cancel.ts";
 import { DISPATCH_LOG_ROUTES } from "./routes/dispatch-log.ts";
 import { COORDINATION_ROUTES } from "./routes/coordination.ts";
 import { SHIFT_ROUTES } from "./routes/shift.ts";
+import { DISPATCH_ROUTES } from "./routes/dispatch.ts";
 import { OFFER_ROUTES } from "./routes/offers.ts";
 
 /**
@@ -54,6 +55,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   ...COORDINATION_ROUTES,
   ...SHIFT_ROUTES,
   ...OFFER_ROUTES,
+  ...DISPATCH_ROUTES,
 ];
 
 /** A matched route plus the parameters its template captured. */

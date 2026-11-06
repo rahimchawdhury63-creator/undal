@@ -221,3 +221,77 @@ export async function rejectedWavesForOrder(
   }
   return out;
 }
+
+/** The order a dispatch decision is about, with everything the target needs. */
+export interface DispatchOrder {
+  readonly id: Uint8Array;
+  readonly code: string;
+  readonly state: string;
+  readonly zoneId: string;
+  /** The same zone as bytes, because `zones.id` is `BINARY(16)` and a hex string cannot be compared to it. */
+  readonly zoneIdBytes: Uint8Array;
+  readonly vendorId: string;
+  readonly totalPaisa: number;
+  readonly riderPayoutPaisa: number;
+  /** Where the food is, in E7 — the origin of every candidate's distance. */
+  readonly pickup: { readonly latE7: number; readonly lonE7: number };
+}
+
+const SELECT_DISPATCH_ORDER = `SELECT \`id\`, \`code\`, \`state\`, \`zone_id\`, \`vendor_id\`, \`total_paisa\`, \`rider_payout_paisa\`,
+    \`pickup_lat_e7\`, \`pickup_lon_e7\`
+  FROM \`orders\` WHERE \`code\` = ?`;
+
+/** The order, or `null` when no such code exists. */
+export async function orderForDispatch(db: Db, code: string): Promise<DispatchOrder | null> {
+  const row = await db.first<Record<string, unknown>>(SELECT_DISPATCH_ORDER, [code]);
+  if (row === null) return null;
+  return {
+    id: bytes(row["id"]),
+    code: String(row["code"] ?? ""),
+    state: String(row["state"] ?? ""),
+    zoneId: hex(row["zone_id"]),
+    zoneIdBytes: bytes(row["zone_id"]),
+    vendorId: hex(row["vendor_id"]),
+    totalPaisa: Number(row["total_paisa"] ?? 0),
+    riderPayoutPaisa: Number(row["rider_payout_paisa"] ?? 0),
+    pickup: { latE7: Number(row["pickup_lat_e7"] ?? 0), lonE7: Number(row["pickup_lon_e7"] ?? 0) },
+  };
+}
+
+/** A zone's stored polygon, unparsed: the caller validates it with `parseZoneRing` and decides what a bad one means. */
+export async function zonePolygon(db: Db, zoneId: Uint8Array): Promise<unknown> {
+  const row = await db.first<{ polygon: unknown }>("SELECT `polygon` FROM `zones` WHERE `id` = ?", [zoneId]);
+  return row === null ? null : row.polygon;
+}
+
+const SELECT_NOTIFIABLE = `SELECT DISTINCT d.\`user_id\` AS \`user_id\` FROM \`devices\` d
+  JOIN \`device_tokens\` t ON t.\`device_id\` = d.\`id\`
+  WHERE d.\`notifications_allowed\` = 1 AND t.\`valid\` = 1`;
+
+/**
+ * The users with at least one push-capable device (`11 §7` filter 14).
+ *
+ * Keyed by **user id**, because that is what `devices` holds and what the assembly looks up. Filter 14 exists
+ * because the alarm is how a rider learns about an offer at all: an offer written for a phone that cannot ring is
+ * twenty-five seconds spent telling nobody.
+ */
+export async function notifiableUsers(db: Db): Promise<ReadonlySet<string>> {
+  const rows = await db.query<{ user_id: unknown }>(SELECT_NOTIFIABLE, []);
+  return new Set(rows.map((row) => hex(row.user_id)));
+}
+
+const SELECT_SUSPENDED = `SELECT DISTINCT \`rider_id\` AS \`rider_id\` FROM \`rider_suspensions\`
+  WHERE \`starts_at\` <= ? AND (\`ends_at\` IS NULL OR \`ends_at\` > ?) AND \`lifted_at\` IS NULL`;
+
+/**
+ * Riders under an active suspension at an instant (`11 §7` filter 6), keyed by rider id hex.
+ *
+ * Three ways a suspension stops applying and all three are here: it has not started, it has ended, or an operator
+ * lifted it. A row missing any one of those makes a suspended rider dispatchable again, which is the kind of bug
+ * that arrives as a complaint rather than an alert.
+ */
+export async function suspendedRiderIds(db: Db, atMs: number): Promise<ReadonlySet<string>> {
+  const at = sqlDatetime(new Date(atMs));
+  const rows = await db.query<{ rider_id: unknown }>(SELECT_SUSPENDED, [at, at]);
+  return new Set(rows.map((row) => hex(row.rider_id)));
+}

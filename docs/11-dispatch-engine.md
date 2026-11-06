@@ -144,6 +144,14 @@ rider who fails any one of them is not ranked at all.
 > `rejectedWavesForOrder`: **only** `REJECTED` counts, because an expiry is silence and a withdrawal is a change of
 > plan, and filter 12's sentence is "no re-offering after an explicit no".
 
+> **The verdict is observable before the wave exists (D122).** `POST /internal/dispatch/eligibility {orderCode}`
+> reads the order, its zone's polygon, the live riders in that zone, and the signals outside both stores, then answers
+> with one row per rider: `{riderId, eligible, filter, reason}`, plus `unjudgeable` for the candidates the assembly
+> could not describe (a data error, not a verdict). It **writes nothing**, deliberately: ranking a wave needs §8's
+> acceptance model, and a route that invented a probability would produce waves nobody could explain. What it can do
+> honestly today is name the filter that refused each rider — the same vocabulary the rider's app uses — which is
+> what makes an empty wave a diagnosis instead of a mystery.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep

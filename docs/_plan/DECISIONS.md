@@ -2438,3 +2438,49 @@ and the rejection read grouping by rider in lower-case hex while ignoring expiry
 assembly, `FILTERS`, `planWaves`, `insertOfferWave`, and the ring. Everything it needs now exists; what is left is
 the order of operations, the `dispatch_locks` guard that stops two coordinators planning the same order, and the
 audit row.
+
+## D122 — Answer the question before you act on it
+
+Nine rungs built the pieces of a dispatch decision. Not one of them could tell an operator what the decision *was*:
+the planner is pure, the assembly is pure, the query and the feed each answer half a question, and the writer's store
+verbs write. So the first composition rung is deliberately **read-only** — `POST /internal/dispatch/eligibility
+{orderCode}` — and it answers with the filter verdict for every rider in the order's zone.
+
+**Why not plan the wave here.** Ranking needs `11 §8`'s acceptance model: eleven factors, weights, a probability per
+candidate. It is not built. A route that needed it would either invent a probability (waves nobody can explain, and
+a ranking that quietly decides who earns) or fall back to distance (a plausible-looking number with no document
+behind it). Both are worse than waiting, because both produce output that *looks* like dispatch and is not. The
+verdicts need no model at all: `FILTERS` are numbered rules over a snapshot, and they are already written.
+
+**The refusal is the deliverable.** `{filter: 4, reason: "POSITION_FRESH"}` per rider is what turns an empty wave
+from a mystery into a diagnosis. It is also the exact shape the rider's app will render — the number is stable, the
+name is localised, and neither is a message invented in a handler. `unjudgeable` is kept separate because a vehicle
+nobody described and a zone with no polygon are data errors: reporting them as filter refusals would claim a
+judgement nobody made (D120's rule, now on the wire).
+
+**Failures that must not look like an empty zone.** No `REALTIME_BASE` is `503 SERVICE_DEGRADED
+{reason: "not_configured"}`; a feed that answers no list is `503 SERVICE_DEGRADED
+{reason: "candidate_feed_unavailable"}`. Both are the third appearance of the same distinction (D117's 501, D121's
+degraded client) and the reason it keeps recurring is that `[]` is the one answer dispatch cannot safely misread. A
+zone row that does not exist is `404 ZONE_NOT_FOUND`; one whose outline will not parse is `422 ZONE_TOO_FEW_POINTS`,
+because a city-wide wave from a bad polygon is a worse failure than a refused request.
+
+**Existing codes, no new ones.** The order not being in `RIDER_SEARCH` is `409 ORDER_NOT_ACCEPTABLE {state}`, which is
+what the code means: this order cannot be acted on now. Adding `DISPATCH_*` codes would have meant a new prefix,
+three pinned counts and a regenerated client, for vocabulary that already exists — and a new prefix is a public
+promise about a surface that is internal.
+
+**The device translation is the fourth appearance of the two identities.** `devices` is keyed by user id; the
+snapshot's `riderId` is the row id; filter 14 compares row ids. The route translates once, through each candidate's
+own two ids, and the deletion proof is that switching it to `riderId` turns two tests red — the same class of bug as
+D110 and D120, in the third place it could hide.
+
+Tests: seventeen in `dispatch-route.test.ts` — an eligible rider and the count, refusals by filters 4, 6, 11, 12 and
+14 each asserted with its number and name, an unknown vehicle as unjudgeable rather than refused, two riders reported
+side by side, the five pre-rider refusals (unknown order, wrong state, missing zone, unparseable polygon, empty
+body), both degraded-dependency answers, a missing token with **zero** database calls, and a statement-by-statement
+assertion that the route never writes.
+
+*Open, and now precisely one thing:* `11 §8`'s acceptance model. With it, this route's verdicts become `planWaves`
+input, `insertOfferWave` gets its wave, and the ring follows. Everything else on the dispatch path is built and
+tested.
