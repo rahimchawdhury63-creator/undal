@@ -193,6 +193,9 @@ export async function insertOfferWave(db: Db, insert: WaveInsert): Promise<numbe
   return result.affectedRows;
 }
 
+const SELECT_REJECTED_WAVES = `SELECT \`rider_id\`, \`wave\` FROM \`order_offers\`
+  WHERE \`order_id\` = ? AND \`response\` = 'REJECTED' ORDER BY \`wave\` ASC`;
+
 /**
  * The waves each rider was already asked in for this order and declined, keyed by rider id hex.
  *
@@ -200,10 +203,10 @@ export async function insertOfferWave(db: Db, insert: WaveInsert): Promise<numbe
  * at half a refusal — but filter 12's sentence is "no re-offering after an explicit no", and a rider who never
  * answered did not say no. The distinction is the difference between a zone that has gone quiet and a rider who has
  * told the platform something.
+ *
+ * Keys are lower-case hex, because the assembly's signals are keyed the same way and TiDB is not obliged to spell a
+ * binary column's hex in one case.
  */
-const SELECT_REJECTED_WAVES = `SELECT \`rider_id\`, \`wave\` FROM \`order_offers\`
-  WHERE \`order_id\` = ? AND \`response\` = 'REJECTED' ORDER BY \`wave\` ASC`;
-
 export async function rejectedWavesForOrder(
   db: Db,
   orderId: Uint8Array,
