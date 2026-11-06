@@ -2568,3 +2568,45 @@ along with the plan.
 Wilson rates, vendor and cell familiarity) which no query reads yet, then `scoreCandidates`, `planWaves`,
 `planWaveWrite`, `insertOfferWave`, the audit row and the ring. That loader is the one piece of dispatch that is
 data rather than decision, and it is next.
+
+## D125 — History, from three statements, with two zeros that are honest
+
+The fourteen factors needed a rider's past, and nothing read it: `rider_stats` had never been queried, `orders`
+carried `delivered_at` for nothing, and the scoring module had been taking `acceptanceRate` and `ratingLowerBound` as
+inputs since D123. This rung is the loader, and the shape of it is decided by one constraint — the whole thing sits
+inside a twenty-five-second wave, so it is **three statements over an `IN` list**, never a query per candidate. That
+is the same rule the candidate feed follows (D117) and the same failure it avoids: sixty round trips inside a wave is
+a wave that has expired before its offers are written.
+
+**Every rate is a Wilson lower bound, and that is the load-bearing decision.** A rider who has taken one offer and
+accepted it has a 100 % rate; on a raw ratio they outrank a rider with 300 out of 400. `wilsonLowerBound(1, 1)` is
+under 0.25 and `wilsonLowerBound(300, 400)` is over 0.70, and the test asserts exactly that ordering. It is also why
+no history means exactly zero rather than a hopeful default: the bound prices in what is not known, and for a rider
+with no trials the honest value is zero.
+
+**A new rider's disadvantage is visible, not padded.** Every rate factor scores zero for a rider on their first
+shift. That is a real cost and it is left in place, because the alternative — an optimistic prior — is a number
+nobody can defend when a first-shift rider is dispatched a long order and abandons it. The one place the model
+already compensates is factor 5: `fairness` gives a rider with nothing delivered today the full load term, and idle
+time accrues from the moment they go online. Stated, so the next person does not "fix" the zeros.
+
+**Two factors score zero because the schema has no evidence, and the difference matters.** `orders` has no
+delivery-cell column, so `area_familiarity` (factor 8) has no input; there is no ratings table, so `rating` (factor 6)
+has none either, and the loader returns `rating: null` rather than a plausible 0.8. A factor fed zero because the
+evidence does not exist is a schema gap; a factor fed zero because nobody wrote the query is a bug. Recording which
+one each is, at the module and here, is what stops the second kind being mistaken for the first.
+
+**`DELIVERED` and `SETTLED` both count as a delivery.** Settlement is bookkeeping after the food arrived; a rider's
+familiarity with a kitchen does not lapse because the money has not reconciled. `MAX(delivered_at)` gives idle time,
+capped at a day, and a future timestamp — a clock skew — is zero rather than a negative. A rider who has never
+delivered is zero idle, not infinite: the fairness factor already rewards them through the load term.
+
+Tests: eleven in `dispatch-stats.test.ts` — the Wilson bound at zero trials, at one of one, at 300 of 400, the
+ordering between the last two, and an inconsistent aggregate staying inside `[0, 1]`; three statements whatever the
+candidate count with one placeholder each; the three answers merging into one history; a rider with no rows absent
+from the map; an empty list costing no queries; the vendor bound first so the vendor split is right; and idle time
+from the last delivery, never-delivered, capped, and clock-skewed.
+
+*Open:* the writer route. With history, scores, the plan and the wave insert all in place, it is order → snapshots →
+facts → scores → waves → `planWaveWrite` → `insertOfferWave` → audit → ring, plus a `dispatch_locks` guard so two
+coordinators cannot plan the same order twice.

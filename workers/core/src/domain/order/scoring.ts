@@ -358,3 +358,24 @@ export function weightSum(weights: DispatchWeights = DEFAULT_WEIGHTS): number {
     weights.vehicleFit
   );
 }
+
+/**
+ * The Wilson score interval's lower bound (`11 §5` factors 3, 4 and 6, D125).
+ *
+ * Every rate in the scoring table is a *lower bound*, not a raw ratio, and the reason is the same in all three places:
+ * a rider who has taken one offer and accepted it has a 100 % rate, and should not outrank one who has taken four
+ * hundred and accepted three hundred. The Wilson bound prices in how little is known, so the one-off sits near zero and
+ * the veteran near their real rate; with no observations the bound is exactly zero.
+ *
+ * `z = 1.96` is the 95 % interval the document specifies. The result is clamped into `[0, 1]` for the degenerate
+ * cases (no trials, successes exceeding trials from an inconsistent aggregate).
+ */
+export function wilsonLowerBound(successes: number, trials: number, z = 1.96): number {
+  if (!Number.isFinite(successes) || !Number.isFinite(trials) || trials <= 0) return 0;
+  const n = trials;
+  const p = Math.min(1, Math.max(0, successes / n));
+  const z2 = z * z;
+  const centre = p + z2 / (2 * n);
+  const margin = z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n));
+  return unit((centre - margin) / (1 + z2 / n));
+}

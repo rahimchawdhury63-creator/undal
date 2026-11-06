@@ -160,6 +160,15 @@ rider who fails any one of them is not ranked at all.
 > from the planner's own order, one expiry from `WAVE_SCHEDULE`, the order's payout on every offer, and the score the
 > decision used — so the audit trail can be re-derived.
 
+> **The history the factors 3–8 need comes from three statements (D125).** `repositories/dispatch-stats.ts`
+> `riderHistory` reads today's `rider_stats` row, the lifetime offer totals and the rider's delivered orders (split by
+> whether they were for this vendor, with the most recent) — one `IN` list each, never one query per candidate. Every
+> rate is turned into a **Wilson lower bound** (`wilsonLowerBound` in `scoring.ts`), which is why a rider with one
+> accepted offer does not outrank one with four hundred. Two factors have no data behind them and score zero: there is
+> no delivery-cell column on `orders` (factor 8) and no ratings table (factor 6). A rider on their first shift scores
+> zero on all three rate factors and gets the full `fairness` load term — a visible disadvantage rather than a padded
+> default.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep
