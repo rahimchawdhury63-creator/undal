@@ -2348,3 +2348,51 @@ Tests: fourteen in `zone-shape.test.ts` — parsing, an open ring closed on the 
 floats and unreachable latitudes, inside-ness at the origin and on every vertex and edge midpoint, 445 m for four
 steps north, a corner measured to the corner, monotonicity, a concave L whose cut corner is outside while its arm
 is inside, the degenerate ring throwing, and the extent guard.
+
+## D120 — The seam, and the two identities it must not confuse
+
+A `RiderSnapshot` is written by three parts of the platform that have never met: TiDB knows who the rider is, D1
+knows where they are, and the policy table knows what their vehicle may carry. D118, D117 and D119 each built one of
+those halves and each stopped at the edge of its own store. This rung is the join — `assembleSnapshots`, a pure
+function, so the seam can be tested with no database and no Worker.
+
+**The join key is the user id; the answer carries the row id.** D1's rows are keyed by the token's `sub`, and an
+offer's foreign key is `riders.id`. Both statements are true and they are about different columns, which is exactly
+the confusion D110 shipped. Here it is made explicit twice: `fixes.get(userId)` finds the position, and the snapshot's
+`riderId` is the row id — the identity an offer will point at. The deletion proof is the point of the rung: switching
+that lookup to `rowId` turns **six** tests red, because every rider then looks unconnected, every wave is empty, and
+nothing anywhere logs an error. A silent empty queue is the failure mode, so the test asserts behaviour, not a
+comment.
+
+**A missing position is not a missing rider.** A rider whose live row is absent cannot have an age measured, and the
+tempting move is to drop them during assembly. That would put a second, unnamed refusal into dispatch — the exact
+shape of problem this session has spent several rungs removing. Instead they carry `positionAgeS: Infinity` and
+`positionStaleAfterS: 0`, which routes them through filter 4 like any stale fix, so they are refused **by name** and
+the rider's app can say why. One vocabulary, one place to look.
+
+**Two refusals, and only the unjudgeable ones.** A vehicle the policy table does not describe, and a zone with no
+polygon: neither can produce a snapshot at all, so they are reported as data errors carrying the rider's code rather
+than converted into a filter verdict. A filter refusal means "we judged you and the answer was no", and saying that
+about a rider nobody could judge is a lie that hides a database problem. Both are per-candidate: one bad row does not
+remove the good ones from the wave.
+
+**The signals that live outside both stores are required parameters.** Rejected waves for *this* order,
+`notifications_allowed`, active suspensions, and the per-vendor cooldown. Required, because an optional map defaults
+to "nobody", which silently weakens filters 12, 13 and 14 — three filters whose whole job is to stop an order being
+offered to someone who will not take it. Empty is allowed and honest; silent is not. The cooldown has no table yet
+(`11 §9.2` deferred), so the writer passes an empty set and the seam is where that effect will arrive.
+
+**The routed distance is the straight line, and says so.** `estimateRoute` marks it `ESTIMATED` in the same module
+that prices the delivery fee (`D67`), so eligibility and price are judged on the same number — a rider is not
+refused a job the platform would happily charge for. When routing lands, one function changes and both move together.
+
+Tests: fifteen in `dispatch-assembly.test.ts` — the identity join and its death (six red under reversion), a rider
+with no fix assembled with an infinite age and refused by filter 4, the first fix winning over a duplicate, age and
+budget arithmetic and the clock-skew floor, the straight-line distance within 2 m of the geometry, zero inside the
+zone against the real edge distance outside it, the policy table driving the limits, `BREAK` becoming `ON_BREAK` and
+failing filter 2, all four signals reaching their filters, and the two refusals with a good candidate surviving
+beside a bad one.
+
+*Open:* the writer — read the zone's TiDB candidates, call the feed, assemble, run `FILTERS`, `planWaves`, insert
+`order_offers` for wave 1, and ring the phones. That is the last rung of dispatch and it is now ordinary plumbing
+plus one alarm, because every decision it needs has been made in the nine rungs before it.

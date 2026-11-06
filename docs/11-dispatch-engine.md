@@ -125,6 +125,17 @@ rider who fails any one of them is not ranked at all.
 > vertices — is refused when it is parsed rather than silently making every rider eligible, and `ringExtentM`
 > flags a shape too wide for the planar frame to be honest about.
 
+> **The two halves are joined once, by a pure function (D120).** A `RiderSnapshot` is written by three places —
+> TiDB (approval, shift, verification, cash, load), D1 (position and its deadline) and the policy table (what the
+> vehicle may carry) — so the seam is `domain/order/dispatch-assembly.ts`: `assembleSnapshots` takes both candidate
+> lists, the zone polygons, the vendor's point and the signals that live outside both stores, and returns snapshots
+> plus refusals. The join is on the **user id** (what D1 is keyed by) while the snapshot carries the **row id** (what
+> an offer points at); joining on the wrong one leaves every wave empty with nothing in the logs, so there is a test
+> that fails if it changes. A rider with no live row is not dropped: they carry an infinite age and filter 4 refuses
+> them by name. Only two things are refused before the filters — a vehicle the policy cannot describe, and a zone
+> with no polygon — because both are data errors, and a filter refusal would be a judgement about a rider nobody
+> could judge.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep
