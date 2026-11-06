@@ -19,7 +19,7 @@
 import type { Db } from "../db/client.ts";
 import { sqlDatetime } from "../db/time.ts";
 import { vehiclePolicy, DEFAULT_CASH_LIMIT_PAISA, type VehiclePolicy } from "../domain/order/dispatch-policy.ts";
-import { readPropensityModel } from "../domain/order/propensity.ts";
+import { readStoredModel } from "./propensity.ts";
 import type { ZoneFeatures } from "../domain/order/scoring.ts";
 
 /** A rider in a zone who holds an open shift, with the limits the filters will judge them against. */
@@ -393,12 +393,6 @@ export async function waveStateForOrder(
   return { lastWave: Number(row?.last ?? 0), liveOffers: Number(row?.live ?? 0) };
 }
 
-/** The `platform_config` key the acceptance model lives under (`09 §7.4`, D133). */
-export const PROPENSITY_CONFIG_KEY = "dispatch.propensity";
-
-/** The all-zero UUID `platform_config` uses for a row that applies to every zone (`08`). */
-const GLOBAL_ZONE = "00000000000000000000000000000000";
-
 /** What the caller already knows about the offer, before the zone's model is added to it. */
 export interface ScoringZoneInput {
   readonly medianPickupM: number;
@@ -420,16 +414,7 @@ export interface ScoringZoneInput {
  */
 export async function scoringZone(db: Db, zoneId: string, input: ScoringZoneInput): Promise<ZoneFeatures> {
   const base = { medianPickupM: input.medianPickupM, medianDeliveriesToday: input.medianDeliveriesToday };
-  const read = async (zone: string): Promise<unknown> => {
-    const row = await db.first<{ value: unknown }>(
-      "SELECT `value` FROM `platform_config` WHERE `key` = ? AND `zone_id` = ? " +
-        "ORDER BY `effective_at` DESC LIMIT 1",
-      [PROPENSITY_CONFIG_KEY, Buffer.from(zone, "hex")],
-    );
-    return row === null ? null : row.value;
-  };
-  const stored = (await read(zoneId)) ?? (await read(GLOBAL_ZONE));
-  const model = stored === null ? null : readPropensityModel(typeof stored === "string" ? safeJson(stored) : stored);
+  const model = await readStoredModel(db, zoneId);
   if (model === null) return base;
   return {
     ...base,
@@ -445,11 +430,3 @@ export async function scoringZone(db: Db, zoneId: string, input: ScoringZoneInpu
   };
 }
 
-/** A JSON column, parsed, or `null` when it is not JSON. A driver may hand back either form. */
-function safeJson(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return null;
-  }
-}

@@ -172,6 +172,14 @@ export interface ExpiredOffers {
    * (`08 §6`), and a caller holding ids would have to look them up again.
    */
   readonly orders: readonly string[];
+  /**
+   * The zones those orders belong to, by hex id (D135).
+   *
+   * The training pass is per zone, because the model is per zone: an expiry in Sylhet must not teach Moulvibazar's
+   * coefficients anything. Hex rather than bytes because the sweep's other answer is codes, and a caller that had to
+   * unpack ids here would be doing the repository's job.
+   */
+  readonly zones: readonly string[];
 }
 
 /**
@@ -198,6 +206,12 @@ export async function expireOffers(db: Db, nowMs: number): Promise<ExpiredOffers
       "WHERE `f`.`response` IS NULL AND `f`.`expires_at` <= ?",
     [now],
   );
+  // Read before the update for the same reason: after it, the rows say when they expired, not that they were due.
+  const zones = await db.query<{ zone_id: Uint8Array }>(
+    "SELECT DISTINCT `o`.`zone_id` AS `zone_id` FROM `order_offers` `f` JOIN `orders` `o` ON `o`.`id` = `f`.`order_id` " +
+      "WHERE `f`.`response` IS NULL AND `f`.`expires_at` <= ?",
+    [now],
+  );
   const result = await db.execute(
     "UPDATE `order_offers` SET `response` = 'EXPIRED', `responded_at` = ? WHERE `response` IS NULL AND `expires_at` <= ?",
     [now, now],
@@ -206,5 +220,6 @@ export async function expireOffers(db: Db, nowMs: number): Promise<ExpiredOffers
     expired: result.affectedRows,
     waves: waves.map((row) => Number(row.wave)),
     orders: due.map((row) => String(row.code)),
+    zones: zones.map((row) => Buffer.from(row.zone_id).toString("hex")),
   };
 }

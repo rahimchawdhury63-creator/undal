@@ -98,10 +98,26 @@ export interface PropensitySample {
   readonly accepted: boolean;
 }
 
-/** The model as this platform stores it: eight coefficients and how many outcomes produced them. */
+/**
+ * The `platform_config` key the model lives under (`09 §7.4`).
+ *
+ * Versioned and audited like every other number an operator owns, per zone, with the all-zero UUID row as the global
+ * default — the mechanism the schema already provides, so the model needed no table of its own.
+ */
+export const PROPENSITY_CONFIG_KEY = "dispatch.propensity";
+
+/** The model as this platform stores it: eight coefficients, how many outcomes produced them, and how far it has read. */
 export interface PropensityModel {
   readonly weights: readonly number[];
   readonly samples: number;
+  /**
+   * The `responded_at` of the last offer this model was trained on, in ms (D135).
+   *
+   * The watermark is the model's own cursor: a training pass reads the outcomes *after* it and moves it forward, so a
+   * pass that runs every few seconds does the same work once. Zero means the model has never been trained and the next
+   * pass starts from the oldest recorded offer.
+   */
+  readonly trainedThroughMs: number;
 }
 
 /** Whether a value can be a coefficient vector: eight finite numbers, no more and no fewer. */
@@ -125,7 +141,13 @@ export function readPropensityModel(value: unknown): PropensityModel | null {
   const record = value as { weights?: unknown; samples?: unknown };
   if (!isPropensityWeights(record.weights)) return null;
   const samples = typeof record.samples === "number" && Number.isFinite(record.samples) ? record.samples : 0;
-  return { weights: [...record.weights], samples: Math.min(PROPENSITY_FULL_TRUST, Math.max(0, Math.trunc(samples))) };
+  const through = (record as { trainedThroughMs?: unknown }).trainedThroughMs;
+  return {
+    weights: [...record.weights],
+    samples: Math.min(PROPENSITY_FULL_TRUST, Math.max(0, Math.trunc(samples))),
+    // A watermark that is not a finite instant is `0`: replaying the record is recoverable, skipping it is not.
+    trainedThroughMs: typeof through === "number" && Number.isFinite(through) && through > 0 ? Math.trunc(through) : 0,
+  };
 }
 
 /** The logistic function, with the logit clamped as `09 §7.4`'s snippet clamps it. */
@@ -180,6 +202,42 @@ export function blendPropensity(modelProbability: number, historicalRate: number
   const model = Number.isFinite(modelProbability) ? Math.max(0, Math.min(1, modelProbability)) : 0.5;
   const historical = Number.isFinite(historicalRate) ? Math.max(0, Math.min(1, historicalRate)) : 0;
   return trust * model + (1 - trust) * historical;
+}
+
+/** One solved offer, as the training pass reads it: its features, its outcome and when it was answered. */
+export interface TrainingSample {
+  readonly features: readonly number[];
+  /** `true` for `ACCEPTED`; a rejection and an expiry are both "did not accept", which is what the model predicts. */
+  readonly accepted: boolean;
+  readonly respondedAtMs: number;
+}
+
+/** What one training pass did. */
+export interface TrainingResult {
+  readonly weights: readonly number[];
+  readonly applied: number;
+  readonly throughMs: number;
+}
+
+/**
+ * Fold the recorded outcomes into the weights, oldest first (`09 §7.4`, D135).
+ *
+ * Order matters — this is stochastic gradient descent, not a closed form — so the caller sorts by `responded_at` and
+ * this function trusts that order. A sample whose vector is not eight finite numbers is *skipped* rather than throwing:
+ * a config row and an offer row can disagree about the model's shape after a deploy, and the honest response to one bad
+ * row is to learn from the other ninety-nine, not to stop learning until a human notices.
+ */
+export function trainModel(weights: readonly number[], samples: readonly TrainingSample[]): TrainingResult {
+  let current = isPropensityWeights(weights) ? [...weights] : [...PROPENSITY_PRIOR];
+  let applied = 0;
+  let throughMs = 0;
+  for (const sample of samples) {
+    throughMs = Math.max(throughMs, sample.respondedAtMs);
+    if (!isPropensityWeights(sample.features)) continue;
+    current = [...learnStep(current, { features: sample.features, accepted: sample.accepted })];
+    applied += 1;
+  }
+  return { weights: current, applied, throughMs };
 }
 
 /** Everything the eight features are built from. Distances are metres, the payout is paisa, the clock is UTC ms. */

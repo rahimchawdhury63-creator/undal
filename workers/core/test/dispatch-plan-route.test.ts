@@ -501,7 +501,8 @@ describe("the zone's acceptance model (D133)", () => {
     const broken = dbFor({ propensity: { weights: [1, 2, 3], samples: 9 } });
     const again = (await (await route().run(ctxFor(broken, true), INPUT)).json()) as { data: { pNone: number } };
     assert.equal(again.data.pNone, baseline.data.pNone);
-    assert.equal(broken.calls.filter((call) => /FROM `platform_config`/u.test(call.sql)).length, 1);
+    // A row that does not parse falls through to the global one, which is also absent here: two reads, no model.
+    assert.equal(broken.calls.filter((call) => /FROM `platform_config`/u.test(call.sql)).length, 2);
 
     // With no zone row at all the global one is consulted: the sentinel row `08` defines for a default.
     pending.length = 0;

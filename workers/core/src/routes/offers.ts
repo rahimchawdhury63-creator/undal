@@ -24,6 +24,7 @@ import {
   withdrawSiblingOffers,
 } from "../repositories/offers.ts";
 import { findRiderByUserId } from "../repositories/riders.ts";
+import { trainZones } from "../repositories/propensity.ts";
 
 /**
  * Claiming a delivery offer: `POST /v1/orders/{code}/offer/{offerId}/accept` (`08 §6`, `11 §7.3`, D113).
@@ -434,8 +435,12 @@ async function expireDueOffers(ctx: Ctx): Promise<Response> {
     // ledger nobody reads. The `order_offers` rows are the record, and the audit chain stays about people.
     console.warn(`offers: expired ${String(swept.expired)} offer(s) in wave(s) ${swept.waves.join(",")}`);
   }
+  // The sweep is the instant an outcome becomes final for the offers nobody answered, which makes it the free place to
+  // fold last wave's answers into the zone's acceptance model (`09 §7.4`, D135). Bounded and skipped when nothing
+  // expired: a pass with no outcomes writes nothing at all.
+  const trained = swept.expired === 0 ? [] : await trainZones(ctx.db, swept.zones, nowMs);
   return successResponse(
-    { expired: swept.expired, waves: swept.waves, orders: swept.orders, atMs: nowMs },
+    { expired: swept.expired, waves: swept.waves, orders: swept.orders, trained, atMs: nowMs },
     ctx.locale,
     ctx.requestId,
   );

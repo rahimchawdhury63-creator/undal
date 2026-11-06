@@ -68,7 +68,18 @@ describe("the model's shape (09 §7.4)", () => {
     assert.deepEqual(readPropensityModel({ weights: [0, 1, 2, 3, 4, 5, 6, 7], samples: 12 }), {
       weights: [0, 1, 2, 3, 4, 5, 6, 7],
       samples: 12,
+      trainedThroughMs: 0,
     });
+    assert.equal(
+      readPropensityModel({ weights: [0, 1, 2, 3, 4, 5, 6, 7], samples: 1, trainedThroughMs: 1_700_000_000_000 })
+        ?.trainedThroughMs,
+      1_700_000_000_000,
+      "the watermark is how a training pass knows where it got to (D135)",
+    );
+    assert.equal(
+      readPropensityModel({ weights: [0, 1, 2, 3, 4, 5, 6, 7], samples: 1, trainedThroughMs: -5 })?.trainedThroughMs,
+      0,
+    );
     assert.deepEqual(readPropensityModel({ weights: [0, 1, 2, 3, 4, 5, 6, 7], samples: 9_999 })?.samples, PROPENSITY_FULL_TRUST);
     assert.equal(readPropensityModel({ weights: [1, 2, 3] }), null);
     assert.equal(readPropensityModel({ samples: 4 }), null);

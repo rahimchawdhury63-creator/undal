@@ -90,6 +90,12 @@ function dbFor(
     expiringWaves?: readonly Record<string, unknown>[];
     /** The orders the sweep left without a live offer, as the `code` rows it reads (D130). */
     expiringOrders?: readonly Record<string, unknown>[];
+    /** The zones those orders belong to, as the `zone_id` rows it reads (D135). */
+    expiringZones?: readonly Record<string, unknown>[];
+    /** The zone's stored acceptance model, if it has one (D135). */
+    zoneModel?: Record<string, unknown>;
+    /** Answered offers with a recorded feature vector, as the training read returns them (D135). */
+    trainingRows?: readonly Record<string, unknown>[];
   } = {},
 ): ReturnType<typeof stubDb> {
   const order = options.order === undefined ? ORDER_ROW : options.order;
@@ -105,6 +111,11 @@ function dbFor(
     { match: /UPDATE `order_offers` SET `response` = \?/u, affectedRows: 1 },
     { match: /INSERT INTO `order_assignments`/u, affectedRows: 1 },
     { match: /UPDATE `rider_shifts` SET `orders_rejected`/u, affectedRows: 1 },
+    { match: /DISTINCT `o`.`zone_id`/u, rows: options.expiringZones === undefined ? [] : [...options.expiringZones] },
+    { match: /`propensity_features` IS NOT NULL/u, rows: options.trainingRows === undefined ? [] : [...options.trainingRows] },
+    // The training pass (D135): a zone's model row, and the version it writes back.
+    { match: /FROM `platform_config`/u, rows: options.zoneModel === undefined ? [] : [{ value: JSON.stringify(options.zoneModel) }] },
+    { match: /INSERT INTO `platform_config`/u, affectedRows: 1 },
     { match: /DISTINCT `o`.`code`/u, rows: options.expiringOrders === undefined ? [] : [...options.expiringOrders] },
     { match: /DISTINCT `wave` FROM `order_offers`/u, rows: options.expiringWaves === undefined ? [] : [...options.expiringWaves] },
     { match: /UPDATE `order_offers` SET `response` = 'EXPIRED'/u, affectedRows: options.expired ?? 0 },
@@ -504,5 +515,59 @@ describe("the sweep names the orders it left without a wave (D130)", () => {
     });
     const data = ((await response.json()) as { data: { orders?: string[] } }).data;
     assert.deepEqual(data.orders, []);
+  });
+});
+
+/**
+ * The sweep trains the zone it emptied (`09 §7.4`, D135).
+ *
+ * The sweep is the only free trigger: it is the instant `EXPIRED` becomes the final answer for the offers nobody took,
+ * and it already runs on every alarm tick in every zone. So the assertion is that the loop closes here — an expiry in a
+ * zone with recorded vectors leaves a new `platform_config` version — and that it does *not* run for zones that had
+ * nothing expire, or when nothing was recorded.
+ */
+describe("the sweep folds the outcomes back in (D135)", () => {
+  const vector = [0.84, 0.15, 0.3, 0.5, 0.62, 0.38, 0, 0];
+  const sample = {
+    features: JSON.stringify(vector),
+    response: "EXPIRED",
+    responded_at: "2023-11-14 22:13:20.000000",
+  };
+
+  const sweep = (db: Db) =>
+    route("/internal/offers/expire").run(internalCtx(db), { params: {}, body: {}, reason: null });
+
+  test("a zone whose wave expired gets a new version of its model", async () => {
+    const db = dbFor({
+      expired: 2,
+      expiringWaves: [{ wave: 1 }],
+      expiringZones: [{ zone_id: bytes(ZONE_HEX) }],
+      trainingRows: [sample],
+    });
+    const response = await sweep(db);
+    const parsed = (await response.json()) as { data: { trained: { zoneId: string; applied: number }[] } };
+    assert.deepEqual(parsed.data.trained, [{ zoneId: ZONE_HEX, applied: 1, samples: 1 }]);
+    const insert = db.calls.find((call) => /INSERT INTO `platform_config`/u.test(call.sql));
+    assert.notEqual(insert, undefined, "the model is configuration, so the write is a version, not an update");
+    const value = JSON.parse(String(insert?.params[2])) as { weights: number[]; samples: number; trainedThroughMs: number };
+    assert.equal(value.weights.length, 8);
+    assert.equal(value.samples, 1);
+    assert.equal(value.trainedThroughMs, Date.parse("2023-11-14T22:13:20.000Z"));
+  });
+
+  test("a zone with nothing recorded writes nothing, and says so", async () => {
+    const db = dbFor({ expired: 1, expiringWaves: [{ wave: 1 }], expiringZones: [{ zone_id: bytes(ZONE_HEX) }] });
+    const response = await sweep(db);
+    const parsed = (await response.json()) as { data: { trained: unknown[] } };
+    assert.deepEqual(parsed.data.trained, []);
+    assert.equal(db.calls.filter((call) => /INSERT INTO `platform_config`/u.test(call.sql)).length, 0);
+  });
+
+  test("no expiry means no training pass at all, not an empty one", async () => {
+    const db = dbFor({ expired: 0, trainingRows: [sample] });
+    const response = await sweep(db);
+    const parsed = (await response.json()) as { data: { trained: unknown[] } };
+    assert.deepEqual(parsed.data.trained, []);
+    assert.equal(db.calls.filter((call) => /`propensity_features` IS NOT NULL/u.test(call.sql)).length, 0);
   });
 });

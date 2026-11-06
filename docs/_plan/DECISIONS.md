@@ -3022,3 +3022,48 @@ at 115, the column count moves to 678.
 *Open:* the column is written and read by nothing yet. The loop that applies `learnStep` to answered offers and writes
 the weights back to `platform_config` is next; when it lands, its first run will find every pre-D134 row null and start
 from the first offer this rung wrote.
+
+## D135 — The loop closes where outcomes become final
+
+D133 built the model, D134 made each offer record what it saw, and both left the same gap: nothing ever called
+`learnStep`. The remaining question was not *how* to train but *when* — and the honest answer is that a training pass
+needs a moment when outcomes become final, which in this system is exactly one event: the expiry sweep. It already runs
+on every alarm tick in every zone (D130, D132), it is the instant `EXPIRED` stops being a guess, and it costs nothing
+extra to hang the loop on it. No cron (the no-cron rule is not decoration), no new endpoint, no operator button.
+
+**The cursor is inside the model.** A pass that learned from everything it could find would re-learn the same offers
+every five seconds and drift its weights on evidence it already counted. So the row gains `trainedThroughMs` — the
+`responded_at` of the last outcome folded in — and each pass reads only `responded_at > trainedThroughMs`, oldest
+first. It rides in the same JSON value as the weights because the two cannot be updated atomically apart: a separate
+cursor row would let a crash between the two writes make the model claim it had seen offers it learned nothing from.
+`0` means never trained, which is what every D133/D134 row reads as, and the first pass starts from the first vector
+D134 wrote.
+
+**A zone inherits weights, not confidence.** A zone with no row of its own starts from the global sentinel's weights with
+`samples = 0`. Copying the samples would let one dense zone's evidence vouch for a district that has never delivered,
+and factor 3's trust is `min(samples, 50) / 50` — confidence is a claim about *this* zone's evidence or it is nothing.
+
+**One row per pass, or none.** The write is a single `platform_config` INSERT with `version = propensity.<samples>` and
+`created_by` the all-zero UUID: a model that attributed its own training to whichever operator last opened Brain Lab
+would be a lie in the audit trail. A pass with nothing to read writes no row and no audit line — a config table that
+grows one row per sweep is a table whose history nobody can read — and `trainZones` answers with only the zones it
+actually trained, so the sweep's response says what happened rather than what was attempted.
+
+**Bounded on purpose.** 200 samples per zone per pass and 3 zones per sweep. Both are bounds on a *sweep*, not on the
+model: a busy minute must not turn an expiry tick into a training run, and the zones that wait are retrained within
+seconds because the tick is constant. The zone list comes from a `SELECT DISTINCT o.zone_id` taken before the `UPDATE`
+— the same reason D130 reads codes first: the update is what erases the evidence.
+
+Rejected: a `POST /internal/dispatch/train` endpoint (an operator would have to schedule it, which is a cron under
+another name), training in the planner (it runs per dispatch and has no notion of an outcome), a batch trainer over
+`order_offers` (the sweep already knows which zones just produced outcomes), and a separate cursor row (see above).
+
+Tests: 13 in the new `propensity-train.test.ts` (`trainModel` folds in the order given, skips non-vectors, reports the
+watermark; `trainZone` inherits weights with zero samples, writes one row with the right version/author/reason, and
+writes nothing on an empty read) and 3 in `offer-claim.test.ts` (a sweep that emptied a zone with vectors returns
+`trained` and leaves a new version; a zone with nothing recorded returns `[]` and writes nothing; a sweep with no
+expiries does not run a training pass at all).
+
+*Open:* the samples are ordered by `responded_at`, which means a burst of expiries from one wave teaches the model the
+same eight features 40 times. A dedupe by `(wave, zone)` or a per-offer reweighting is the next thing worth measuring,
+and the label itself — `EXPIRED` counting as a hard `y = 0` — contradicts `11 §9.3`'s half-weight for silence.

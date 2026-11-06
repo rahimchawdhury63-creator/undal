@@ -258,6 +258,19 @@ rider who fails any one of them is not ranked at all.
 > ordinary sample whose offer had nothing to recommend it. The outcome sits next door in `response`, so one offer row is
 > one training sample and the loop reads `offered_at` to know how far it has got.
 
+> **And the loop closes where outcomes become final (D135).** The trigger needed no cron and no new endpoint: the
+> expiry sweep already runs on every alarm tick in every zone, and it is the instant `EXPIRED` becomes the final answer
+> for the offers nobody took. So the sweep, after its `UPDATE`, trains the zones it emptied. A zone inherits the global
+> row's **weights** but not its sample count — a new district starts from what the network has learned and factor 3
+> remains the rider's own record until this zone has outcomes — reads at most 200 answered offers that carry a vector
+> and are newer than its cursor, folds them in `responded_at` order, and writes **one new `platform_config` version**.
+> A row per sweep would be a history nobody can read, so a pass with nothing to read writes nothing at all.
+>
+> The cursor rides inside the model rather than beside it: `trainedThroughMs` is the `responded_at` of the last outcome
+> folded in, so a five-second tick does the same work once instead of re-learning the same lunch hour forever. Two rows
+> could disagree about what has been seen and there is no transaction between them. `null` vectors stay skipped, which
+> is what makes D134's "no model, no sample" decision load-bearing rather than tidy.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep
