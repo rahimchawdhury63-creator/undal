@@ -2484,3 +2484,49 @@ assertion that the route never writes.
 *Open, and now precisely one thing:* `11 §8`'s acceptance model. With it, this route's verdicts become `planWaves`
 input, `insertOfferWave` gets its wave, and the ring follows. Everything else on the dispatch path is built and
 tested.
+
+## D123 — The weights do not add up, and saying so is the rung
+
+`11 §5` lists fourteen factors with default weights and closes with **"Sum: 1.000."** They sum to **1.005**. This is
+not a rounding artefact: 0.170 + 0.150 + 0.130 + 0.110 + 0.095 + 0.070 + 0.055 + 0.055 + 0.050 + 0.045 + 0.030 + 0.025
++ 0.010 + 0.010 = 1.005 exactly. The code that implements the table found it on the first test run, which is what
+code is for.
+
+**The fourteen numbers stay, the sum is corrected.** Three candidates: trim 0.005 from some factor, divide everything
+by 1.005, or implement verbatim and say so. The first changes a weight an operator set; the second changes *all*
+fourteen, invisibly, and can reorder two candidates in a way no one can attribute afterwards. So the numbers are
+verbatim, `weightSum()` returns 1.005 and exists precisely so the admin panel can warn about it, `DEFAULT_WEIGHTS`
+is frozen and carries the explanation, and `11 §5` now says 1.005 with the reasoning.
+
+**`score()` does not clamp to 1.** A rider who is perfect on all fourteen scores 1.005. Clamping would make that
+indistinguishable from 1.0, and the number is only ever compared against other candidates' numbers — nothing
+downstream treats it as a probability except factor 3, which is separate. The consequence is stated in the module
+and asserted in a test.
+
+**Every factor is a named function, not a term in one expression.** The document's `score_candidates` is a single
+fourteen-line expression; here each factor is exported with its constants (`ETA_EARLY_DECAY_S`, `ETA_LATE_DECAY_S`,
+`FAIRNESS_IDLE_SATURATION_S`, `VENDOR_FAMILIARITY_DELIVERIES`) because the anchors are what a benchmark argues
+about, and an anchor that can only be reached through a weighted sum cannot be argued with at all. The deletion
+proof for `eta_fit`'s asymmetry — making the late decay 900 s, symmetric with the early side — turns two tests red,
+starting with the one that says a rider eight minutes early beats a rider six minutes late.
+
+**`acceptanceProbability` is factor 3, and `score` is the ranking.** They are different objects and the wave model
+consumes the first: `pNobodyAccepts` multiplies `(1 - acceptance)`, which is a probability, while the *ordering* of
+candidates is the weighted sum. Keeping both on the returned type is what lets `planWaves` (which today sorts by
+`acceptanceProbability`) be wired correctly in the next rung without either number being quietly repurposed.
+
+**What is still an input, and what that means.** `acceptanceRate` and `ratingLowerBound` arrive already Wilson-
+bounded; the logistic propensity model (`09 §7.4`) and the Wilson estimators are not built, so the factors take
+their outputs and the caller supplies them. `zoneCoverage` and `vehicleSuitability` arrive as judged values for the
+same reason — the demand forecast and the vehicle judgement belong to `09` and `12`. Each is documented at the
+field, so the seam is visible rather than implied.
+
+Tests: twenty-eight in `dispatch-scoring.test.ts` — the weight sum and its immutability, `proximity`'s half-at-median
+anchor and its divide-by-zero fallback, `eta_fit`'s sweet spot, both decay slopes, the asymmetry and its reversion,
+`reliability`'s 0.6/0.4 split and its clamping order, `fairness`'s saturation, median and 3× anchors, `vendor` and
+`area` familiarity, `load_balance` at the ceiling and with no capacity, `cash_headroom` at exactly zero, `freshness`
+with no budget, the perfect-candidate total of 1.005, weight-shifting changing the ranking, and determinism under
+input reordering plus the lexicographic tiebreak.
+
+*Open:* the last line of the dispatch path — `scoreCandidates` fed by the D122 route's snapshots, `planWaves` ranking
+on `score` while its confidence multiplies `acceptanceProbability`, `insertOfferWave`, the ring.

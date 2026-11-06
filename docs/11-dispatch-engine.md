@@ -219,7 +219,14 @@ Lab.
 | 13 | `freshness` | Falls as the rider's position fix ages, so a rider last seen 4 minutes ago ranks below an equivalent one seen 10 seconds ago | **0.010** |
 | 14 | `vehicle_fit` | Suitability of the vehicle for this order: trip length, item count, whether the order includes a large or hot-soup item that a bicycle handles badly | **0.010** |
 
-**Sum: 1.000.**
+**Sum: 1.005** — not 1.000, and the discrepancy is real (D123). The fourteen individual weights above are the
+authoritative numbers: they are what Brain Lab shows, what the benchmark reports and what any conversation about
+dispatch quotes. Their arithmetic does not close. `workers/core/src/domain/order/scoring.ts` implements them
+verbatim, `weightSum()` returns 1.005 so the admin panel can surface it, and a total score may therefore reach
+1.005. Deliberately not normalised: dividing every weight by 1.005 would change numbers an operator believes they
+set, invisibly, and could reorder two candidates. The implementation, its anchors (`eta_fit` = 1 in the two minutes
+before ready, `fairness` saturating at twenty idle minutes, `cash_headroom` exactly zero at the limit) and the
+clamping contract are all in that module.
 
 ### 5.1 Why `eta_fit` is not just "sooner is better"
 
