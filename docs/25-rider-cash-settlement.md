@@ -378,10 +378,20 @@ accounting disagreement.
 | **Robbed / lost** | Immediate escalation to a human, the block is **lifted**, a case is opened, and a police-report upload is offered. The amount stays outstanding as a debt, handled case by case. Nobody is locked out of their livelihood over a theft at 11 pm |
 | **Emergency** | The block is lifted for 24 hours with a single tap. Logged. Limited to once per 30 days. A second use in the window routes to a human instead of being refused |
 | **Disagree** | A dispute is opened with the order list shown line by line; the block is lifted while the dispute is open; the amount stays outstanding |
-| **Partial** | The rider settles what they can; the remainder stays in `RIDER_CASH`; the rider can go online with a reduced cash limit equal to their remaining headroom |
+| **Partial** | The rider settles what they can; the remainder stays in `RIDER_CASH`; the rider can go online with a reduced cash limit equal to their remaining headroom. **Submission implemented (D151)**; the reduced ceiling is not yet read by dispatch |
 
 Every one of these paths lifts the block. The block exists to collect money from people who have
 it and are about to go home — not to punish people who do not.
+
+> **"I'll settle part of it now" is the fourth button, and it is a flag rather than a number (D151).**
+> `POST /v1/rider/cash/settle` still refuses a figure below the balance with `CASH_UNDERPAYMENT`, because the commonest
+> cause of a short amount is a mistyped one and accepting it silently would forgive a thousand taka. `partial: true` is
+> how the rider says this one is a choice: the claim is stored with `is_partial`, the remainder stays in `RIDER_CASH`, the
+> reviewer's queue shows it as a part-payment, and approving it **releases the rider** — `§7` promises they may go online.
+> The remainder is collected the slower way, by the weekly invoice gate ([`24 §6`](24-finance-payouts-invoices.md)).
+> *Still open:* the "reduced cash limit equal to their remaining headroom". The dispatch ceiling of ৳3 500 exists
+> (`DEFAULT_CASH_LIMIT_PAISA`) but reads a shift's collected cash, not the outstanding balance, so a part-paid rider is
+> currently offered work at the full ceiling rather than a reduced one.
 
 > **Two of the four buttons are built (D148–D149), and the two others are not.** `POST /v1/rider/cash/declare` with
 > `{kind:"EMERGENCY", note?}` writes a `rider_cash_declarations` row with `lifted_until = now + 24 h` and **lifts the

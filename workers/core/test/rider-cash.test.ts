@@ -405,6 +405,7 @@ describe("the two comparisons a reviewer sees (D141)", () => {
       screenshotUrl: "https://x.test/a.png",
       selfieUrl: "https://x.test/b.jpg",
       amountPaisa: 1,
+      partial: false,
       method: "BKASH" as const,
     };
     assert.deepEqual(checkClaim(draft, { payoutNumber: null, payoutName: null, fullName: null }), {
@@ -533,7 +534,35 @@ describe("POST /v1/rider/cash/settle (D141)", () => {
     const under = await submit(dbFor({ outstanding: 214_000 }), { ...CLAIM, amountPaisa: 100_000 });
     assert.equal(under.status, 422);
     assert.equal(under.code, "CASH_UNDERPAYMENT");
-    assert.equal(under.details?.["short_by"], 114_000, "the partial path in 25 §7 needs a reason, and is not built");
+    assert.equal(under.details?.["short_by"], 114_000, "a short figure with no intent declared is the commonest typo");
+  });
+
+  test("a part-payment the rider says out loud is recorded, and the remainder is named (D151)", async () => {
+    const db = dbFor({ outstanding: 214_000 });
+    const result = await submit(db, { ...CLAIM, amountPaisa: 100_000, partial: true });
+    assert.equal(result.status, 200, "§7's fourth button: I'll settle part of it now");
+    assert.equal(result.data["settlement"] && (result.data["settlement"] as Record<string, unknown>)["partial"], true);
+
+    const insert = db.calls.find((call) => call.sql.includes("INSERT INTO `rider_cash_settlements`"));
+    assert.equal(insert?.params[12], 1, "the claim carries the choice, so the reviewer can tell it from a typo");
+
+    const auditRow = db.calls.find((call) => call.sql.includes("INSERT INTO `audit_log`"));
+    const after = JSON.parse(String(auditRow?.params[14])) as Record<string, unknown>;
+    assert.equal(after["partial"], true);
+    assert.equal(after["remainingPaisa"], 114_000, "the chain says what is still owed, not just what was paid");
+  });
+
+  test("the flag is a boolean or it is a refusal, and it never licenses an overpayment", async () => {
+    const typo = await submit(dbFor({ outstanding: 214_000 }), { ...CLAIM, partial: "yes" });
+    assert.equal(typo.status, 422);
+    assert.equal(typo.code, "VALIDATION_FAILED");
+
+    const over = await submit(dbFor({ outstanding: 214_000 }), { ...CLAIM, amountPaisa: 250_000, partial: true });
+    assert.equal(over.status, 422, "a part-payment cannot be more than the whole");
+    assert.equal(over.code, "CASH_OVERPAYMENT");
+
+    const whole = await submit(dbFor({ outstanding: 214_000 }), { ...CLAIM, partial: true });
+    assert.equal(whole.status, 200, "paying the whole balance and calling it a part-payment is still paying it");
   });
 
   test("a rider whose payout number was never recorded is submitted, not accused", async () => {

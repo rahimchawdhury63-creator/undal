@@ -138,6 +138,7 @@ function serialiseSettlement(row: SettlementRow): Record<string, unknown> {
     // What the platform actually accepted, when that differs from the claim: `25 §6.1` promises the rider is told what
     // remains, and "confirmed" beside an unchanged balance is exactly the confusion that promise prevents (D147).
     approvedPaisa: row.approvedPaisa,
+    partial: row.isPartial,
     trxId: row.trxId,
     submittedAt: row.createdAt,
     // A refusal the rider cannot read is indistinguishable from being ignored (D144): `25 §6.2` asks for the reason.
@@ -198,8 +199,10 @@ async function cashPosition(ctx: Ctx): Promise<Response> {
  * - a TrxID already in the table is `CASH_TRXID_DUPLICATE`, **unless** it is this rider's own claim arriving twice, in
  *   which case the answer is the first one: the app queues offline and retries, and idempotency is the difference
  *   between a retry and a second payment;
- * - more than is owed is `CASH_OVERPAYMENT`; less is `CASH_UNDERPAYMENT` with `short_by`, because `25 §7`'s partial path
- *   needs a reason and that path is not built.
+ * - more than is owed is `CASH_OVERPAYMENT`; less is `CASH_UNDERPAYMENT` with `short_by` **unless the rider said it was a
+ *   part-payment** (`partial: true`, D151), in which case the claim is recorded at what they paid and the remainder stays
+ *   outstanding. The refusal is the default because the commonest cause of a short figure is a mistyped one, and a route
+ *   that quietly accepts it forgives a thousand taka; the flag is the difference between a typo and a choice.
  *
  * The two comparisons from `25 §6` are stored beside the claim so the reviewer sees what the platform saw, and the audit
  * row carries the same flags: a settlement decision made four minutes later must be explainable from the chain.
@@ -251,7 +254,7 @@ async function settleCash(ctx: Ctx, body: unknown): Promise<Response> {
       ctx.locale,
       ctx.requestId,
     );
-  if (draft.amountPaisa < outstanding)
+  if (draft.amountPaisa < outstanding && !draft.partial)
     return failureResponse(
       {
         code: "CASH_UNDERPAYMENT",
@@ -279,6 +282,7 @@ async function settleCash(ctx: Ctx, body: unknown): Promise<Response> {
       selfieUrl: draft.selfieUrl,
       numberMatches: checks.numberMatches,
       nameMatches: checks.nameMatches,
+      partial: draft.partial,
     },
     nowMs,
   );
@@ -304,6 +308,10 @@ async function settleCash(ctx: Ctx, body: unknown): Promise<Response> {
         outstandingBefore: outstanding,
         numberMatches: checks.numberMatches,
         nameMatches: checks.nameMatches,
+        // A part-payment leaves a remainder on purpose (`25 §7`), and the chain should say so rather than leaving a
+        // reader to infer it from two numbers eleven characters apart.
+        partial: draft.partial,
+        remainingPaisa: outstanding - draft.amountPaisa,
       },
       reason: "RIDER_SETTLED",
       severity: "NOTICE",
@@ -320,6 +328,7 @@ async function settleCash(ctx: Ctx, body: unknown): Promise<Response> {
         amountPaisa: draft.amountPaisa,
         trxId: draft.trxId,
         submittedAt: new Date(nowMs).toISOString(),
+        partial: draft.partial,
       },
       // What the reviewer will see, so the rider is not surprised later: a flag is not a refusal (see the module note).
       numberMatches: checks.numberMatches,

@@ -229,7 +229,11 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
 
   const outstanding = await cashOutstandingPaisa(ctx.db, riderBytes);
   const before = await shiftStateOf(ctx.db, riderBytes);
-  const released = outstanding === 0 && before === "CASH_LOCKED";
+  // Two ways to have settled: the balance is clear, or the rider paid what they could and said so (`25 §7`, D151).
+  // `§7` promises the second one may go online "with a reduced cash limit equal to their remaining headroom", and the
+  // dispatch ceiling of ৳3 500 is what enforces the reduction, so lifting the block is the whole of the promise this
+  // route can keep. The remainder stays on the books and the weekly invoice gate collects it (`24 §6`).
+  const released = (outstanding === 0 || row.isPartial) && before === "CASH_LOCKED";
   if (released) await setShiftState(ctx.db, riderBytes, "OFFLINE");
 
   await audit.appendAudit(
@@ -252,6 +256,7 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
         outstandingPaisa: outstanding,
         claimedPaisa: row.amountPaisa,
         approvedPaisa: accepted,
+        partial: row.isPartial,
         ledgerEntryId: entryId,
         note: decision.note,
       },
@@ -270,6 +275,7 @@ async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promis
         amountPaisa: row.amountPaisa,
         // Both numbers, so the reviewer and the rider's screen can say "৳1 000 of ৳2 140 accepted, ৳1 140 still owed".
         approvedPaisa: accepted,
+        partial: row.isPartial,
         trxId: row.trxId,
         submittedAt: row.createdAt,
         confirmedAt: new Date(nowMs).toISOString(),

@@ -82,6 +82,13 @@ export interface SettlementDraft {
   readonly selfieUrl: string;
   /** The amount the rider says they sent, in paisa. The route compares it to the balance. */
   readonly amountPaisa: number;
+  /**
+   * Whether the rider is settling part of the balance on purpose (`25 §7`, D151).
+   *
+   * Not derivable from `amountPaisa < outstanding`: a deliberate part-payment and a mistyped full one have the same
+   * numbers and need different answers, so the rider states which it is and the route believes the statement.
+   */
+  readonly partial: boolean;
   readonly method: SettlementMethod;
 }
 
@@ -214,9 +221,16 @@ export function parseSettlement(body: unknown): SettlementBody {
   if (typeof method !== "string" || !(SETTLEMENT_METHODS as readonly string[]).includes(method))
     return { ok: false, code: "VALIDATION_ENUM", details: { field: "method", allowed: [...SETTLEMENT_METHODS] } };
 
+  // The rider's choice, and the only thing that separates a part-payment from a typo (D151). Absent means `false`, so
+  // every existing caller keeps the old refusal; present with anything but a boolean is a refusal of its own.
+  const rawPartial = field(body, "partial");
+  if (rawPartial !== undefined && typeof rawPartial !== "boolean")
+    return { ok: false, code: "VALIDATION_FAILED", details: { field: "partial" } };
+
   return {
     ok: true,
     draft: {
+      partial: rawPartial === true,
       trxId,
       bkashNumber,
       accountName,

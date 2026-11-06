@@ -2563,6 +2563,10 @@
         {
           "name": "approved_paisa",
           "type": "BIGINT"
+        },
+        {
+          "name": "is_partial",
+          "type": "TINYINT(1)"
         }
       ],
       "generated": [],

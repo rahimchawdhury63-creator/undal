@@ -3694,3 +3694,36 @@ asserted against the SQL, a capped page whose total is still whole, and a rider 
 
 *Open:* `kind: "DISPUTE"` still answers `501`. It now has a source to read from, and what it still needs is a dispute
 record, a message thread (`order_disputes` exists in the inventory for orders) and a reviewer decision.
+
+## D151 — A part-payment is a choice, and it has to be said out loud
+
+`25 §7`'s fourth button is the only path in that section that does not need a human: "The rider settles what they can; the
+remainder stays in `RIDER_CASH`." The platform could already *record* a claim below the balance — `amount_paisa` has no
+lower bound — but `POST /rider/cash/settle` refused one, and that refusal was right.
+
+**The refusal stays, and the flag is how a rider overrides it.** A short figure is far more often a mistyped than a
+deliberate part-payment, and a route that accepted it would forgive a thousand taka every time somebody dropped a digit —
+the same reasoning that made `CASH_UNDERPAYMENT` carry `short_by` in the first place. So `partial: true` is the rider
+stating which it is, a non-boolean is refused, and `is_partial` (migration `024`) records the statement. Nothing is
+inferred from `amount < outstanding`, because that inequality is true of both cases and the two need different answers.
+
+**A part-payment that is approved releases the rider.** `§7` promises it: "the rider can go online with a reduced cash
+limit equal to their remaining headroom." So `released` is now `outstanding === 0 || row.isPartial`, and the remainder
+stays on the books where the weekly invoice gate collects it (`24 §6`). Approving is a human decision, so the platform is
+not handing out credit on its own — a reviewer looked at the claim, the evidence and the amount.
+
+**What is not built is the reduced ceiling.** Dispatch has one — `DEFAULT_CASH_LIMIT_PAISA`, ৳3 500, with a
+`cashHeadroom` factor in scoring — but it is computed from the *shift's* `cash_collected_paisa`, not from the balance.
+So a part-paid rider is offered work at the full ceiling instead of the reduced one, which is a real gap between `§7`'s
+sentence and this build, and it is written here rather than left for a reviewer to infer from a route that says `200`.
+
+**Three surfaces see the flag.** The settle response and the rider's read carry `partial` so the screen can say "you paid
+৳1 000 of ৳2 140"; the reviewer's queue carries it so a short claim is read as a choice rather than a shortfall; and the
+audit row carries it beside `remainingPaisa`, because a chain that records what was paid and not what is still owed leaves
+a reader doing subtraction eleven characters apart.
+
+Tests: five — two in `test/rider-cash.test.ts` (the part-payment recorded with its remainder, and the flag's two bounds: a
+non-boolean and an overpayment) and three in `test/cash-review.test.ts` (the release with the remainder intact, a full
+claim that leaves a balance and therefore releases nobody, and the queue's marking).
+
+*Open:* the dispatch ceiling reading the balance (above), and `kind: "DISPUTE"`.

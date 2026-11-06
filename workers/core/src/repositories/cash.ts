@@ -36,6 +36,8 @@ export interface SettlementRow {
    * column must not produce.
    */
   readonly approvedPaisa: number | null;
+  /** Whether the rider said they were settling part of the balance on purpose (D151). */
+  readonly isPartial: boolean;
   readonly method: string;
   readonly trxId: string | null;
   readonly status: string;
@@ -56,8 +58,8 @@ export interface SettlementRow {
 }
 
 const SETTLEMENT_COLUMNS =
-  "`id`, `rider_id`, `amount_paisa`, `approved_paisa`, `method`, `trx_id`, `status`, `created_at`, `rejection_reason`, "
-  "`rejection_note`, " +
+  "`id`, `rider_id`, `amount_paisa`, `approved_paisa`, `method`, `trx_id`, `status`, `created_at`, `is_partial`, " +
+  "`rejection_reason`, `rejection_note`, " +
   "`escalated_at`, `escalation_note`";
 
 /** One row, as the driver returns it. */
@@ -67,6 +69,7 @@ function rowOf(raw: Record<string, unknown>): SettlementRow {
     riderId: raw["rider_id"] instanceof Uint8Array ? toHexId(raw["rider_id"]) : "",
     amountPaisa: Number(raw["amount_paisa"] ?? 0),
     approvedPaisa: raw["approved_paisa"] === null || raw["approved_paisa"] === undefined ? null : Number(raw["approved_paisa"]),
+    isPartial: Number(raw["is_partial"] ?? 0) === 1,
     method: String(raw["method"] ?? ""),
     trxId: typeof raw["trx_id"] === "string" ? raw["trx_id"] : null,
     status: String(raw["status"] ?? ""),
@@ -161,6 +164,8 @@ export interface SettlementWrite {
   readonly selfieUrl: string;
   readonly numberMatches: boolean | null;
   readonly nameMatches: boolean | null;
+  /** Whether the rider declared this a part-payment (`25 §7`, D151). */
+  readonly partial: boolean;
 }
 
 /**
@@ -175,7 +180,7 @@ export async function writeSettlement(db: Db, write: SettlementWrite, nowMs: num
   await db.execute(
     "INSERT INTO `rider_cash_settlements` (`id`, `rider_id`, `shift_id`, `amount_paisa`, `method`, `trx_id`, " +
       "`bkash_number`, `account_name`, `screenshot_url`, `proof_media_id`, `selfie_url`, `number_matches`, " +
-      "`name_matches`, `status`, `created_at`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)",
+      "`name_matches`, `is_partial`, `status`, `created_at`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)",
     [
       id,
       write.riderId,
@@ -190,6 +195,7 @@ export async function writeSettlement(db: Db, write: SettlementWrite, nowMs: num
       write.selfieUrl,
       write.numberMatches === null ? null : write.numberMatches ? 1 : 0,
       write.nameMatches === null ? null : write.nameMatches ? 1 : 0,
+      write.partial ? 1 : 0,
       sqlDatetime(new Date(nowMs)),
     ],
   );
@@ -301,6 +307,8 @@ export interface QueueRow {
   readonly nameMatches: boolean | null;
   readonly screenshotUrl: string | null;
   readonly selfieUrl: string | null;
+  /** Whether the rider declared a part-payment (`25 §7`, D151). */
+  readonly isPartial: boolean;
   /** Set when a reviewer escalated the claim: still pending, but no longer making the rider wait (D146). */
   readonly escalatedAt: string | null;
   readonly escalationNote: string | null;
@@ -320,7 +328,8 @@ export interface QueueRow {
 export async function pendingSettlements(db: Db, limit: number): Promise<QueueRow[]> {
   const rows = await db.query<Record<string, unknown>>(
     "SELECT s.`id`, s.`rider_id`, r.`full_name`, r.`code`, s.`amount_paisa`, s.`method`, s.`trx_id`, s.`created_at`, " +
-      "s.`number_matches`, s.`name_matches`, s.`screenshot_url`, s.`selfie_url`, s.`escalated_at`, s.`escalation_note` " +
+      "s.`number_matches`, s.`name_matches`, s.`screenshot_url`, s.`selfie_url`, s.`is_partial`, s.`escalated_at`, " +
+      "s.`escalation_note` " +
       "FROM `rider_cash_settlements` s JOIN `riders` r ON r.`id` = s.`rider_id` " +
       "WHERE s.`status` = 'PENDING' ORDER BY s.`created_at` ASC LIMIT ?",
     [limit],
@@ -338,6 +347,7 @@ export async function pendingSettlements(db: Db, limit: number): Promise<QueueRo
     nameMatches: raw["name_matches"] === null ? null : Boolean(raw["name_matches"]),
     screenshotUrl: typeof raw["screenshot_url"] === "string" ? raw["screenshot_url"] : null,
     selfieUrl: typeof raw["selfie_url"] === "string" ? raw["selfie_url"] : null,
+    isPartial: Number(raw["is_partial"] ?? 0) === 1,
     escalatedAt: typeof raw["escalated_at"] === "string" ? raw["escalated_at"] : null,
     escalationNote: typeof raw["escalation_note"] === "string" ? raw["escalation_note"] : null,
   }));

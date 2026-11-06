@@ -496,6 +496,35 @@ describe("escalating a settlement (D146)", () => {
   });
 });
 
+describe("approving a part-payment (D151)", () => {
+  test("the rider goes online with the remainder still owed, because 25 §7 promises they may", async () => {
+    const db = dbFor({ settlement: settlementRow({ is_partial: 1 }), remaining: 114_000 });
+    const answer = await run(db, null);
+    assert.equal(answer.status, 200);
+    const data = answer.body["data"] as Record<string, any>;
+    assert.equal(data.released, true, "the block is not the only collection mechanism; the invoice gate is the second");
+    assert.equal(data.outstandingPaisa, 114_000, "and the remainder is still there the next morning");
+    assert.equal(data.settlement.partial, true);
+
+    const rider = db.calls.find((call) => call.sql.includes("UPDATE `riders` SET `shift_state`"));
+    assert.deepEqual(rider?.params, ["OFFLINE", bytes(RIDER_HEX)]);
+  });
+
+  test("a full claim with a balance left over does not release anybody", async () => {
+    const db = dbFor({ settlement: settlementRow(), remaining: 114_000 });
+    const answer = await run(db, null);
+    assert.equal((answer.body["data"] as Record<string, unknown>)["released"], false);
+  });
+
+  test("the queue marks the part-payments, so the reviewer reads them as a choice", async () => {
+    const queue = dbFor({ queue: [queueRow({ is_partial: 1 }), queueRow({ id: bytes("0193f2a17c3e7890abcdef01234567f1") })] });
+    const list = await run(queue, null, "/v1/finance/cash/settlements");
+    const rows = (list.body["data"] as Record<string, any>)["settlements"];
+    assert.equal(rows[0].partial, true);
+    assert.equal(rows[1].partial, false);
+  });
+});
+
 describe("approving a different amount (D147)", () => {
   test("a partial acceptance credits what it says, and leaves the rest owed", async () => {
     const db = dbFor({ remaining: 114_000 });

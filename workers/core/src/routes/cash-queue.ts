@@ -37,6 +37,9 @@ function queueEntry(row: Awaited<ReturnType<typeof pendingSettlements>>[number],
     slaBreached: autoLiftDue(submitted === null ? null : submitted.getTime(), nowMs),
     // An escalated claim is still in the queue — nobody has decided whether the money arrived — but it is a different
     // kind of wait: the rider is already released, and the next reviewer inherits somebody else's note (D146).
+    // A part-payment (`25 §7`, D151) is a claim whose amount is deliberately below the balance: the reviewer should
+    // read that as a choice before approving it, not as a short transfer.
+    partial: row.isPartial,
     escalated: row.escalatedAt !== null,
     escalationNote: row.escalationNote,
     numberMatches: row.numberMatches,
