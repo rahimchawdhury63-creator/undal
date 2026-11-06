@@ -3673,7 +3673,7 @@ with no way to check it. `GET /v1/rider/cash/breakdown` is the check.
 **Attribution is the assignment, not the order.** The natural join is `orders.rider_id`, and it is wrong: that column is
 whoever holds the order *now*, so a reassigned order credits one rider with a delivery and takes it away from another.
 The line items come from `order_assignments` where `end_reason = 'DELIVERED'` — the record of who actually delivered —
-which is also why the same rule appears in the delivery-statistics query (D?) and nowhere else. A test asserts the
+which is also the rule the rating join (D137) and the statistics query already use. A test asserts the
 statement does not mention `orders.rider_id` at all.
 
 **Three numbers, and the difference is the point.** `linesPaisa` is the sum over the whole history, `collectedPaisa` is
