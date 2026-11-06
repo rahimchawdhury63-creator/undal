@@ -5,18 +5,17 @@
 
 import * as audit from "../audit/write.ts";
 import { reasonAllowed, reasonsFor } from "../audit/reasons.ts";
-import { AUTO_LIFT_MS, auditReasonFor, autoLiftDue, isRejectionReason, REJECTION_REASONS, refusalNeedsNote } from "../domain/rider/cash.ts";
+import { auditReasonFor, isRejectionReason, REJECTION_REASONS, refusalNeedsNote } from "../domain/rider/cash.ts";
 import { toHexId } from "../lib/ids.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
-import { parseDatetime } from "../db/time.ts";
 import { cashOutstandingPaisa, setShiftState, shiftStateOf } from "../repositories/riders.ts";
 import type { RejectionReason } from "../domain/rider/cash.ts";
 import {
   claimSettlement,
   creditDeposit,
-  pendingSettlements,
+  escalateSettlement,
   rejectSettlement,
   releaseClaim,
   settlementById,
@@ -365,79 +364,115 @@ async function refuseSettlement(ctx: Ctx, rawId: string, body: unknown): Promise
   );
 }
 
-/** The queue's ceiling. A pending list longer than this is an incident, not a page to scroll. */
-const QUEUE_LIMIT_MAX = 100;
-
-/** One claim as the reviewer's list shows it. */
-function queueEntry(row: Awaited<ReturnType<typeof pendingSettlements>>[number], nowMs: number): Record<string, unknown> {
-  const submitted = parseDatetime(row.submittedAt);
-  const ageMs = submitted === null ? null : nowMs - submitted.getTime();
-  return {
-    id: row.id,
-    rider: { id: row.riderId, name: row.riderName, code: row.riderCode },
-    amountPaisa: row.amountPaisa,
-    method: row.method,
-    trxId: row.trxId,
-    submittedAt: row.submittedAt,
-    ageMinutes: ageMs === null ? null : Math.floor(ageMs / 60_000),
-    // The reviewer's deadline, shown rather than implied: past it, the door will open without them (D142).
-    reviewDueBy: submitted === null ? null : new Date(submitted.getTime() + AUTO_LIFT_MS).toISOString(),
-    slaBreached: autoLiftDue(submitted === null ? null : submitted.getTime(), nowMs),
-    numberMatches: row.numberMatches,
-    nameMatches: row.nameMatches,
-    screenshotUrl: row.screenshotUrl,
-    selfieUrl: row.selfieUrl,
-  };
-}
-
 /**
- * The reviewer's queue: `GET /v1/finance/cash/settlements` (D145).
+ * Escalate a claim: `POST /v1/finance/cash/settlements/{id}/escalate` (`25 §6.1`, D146).
  *
- * `25 §6` draws a screen that opens with "7 pending · SLA 30 min" and a list ordered by how long each claim has waited.
- * Without a route behind it, D143's approve and D144's reject were buttons on a screen with no list: a reviewer could
- * decide a settlement only if they already knew its id, which is not a queue, it is a lookup.
+ * The fourth decision, and the only one that costs the platform something without settling anything. A reviewer who
+ * cannot tell from the evidence whether the money arrived — a bKash delay, a screenshot that will not open, a name that
+ * changed last month — has three bad options and one good one: approve a payment they are not sure of, refuse a rider who
+ * may be right, or make the rider wait. Escalation is the fourth: a human promises to look, and **the rider stops
+ * waiting immediately**, because `§6.1` is explicit that an escalation is the platform's problem and not the rider's.
  *
- * Oldest first, because the ordering is the fairness rule — the top of the list is the claim closest to auto-lifting
- * without review. Each row carries the two automated flags and both evidence URLs from `§6`'s table, so the decision is
- * made from the list rather than by fetching each claim. `slaBreached` is the same two-hour rule D142 enforces at the
- * door, computed here rather than stored, so the queue and the gate can never disagree about who is late.
+ * **The debt is not forgiven.** No ledger entry, no deposit credit: `outstanding_paisa` is unchanged, the claim stays
+ * `PENDING`, and the queue still lists it — with the escalation marked and the note attached, so the next reviewer picks
+ * up where this one stopped rather than starting again. Releasing a rider and forgiving a debt are different acts and
+ * this route only does the first.
  *
- * The summary is what the header shows, and it is deliberately three numbers rather than a dashboard: how many are
- * waiting, how old the oldest is, and how many are past the deadline they will be released at anyway.
+ * **It needs the approver's key, and that is the honest requirement.** There is no `finance.cash.escalate_settlement`
+ * in the register, and inventing a permission so that a *less* accountable action can skip the step-up code would be the
+ * wrong direction: an escalation releases a rider against cash the platform has not seen, which is the consequence the
+ * step-up guards in the first place. So it borrows `finance.cash.approve_settlement` and inherits its TOTP requirement.
  */
-async function settlementQueue(ctx: Ctx): Promise<Response> {
-  const requested = Number(ctx.url.searchParams.get("limit") ?? 50);
-  const limit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), QUEUE_LIMIT_MAX) : 50;
+async function escalateClaim(ctx: Ctx, rawId: string, body: unknown): Promise<Response> {
+  if (ctx.principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+
+  const id = idBytes(rawId);
+  if (id === null) {
+    return failureResponse({ code: "VALIDATION_ID_MALFORMED", details: { field: "id" } }, ctx.locale, ctx.requestId);
+  }
+
+  const noteRaw = typeof body === "object" && body !== null ? (body as Record<string, unknown>)["note"] ?? null : null;
+  if (noteRaw !== null && (typeof noteRaw !== "string" || noteRaw.trim().length > 280)) {
+    return failureResponse({ code: "VALIDATION_REQUIRED", details: { fields: ["note"] } }, ctx.locale, ctx.requestId);
+  }
+  const note = noteRaw === null ? null : (noteRaw as string).trim();
+
+  const row = await settlementById(ctx.db, id);
+  if (row === null) {
+    return failureResponse({ code: "MONEY_PAYOUT_NOT_FOUND", details: { payout_id: rawId } }, ctx.locale, ctx.requestId);
+  }
+  if (row.status !== "PENDING" || row.escalatedAt !== null) {
+    return failureResponse(
+      { code: "CASH_ALREADY_SETTLED", details: { settled_at: row.confirmedAt ?? row.escalatedAt ?? row.createdAt } },
+      ctx.locale,
+      ctx.requestId,
+    );
+  }
+
   const nowMs = Date.now();
-  const rows = await pendingSettlements(ctx.db, limit);
-  const entries = rows.map((row) => queueEntry(row, nowMs));
-  const ages = entries.map((entry) => entry["ageMinutes"]).filter((age): age is number => typeof age === "number");
+  let adminBytes: Uint8Array;
+  try {
+    adminBytes = uuidBytes(ctx.principal.userId);
+  } catch {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_an_admin" } }, ctx.locale, ctx.requestId);
+  }
+
+  if (!(await escalateSettlement(ctx.db, id, adminBytes, note, nowMs))) {
+    const latest = await settlementById(ctx.db, id);
+    return failureResponse(
+      { code: "CASH_ALREADY_SETTLED", details: { settled_at: latest?.confirmedAt ?? latest?.escalatedAt ?? row.createdAt } },
+      ctx.locale,
+      ctx.requestId,
+    );
+  }
+
+  const outstanding = await cashOutstandingPaisa(ctx.db, uuidBytes(row.riderId));
+  await audit.appendAudit(
+    ctx.db,
+    {
+      actorId: ctx.principal.userId,
+      actorType: "ADMIN",
+      actorRole: ctx.principal.role ?? null,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      requestId: ctx.requestId,
+      action: "finance.cash.escalate_settlement",
+      resourceType: "RIDER_CASH_SETTLEMENT",
+      resourceId: toHexId(id),
+      subjectId: row.riderId,
+      before: { status: "PENDING", escalated: false, outstandingPaisa: outstanding },
+      after: { status: "PENDING", escalated: true, note, outstandingPaisa: outstanding },
+      // The register has no escalation code; `SETTLEMENT_DISPUTED` is the honest one — a human is looking because the
+      // evidence and the claim do not agree, which is exactly what the word means.
+      reason: "SETTLEMENT_DISPUTED",
+      severity: "WARNING",
+    },
+    nowMs,
+  );
+
   return successResponse(
     {
-      settlements: entries,
-      summary: {
-        pending: entries.length,
-        oldestMinutes: ages.length === 0 ? null : Math.max(...ages),
-        breaches: entries.filter((entry) => entry["slaBreached"] === true).length,
-        limit,
+      settlement: {
+        id: toHexId(id),
+        status: "PENDING",
+        method: row.method,
+        amountPaisa: row.amountPaisa,
+        trxId: row.trxId,
+        submittedAt: row.createdAt,
+        escalatedAt: new Date(nowMs).toISOString(),
+        escalationNote: note,
       },
+      outstandingPaisa: outstanding,
+      // The consequence, stated rather than implied: the rider may start a shift from their next request onward.
+      released: true,
     },
     ctx.locale,
     ctx.requestId,
   );
 }
 
-/** The finance routes (`08 §8`, D143–D145): the queue, and two decisions about one claim. */
+/** The finance decisions (`08 §8`, D143–D146): three answers to one pending claim. */
 export const CASH_REVIEW_ROUTES: readonly RouteDefinition[] = [
-  {
-    method: "GET",
-    path: "/v1/finance/cash/settlements",
-    permission: "finance.cash.list_outstanding",
-    // `ADMIN_WRITE` is the only admin-facing group in the limiter (`29 §4`); a read that shares a reviewer's budget
-    // with their decisions is the honest accounting, since both are one person at one screen.
-    group: "ADMIN_WRITE",
-    run: async (ctx) => settlementQueue(ctx),
-  },
   {
     method: "POST",
     path: "/v1/finance/cash/settlements/{id}/approve",
@@ -455,5 +490,16 @@ export const CASH_REVIEW_ROUTES: readonly RouteDefinition[] = [
     group: "ADMIN_WRITE",
     maxBodyBytes: 1_024,
     run: async (ctx, input) => refuseSettlement(ctx, input.params["id"] ?? "", input.body),
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/cash/settlements/{id}/escalate",
+    // Not a key of its own: escalation releases a rider against cash the platform has not seen, so it carries the
+    // approver's permission — and therefore the approver's step-up code. See the handler.
+    permission: "finance.cash.approve_settlement",
+    write: true,
+    group: "ADMIN_WRITE",
+    maxBodyBytes: 1_024,
+    run: async (ctx, input) => escalateClaim(ctx, input.params["id"] ?? "", input.body),
   },
 ];

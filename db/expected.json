@@ -2508,6 +2508,18 @@
         {
           "name": "rejection_note",
           "type": "VARCHAR(280)"
+        },
+        {
+          "name": "escalated_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "escalated_by",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "escalation_note",
+          "type": "VARCHAR(280)"
         }
       ],
       "generated": [],

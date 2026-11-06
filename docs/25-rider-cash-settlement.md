@@ -322,6 +322,16 @@ Every decision is audited with the reviewer, the evidence they saw, and the reas
 > evidence" is not "never mind". The audit row records the *register's* nearest word instead — `CASH_COUNTED_SHORT` for
 > `AMOUNT_MISMATCH`, `SETTLEMENT_DISPUTED` otherwise — so the audit list groups on one closed vocabulary rather than
 > nine that only this route uses.
+>
+> **Escalate is built, and it is the one decision that forgives nothing (D146).**
+> `POST /v1/finance/cash/settlements/{id}/escalate` sets `escalated_at`, keeps the claim `PENDING` and the debt
+> outstanding, and releases the rider from that moment — because the escalation is the platform's problem. The release is
+> *computed*, not written: `liftStateOf` treats an escalated pending claim the way it treats a two-hour-old one, so
+> `GET /v1/rider/cash` answers `locked: false, escalated: true` and `POST /v1/rider/shift/start` opens the door on the
+> rider's next request. It takes the approver's key and therefore the approver's step-up code: releasing a rider against
+> cash the platform has not seen is precisely the consequence step-up exists to guard, and a lesser permission for the
+> same consequence would be the wrong direction. The end of a *later* shift does not re-block an escalated rider either,
+> so the door does not make them prove the same promise twice.
 
 ### 6.2 Rejection reasons
 
@@ -426,6 +436,11 @@ collection mechanism behind the blocking screen.
 
 The last row matters: an auto-lift means admin review was too slow, and it is counted against the
 operations team.
+
+> **An escalation is not an auto-lift (D146).** Both release the rider, and only one is a failure. `autoLiftDue` is
+> counted because nobody answered in two hours; `escalated` is a reviewer who answered and said "I need to look closer",
+> which is the system working. The two are separate fields on the read for exactly that reason, and an escalated claim is
+> never also counted as a breach even when it is three hours old.
 
 ---
 

@@ -130,7 +130,12 @@ async function startShift(ctx: Ctx, body: unknown): Promise<Response> {
     // blocked, and the door is where that stops being a calculation and becomes a fact — one state write and one audit
     // row, made when it matters, rather than a sweep that would need a schedule nobody has.
     const lift = liftStateOf(rider.shiftState, await latestSettlement(ctx.db, rider.id), Date.now());
-    if (lift.autoLiftDue) {
+    if (lift.escalated) {
+      // A reviewer already promised to look at this claim (`25 §6.1`), so the door opens without a second audit row: the
+      // escalation itself is the record, and a system row here would read like the platform's failure rather than a
+      // human's decision (D146).
+      await setShiftState(ctx.db, rider.id, "OFFLINE");
+    } else if (lift.autoLiftDue) {
       await setShiftState(ctx.db, rider.id, "OFFLINE");
       const pending = await pendingSettlement(ctx.db, rider.id);
       // The platform was slow, so the platform records it: this is a failure metric in `25 §10`, not a rider metric.
@@ -341,7 +346,11 @@ async function endShift(ctx: Ctx, body: unknown): Promise<Response> {
   }
 
   const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
-  const shiftState = outstanding > 0 ? "CASH_LOCKED" : "OFFLINE";
+  // A debt under escalation does not re-block the rider at the end of the next shift either (D146): the claim is still
+  // pending and a human is still on it, so setting `CASH_LOCKED` here would make them prove that again at the next door.
+  const review = await pendingSettlement(ctx.db, rider.id);
+  const underReview = review !== null && review.escalatedAt !== null;
+  const shiftState = outstanding > 0 && !underReview ? "CASH_LOCKED" : "OFFLINE";
   await setShiftState(ctx.db, rider.id, shiftState);
 
   const base = ctx.env.REALTIME_BASE;

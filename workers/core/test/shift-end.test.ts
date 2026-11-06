@@ -55,6 +55,8 @@ function endDb(
     activeOrders?: number;
     outstanding?: number | null;
     closed?: number;
+    /** The rider's pending claim, if any. An escalated one means the end must not re-block them (D146). */
+    pending?: Record<string, unknown> | null;
   } = {},
 ): ReturnType<typeof stubDb> {
   const rider = options.rider === undefined ? RIDER_ROW : options.rider;
@@ -66,6 +68,10 @@ function endDb(
     },
     { match: /COUNT\(\*\) AS `n` FROM `orders`/u, rows: [{ n: options.activeOrders ?? 0 }] },
     { match: /outstanding_paisa` FROM `rider_cash_balances`/u, rows: options.outstanding === undefined || options.outstanding === null ? [] : [{ outstanding_paisa: options.outstanding }] },
+    {
+      match: /FROM `rider_cash_settlements` WHERE `rider_id` = \? AND `status` = 'PENDING'/u,
+      rows: options.pending === undefined || options.pending === null ? [] : [options.pending],
+    },
     { match: /UPDATE `rider_shifts` SET/u, affectedRows: options.closed ?? 1 },
     { match: /UPDATE `riders` SET/u, affectedRows: 1 },
     { match: /FROM `audit_log`/u, rows: [] },
@@ -220,5 +226,31 @@ describe("POST /v1/rider/shift/end", () => {
     const response = await route().run(ctxFor(db), { params: {}, body: { point: { lat: 999, lon: 0 } }, reason: null });
     assert.equal(response.status, 422);
     assert.deepEqual(db.calls, []);
+  });
+
+  test("a debt under escalation is not re-blocked at the end of the next shift (D146)", async () => {
+    const served = serveErase(true);
+    const db = endDb({
+        outstanding: 214_000,
+      pending: {
+        id: bytes(SHIFT_HEX),
+        rider_id: bytes(RIDER_HEX),
+        amount_paisa: 214_000,
+        method: "BKASH",
+        trx_id: "9H5K2M8P1Q",
+        status: "PENDING",
+        created_at: STARTED_AT,
+        escalated_at: STARTED_AT,
+      },
+    });
+    let response: Response;
+    try {
+      response = await route().run(ctxFor(db), { params: {}, body: null, reason: null });
+    } finally {
+      served.restore();
+    }
+    assert.equal(response.status, 200);
+    const stateWrite = db.calls.find((call) => call.sql === "UPDATE `riders` SET `shift_state` = ? WHERE `id` = ?");
+    assert.equal(stateWrite?.params[0], "OFFLINE", "the debt is real and the review is real; blocking again would deny it");
   });
 });

@@ -278,6 +278,31 @@ describe("the refusal the rider can read (D144)", () => {
   });
 });
 
+describe("the escalation the rider is told about (D146)", () => {
+  test("a recent claim that a reviewer escalated is not a block, and the app is told which release it is", async () => {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = dbFor({ outstanding: 214_000, latest: settlementRow({ created_at: fiveMinutesAgo, escalated_at: fiveMinutesAgo }) });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    const parsed = (await response.json()) as {
+      data: { locked: boolean; escalated: boolean; autoLiftDue: boolean; cashInHandPaisa: number; shiftState: string };
+    };
+    assert.equal(parsed.data.locked, false, "somebody is looking into it, so the rider is not waiting");
+    assert.equal(parsed.data.escalated, true);
+    assert.equal(parsed.data.autoLiftDue, false, "a reviewer was on it in time; this is not the platform being slow");
+    assert.equal(parsed.data.cashInHandPaisa, 214_000, "the debt is still on the books");
+    assert.equal(parsed.data.shiftState, "CASH_LOCKED", "the stored state is history; the lift is computed");
+  });
+
+  test("an escalation beats the clock: a three-hour-old escalated claim is not a platform failure", async () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = dbFor({ outstanding: 214_000, latest: settlementRow({ created_at: threeHoursAgo, escalated_at: threeHoursAgo }) });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    const parsed = (await response.json()) as { data: { escalated: boolean; autoLiftDue: boolean } };
+    assert.equal(parsed.data.escalated, true);
+    assert.equal(parsed.data.autoLiftDue, false, "25 §10 counts auto-lifts against operations, and a human replied");
+  });
+});
+
 describe("the two comparisons a reviewer sees (D141)", () => {
   test("a number matches across the spellings a rider types", () => {
     assert.equal(sameNumber("+8801812345678", "01812345678"), true);

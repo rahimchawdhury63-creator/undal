@@ -36,10 +36,20 @@ export interface SettlementRow {
   readonly rejectionReason: string | null;
   /** The reviewer's own sentence, which the rider's screen shows beneath the code. */
   readonly rejectionNote: string | null;
+  /**
+   * When the claim was escalated to a senior reviewer, or `null` (D146).
+   *
+   * A timestamp rather than a status, because an escalation is not a verdict: the claim is still `PENDING` and still
+   * waiting for somebody to decide whether the money arrived. What the timestamp changes is whether the rider waits too.
+   */
+  readonly escalatedAt: string | null;
+  /** Why it was escalated, for the reviewer who inherits it. */
+  readonly escalationNote: string | null;
 }
 
 const SETTLEMENT_COLUMNS =
-  "`id`, `rider_id`, `amount_paisa`, `method`, `trx_id`, `status`, `created_at`, `rejection_reason`, `rejection_note`";
+  "`id`, `rider_id`, `amount_paisa`, `method`, `trx_id`, `status`, `created_at`, `rejection_reason`, `rejection_note`, " +
+  "`escalated_at`, `escalation_note`";
 
 /** One row, as the driver returns it. */
 function rowOf(raw: Record<string, unknown>): SettlementRow {
@@ -53,6 +63,8 @@ function rowOf(raw: Record<string, unknown>): SettlementRow {
     createdAt: String(raw["created_at"] ?? ""),
     rejectionReason: typeof raw["rejection_reason"] === "string" ? raw["rejection_reason"] : null,
     rejectionNote: typeof raw["rejection_note"] === "string" ? raw["rejection_note"] : null,
+    escalatedAt: typeof raw["escalated_at"] === "string" ? raw["escalated_at"] : null,
+    escalationNote: typeof raw["escalation_note"] === "string" ? raw["escalation_note"] : null,
   };
 }
 
@@ -278,6 +290,9 @@ export interface QueueRow {
   readonly nameMatches: boolean | null;
   readonly screenshotUrl: string | null;
   readonly selfieUrl: string | null;
+  /** Set when a reviewer escalated the claim: still pending, but no longer making the rider wait (D146). */
+  readonly escalatedAt: string | null;
+  readonly escalationNote: string | null;
 }
 
 /**
@@ -294,7 +309,7 @@ export interface QueueRow {
 export async function pendingSettlements(db: Db, limit: number): Promise<QueueRow[]> {
   const rows = await db.query<Record<string, unknown>>(
     "SELECT s.`id`, s.`rider_id`, r.`full_name`, r.`code`, s.`amount_paisa`, s.`method`, s.`trx_id`, s.`created_at`, " +
-      "s.`number_matches`, s.`name_matches`, s.`screenshot_url`, s.`selfie_url` " +
+      "s.`number_matches`, s.`name_matches`, s.`screenshot_url`, s.`selfie_url`, s.`escalated_at`, s.`escalation_note` " +
       "FROM `rider_cash_settlements` s JOIN `riders` r ON r.`id` = s.`rider_id` " +
       "WHERE s.`status` = 'PENDING' ORDER BY s.`created_at` ASC LIMIT ?",
     [limit],
@@ -312,5 +327,29 @@ export async function pendingSettlements(db: Db, limit: number): Promise<QueueRo
     nameMatches: raw["name_matches"] === null ? null : Boolean(raw["name_matches"]),
     screenshotUrl: typeof raw["screenshot_url"] === "string" ? raw["screenshot_url"] : null,
     selfieUrl: typeof raw["selfie_url"] === "string" ? raw["selfie_url"] : null,
+    escalatedAt: typeof raw["escalated_at"] === "string" ? raw["escalated_at"] : null,
+    escalationNote: typeof raw["escalation_note"] === "string" ? raw["escalation_note"] : null,
   }));
+}
+
+/**
+ * Escalate a claim to a senior reviewer, and release the rider while it is reviewed (`25 §6.1`, D146).
+ *
+ * One statement, guarded twice: `status = 'PENDING'` so a claim somebody already approved cannot be escalated, and
+ * `escalated_at IS NULL` so a second escalation is refused rather than overwriting the note the first one left. No
+ * money moves — the debt stays on the books as outstanding, because releasing a rider is not forgiving a debt.
+ */
+export async function escalateSettlement(
+  db: Db,
+  id: Uint8Array,
+  escalatedBy: Uint8Array,
+  note: string | null,
+  nowMs: number,
+): Promise<boolean> {
+  const result = await db.execute(
+    "UPDATE `rider_cash_settlements` SET `escalated_at` = ?, `escalated_by` = ?, `escalation_note` = ? " +
+      "WHERE `id` = ? AND `status` = 'PENDING' AND `escalated_at` IS NULL",
+    [sqlDatetime(new Date(nowMs)), escalatedBy, note, id],
+  );
+  return result.affectedRows > 0;
 }

@@ -3491,3 +3491,50 @@ with one breach and the summary arithmetic, and the empty day with the clamp.
 
 *Open:* the queue has no filters (zone, rider, method), no cursor, and no pagination beyond the ceiling — all three are
 answered by "there should never be more than a handful", which is a claim the monitoring in `§10` has to keep true.
+
+## D146 — Escalation: releasing the rider without forgiving the debt
+
+`25 §6.1` names four decisions and D143/D144 built two. The fourth — escalate — is the one the other three exist to avoid
+needing: a reviewer who cannot tell from the evidence whether the money arrived (a bKash delay, a screenshot that will not
+open, a name that changed last month) should not have to choose between approving a payment they are unsure of and
+refusing a rider who may be right. `POST /v1/finance/cash/settlements/{id}/escalate` is that fourth answer, and
+`§6.1` states its consequence plainly: the rider is released, because the escalation is the platform's problem.
+
+**Released, not forgiven.** The claim stays `PENDING`, `outstanding_paisa` is untouched, no ledger entry is posted and no
+deposit is credited. Migration `021` adds `escalated_at`, `escalated_by` and `escalation_note`; the first is what the lift
+reads, the last is what the next reviewer inherits. Releasing a rider and forgiving a debt are different acts, and this
+build has no route that performs the second.
+
+**The release is computed, like every other lift here.** `liftStateOf` already answered "is this rider actually blocked?"
+from the stored state and the pending claim; it now answers it from three facts instead of two. An escalated claim lifts
+the block the same way a two-hour-old one does — `locked: false` on the read, a state write at the door — so there is one
+rule about the block rather than one per route. The order of the two checks matters: escalation is tested **before** the
+clock, so an escalated claim is never also counted as an SLA breach. `§10` counts auto-lifts as a platform failure
+metric; an escalation is a human replying in time, and mixing the two would make the metric unreadable.
+
+**It borrows the approver's key, and that is the conservative choice.** There is no `finance.cash.escalate_settlement` in
+the register. Inventing a lighter permission for an action whose *consequence* is the same as approval's — a rider on the
+road against cash nobody has confirmed — would put a weaker lock on the same door. So the route declares
+`finance.cash.approve_settlement` and inherits its TOTP requirement, and `audit/reasons.ts` needs nothing new: the
+escalation cites `SETTLEMENT_DISPUTED`, which is exactly what "a human needs to look at this" means.
+
+**The next shift's end does not re-block them.** `endShift` wrote `CASH_LOCKED` whenever cash was outstanding, which would
+have made an escalated rider prove the same promise at the end of the next shift. It now checks for a live escalation and
+writes `OFFLINE` instead — the debt is real, the review is real, and blocking again would deny the second.
+
+**A second escalation is refused, not merged.** The guarded update is `WHERE status = 'PENDING' AND escalated_at IS NULL`,
+so an already-escalated claim answers `CASH_ALREADY_SETTLED` rather than overwriting the first reviewer's note. Notes are
+optional (a reviewer who escalates without typing still escalated) and bounded at 280 characters.
+
+**The queue moved to its own module.** `cash-review.ts` had grown to 582 lines carrying the queue, three decisions and
+their doc comments; the guardrail's budget exists to stop exactly that. `routes/cash-queue.ts` now owns the read surface
+(97 lines) and `cash-review.ts` owns the decisions (505), which is the split a reviewer of either file would have asked
+for.
+
+Tests: seven new — two in `shift-start.test.ts`/`shift-end.test.ts` (an escalated claim opens the door with no
+`rider.cash.auto_lift` row; the end of the next shift writes `OFFLINE` while cash is outstanding), two in
+`rider-cash.test.ts` (the read's `escalated`/`autoLiftDue` pair, and escalation beating the clock), and three in
+`cash-review.test.ts` (the release without a posting, the three refusals, the note's bounds and the queue's marking).
+
+*Open:* approve-a-different-amount is now the only `§6.1` decision without a route, and `§7`'s partial paths —
+robbed/lost, emergency, "I disagree" — remain screens.

@@ -57,10 +57,13 @@ async function riderFor(ctx: Ctx): Promise<RiderRow | Response> {
   return rider;
 }
 
-/** Whether the rider is actually blocked, and whether `25 §8`'s two-hour rule has already released them. */
+/** Whether the rider is actually blocked, and which of the two releases has already applied. */
 export interface CashLift {
   readonly locked: boolean;
+  /** `25 §8`'s two-hour rule: nobody reviewed the claim in time, so the platform lets the rider through (D142). */
   readonly autoLiftDue: boolean;
+  /** A reviewer said "a human is looking into this" and released the rider while it is decided (D146). */
+  readonly escalated: boolean;
 }
 
 /** When the pending claim arrived, in epoch ms, or `null` if there is nothing pending. */
@@ -78,11 +81,19 @@ export function submittedAtMs(row: SettlementRow | null): number | null {
  * therefore a rule about *state* — "a rider whose claim has waited two hours is not blocked" — and this function is that
  * rule. The read reports it; `POST /v1/rider/shift/start` writes it, because a door that opens is the only moment the
  * lift needs to become a fact rather than a calculation.
+ *
+ * There are two ways out of the block and they are both computed here (D146): the platform was too slow, or a reviewer
+ * escalated the claim and released the rider while it is decided. Neither forgives the debt — `outstanding_paisa` is
+ * untouched by both — because the block is a collection mechanism and a rider's livelihood is on the other side of it.
  */
 export function liftStateOf(shiftState: string, latest: SettlementRow | null, nowMs: number): CashLift {
-  if (shiftState !== "CASH_LOCKED") return { locked: false, autoLiftDue: false };
+  if (shiftState !== "CASH_LOCKED") return { locked: false, autoLiftDue: false, escalated: false };
+  // An escalation is a human promising to look, so the rider stops waiting the moment it is made (D146). It is checked
+  // before the clock because a promise made is better evidence than a promise that ran out — and because the audit trail
+  // should say "escalated", not "the platform was slow", when a reviewer was already on it.
+  if (latest !== null && latest.escalatedAt !== null) return { locked: false, autoLiftDue: false, escalated: true };
   const overdue = autoLiftDue(submittedAtMs(latest), nowMs);
-  return { locked: !overdue, autoLiftDue: overdue };
+  return { locked: !overdue, autoLiftDue: overdue, escalated: false };
 }
 
 /** The settlement as the app reads it: identity, amount, status and when it arrived. */
@@ -130,6 +141,7 @@ async function cashPosition(ctx: Ctx): Promise<Response> {
       // The effective block, not the stored one: a read must never show a rider a wall the platform has already dropped.
       locked: lift.locked,
       autoLiftDue: lift.autoLiftDue,
+      escalated: lift.escalated,
       settlementRequired: outstanding > 0,
       shiftState: rider.shiftState,
       settlement: latest === null ? null : serialiseSettlement(latest),

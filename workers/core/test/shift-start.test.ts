@@ -51,6 +51,8 @@ function shiftDb(
     assigned?: boolean;
     /** The rider's settlement still under review, as `created_at` text, or absent (D142). */
     pendingClaimAt?: string | null;
+    /** When that claim was escalated to a senior reviewer, if it was (D146). */
+    escalatedAt?: string | null;
   } = {},
 ): ReturnType<typeof stubDb> {
   const rider = options.rider === undefined ? RIDER_ROW : options.rider;
@@ -65,6 +67,7 @@ function shiftDb(
           trx_id: "9H5K2M8P1Q",
           status: "PENDING",
           created_at: options.pendingClaimAt,
+          escalated_at: options.escalatedAt ?? null,
         }];
   return stubDb([
     { match: /FROM `riders` WHERE `user_id`/u, rows: rider === null ? [] : [rider] },
@@ -326,6 +329,31 @@ describe("POST /v1/rider/shift/start", () => {
     assert.equal(response.status, 409, "the two-hour rule is about the platform's slowness, not about the rider's");
     assert.ok(!db.calls.some((call) => call.sql.startsWith("UPDATE `riders` SET `shift_state`")));
   });
+  test("an escalated claim opens the door without a second audit row (D146)", async () => {
+    // Five minutes old, so the two-hour rule is nowhere near it: this rider is let through because a human said so.
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = shiftDb({
+      rider: { ...RIDER_ROW, shift_state: "CASH_LOCKED" },
+      pendingClaimAt: fiveMinutesAgo,
+      escalatedAt: fiveMinutesAgo,
+    });
+    const served = serveInternal(true);
+    let response: Response;
+    try {
+      response = await route().run(ctxFor(db), { params: {}, body: BODY, reason: null });
+    } finally {
+      served.restore();
+    }
+    assert.equal(response.status, 200, "a promise to look is better evidence than a promise that ran out");
+    assert.ok(db.calls.some((call) => call.sql === "UPDATE `riders` SET `shift_state` = ? WHERE `id` = ?" && call.params[0] === "OFFLINE"));
+    const audits = db.calls.filter((call) => call.sql.startsWith("INSERT INTO `audit_log`"));
+    assert.ok(
+      !audits.some((call) => call.params[9] === "rider.cash.auto_lift"),
+      "the escalation is already the record; a platform-failure row here would blame the wrong party",
+    );
+    assert.ok(audits.some((call) => call.params[9] === "rider.shift.start"), "the shift itself is still audited");
+  });
+
   test("a deployment with no realtime configured cannot claim a shift is trackable", async () => {
     const db = shiftDb();
     const routeDefinition = route();

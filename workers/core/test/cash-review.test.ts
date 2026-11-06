@@ -9,6 +9,7 @@ import { describe, test } from "node:test";
 import { stubDb } from "../src/db/client.ts";
 import { testEnv } from "./support.ts";
 import { CASH_REVIEW_ROUTES } from "../src/routes/cash-review.ts";
+import { CASH_QUEUE_ROUTES } from "../src/routes/cash-queue.ts";
 import type { Ctx } from "../src/middleware/context.ts";
 import type { Principal } from "../src/rbac/guard.ts";
 
@@ -33,6 +34,7 @@ const bytes = (hex: string): Uint8Array => {
 
 const PATH = "/v1/finance/cash/settlements/{id}/approve";
 const REJECT_PATH = "/v1/finance/cash/settlements/{id}/reject";
+const ESCALATE_PATH = "/v1/finance/cash/settlements/{id}/escalate";
 
 const PRINCIPAL: Principal = {
   userId: ADMIN_HEX,
@@ -66,6 +68,8 @@ interface Options {
   readonly claimed?: boolean;
   /** Whether the refusal's single update reports that it took the claim. */
   readonly rejected?: boolean;
+  /** Whether the escalation's guarded update reports that it took the claim. */
+  readonly escalated?: boolean;
   /** Whether the rider has a balance row to credit. */
   readonly credited?: boolean;
   /** The outstanding balance the rider is left with, after the deposit. */
@@ -85,6 +89,7 @@ function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
     { match: /FROM `rider_cash_settlements` WHERE `id`/u, rows: settlement === null ? [] : [settlement] },
     { match: /UPDATE `rider_cash_settlements` SET `status` = 'CONFIRMED'/u, affectedRows: options.claimed === false ? 0 : 1 },
     { match: /UPDATE `rider_cash_settlements` SET `status` = 'REJECTED'/u, affectedRows: options.rejected === false ? 0 : 1 },
+    { match: /UPDATE `rider_cash_settlements` SET `escalated_at`/u, affectedRows: options.escalated === false ? 0 : 1 },
     { match: /UPDATE `rider_cash_settlements` SET `status` = 'PENDING'/u, affectedRows: 1 },
     { match: /UPDATE `rider_cash_balances`/u, affectedRows: options.credited === false ? 0 : 1 },
     { match: /outstanding_paisa` FROM `rider_cash_balances`/u, rows: [{ outstanding_paisa: options.remaining ?? 0 }] },
@@ -121,8 +126,10 @@ function ctxFor(db: ReturnType<typeof stubDb>, path: string): Ctx {
   } as Ctx;
 }
 
-const route = (path: string = PATH): (typeof CASH_REVIEW_ROUTES)[number] => {
-  const found = CASH_REVIEW_ROUTES.find((candidate) => candidate.path === path);
+const ALL_ROUTES = [...CASH_REVIEW_ROUTES, ...CASH_QUEUE_ROUTES];
+
+const route = (path: string = PATH): (typeof ALL_ROUTES)[number] => {
+  const found = ALL_ROUTES.find((candidate) => candidate.path === path);
   if (found === undefined) throw new Error(`no route ${path}`);
   return found;
 };
@@ -419,5 +426,72 @@ describe("the reviewer's queue (D145)", () => {
     assert.equal(parsed.data.summary["oldestMinutes"], null);
     assert.equal(parsed.data.summary["limit"], 100, "a queue longer than a hundred is an incident, not a page");
     assert.deepEqual(db.calls[0]?.params, [100]);
+  });
+});
+
+describe("escalating a settlement (D146)", () => {
+  test("the rider is released, the money is not, and the queue keeps the claim", async () => {
+    const db = dbFor({ remaining: 214_000 });
+    const answer = await run(db, { note: "bKash says pending, waiting on the bank" }, ESCALATE_PATH);
+    assert.equal(answer.status, 200);
+    const data = answer.body["data"] as Record<string, unknown>;
+    assert.equal(data["released"], true, "an escalation is the platform's problem, not the rider's");
+    assert.equal(data["outstandingPaisa"], 214_000, "releasing a rider is not forgiving a debt");
+    assert.equal((data["settlement"] as Record<string, unknown>)["status"], "PENDING", "nobody decided whether the money arrived");
+
+    const written = db.calls.find((call) => call.sql.includes("SET `escalated_at`"));
+    assert.ok(written !== undefined);
+    assert.deepEqual(written.params.slice(2, 3), ["bKash says pending, waiting on the bank"]);
+
+    const sql = sqls(db);
+    assert.equal(sql.some((statement) => statement.includes("ledger")), false, "no money moved, so nothing is booked");
+    assert.equal(sql.some((statement) => statement.includes("UPDATE `rider_cash_balances`")), false);
+    assert.equal(sql.some((statement) => statement.includes("SET `status` = 'CONFIRMED'")), false);
+    assert.equal(sql.some((statement) => statement.includes("UPDATE `riders` SET `shift_state`")), false, "the door opens it, not this route");
+
+    const auditRow = db.calls.find((call) => call.sql.includes("INSERT INTO `audit_log`"));
+    assert.equal(auditRow?.params[9], "finance.cash.escalate_settlement");
+    assert.equal(auditRow?.params[15], "SETTLEMENT_DISPUTED");
+    assert.equal(auditRow?.params[16], "WARNING");
+    const after = JSON.parse(String(auditRow?.params[14])) as Record<string, unknown>;
+    assert.equal(after["escalated"], true);
+    assert.equal(after["status"], "PENDING");
+  });
+
+  test("a claim cannot be escalated twice, decided, or invented", async () => {
+    const twice = await run(dbFor({ settlement: settlementRow({ escalated_at: "2026-11-06 21:05:00.000000" }) }), { note: "again" }, ESCALATE_PATH);
+    assert.equal(twice.status, 409, "a second escalation would overwrite the note the first one left");
+
+    const decided = await run(dbFor({ settlement: settlementRow({ status: "CONFIRMED" }) }), null, ESCALATE_PATH);
+    assert.equal(decided.status, 409);
+
+    const missing = await run(dbFor({ settlement: null }), null, ESCALATE_PATH);
+    assert.equal(missing.status, 404);
+
+    const raced = dbFor({ escalated: false });
+    const racedAnswer = await run(raced, null, ESCALATE_PATH);
+    assert.equal(racedAnswer.status, 409);
+    assert.equal(sqls(raced).some((statement) => statement.includes("INSERT INTO `audit_log`")), false);
+  });
+
+  test("the note is optional but bounded, and the queue marks what it inherits", async () => {
+    const long = await run(dbFor(), { note: "x".repeat(281) }, ESCALATE_PATH);
+    assert.equal(long.status, 422);
+
+    const bare = await run(dbFor(), null, ESCALATE_PATH);
+    assert.equal(bare.status, 200, "a reviewer who escalates without typing still escalated");
+
+    const queue = dbFor({
+      queue: [
+        queueRow({ created_at: minutesAgo(8), escalated_at: minutesAgo(6), escalation_note: "waiting on the bank" }),
+        queueRow({ id: bytes("0193f2a17c3e7890abcdef01234567f1"), created_at: minutesAgo(2) }),
+      ],
+    });
+    const list = await run(queue, null, "/v1/finance/cash/settlements");
+    const rows = (list.body["data"] as Record<string, any>)["settlements"];
+    assert.equal(rows[0].escalated, true);
+    assert.equal(rows[0].escalationNote, "waiting on the bank");
+    assert.equal(rows[1].escalated, false);
+    assert.equal(rows[1].escalationNote, null);
   });
 });
