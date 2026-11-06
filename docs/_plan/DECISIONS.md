@@ -2932,3 +2932,53 @@ until the next announcement — the expiry tick runs D131's pass anyway, but by 
 instant would need the announcement to know `RETRY_AFTER_MS × 2`, which is a policy the room should not have to hold;
 the honest fix is for the pass to re-arm itself when it retried something, which is a change to `core-wave.tick`'s
 answer rather than to the room.
+
+## D133 — Factor 3 stops being blind to the offer
+
+The dispatch engine ended D132 in good order: a wave is planned, announced, pushed, retried, expired, advanced, and a
+zone with nobody in it still wakes. The one thing every step of that shared was a number that did not deserve the trust:
+factor 3 of the score — *will this rider accept* — was the Wilson lower bound of that rider's whole history. A rate is
+honest and it is unconditional. The rider who takes four offers in five will not take a ৳40 order two kilometres the
+wrong way at 23:00, and the rate cannot say so; worse, `pNone` and therefore wave size were computed from it, so a bad
+estimate sized the wave wrong too.
+
+**`09 §7.4` specifies eight coefficients and the document is right about why.** Not for accuracy — it concedes the
+difference to a large model is under two percentage points — but because eight numbers fit on one screen and an operator
+who can see payout positive and distance negative knows the model is sane. So `domain/order/propensity.ts` implements
+exactly that: eight features, the sigmoid with the document's own logit clamp, `g = p − y` with an L2 term of 0.001, and
+the learning rate of 0.01. `learnStep` returns a **new** vector, because a model that mutates itself cannot be replayed
+against a trace and `§12`'s benchmark has nothing to re-run.
+
+**The signs live in the weights; the features are magnitudes.** Every feature is normalised into `[0, 1]` — a distance is
+*how far*, not how bad — so a coefficient's sign is the only opinion in the table. Time of day is a sine/cosine pair over
+the Asia/Dhaka day rather than an hour, because 23:59 and 00:01 are two minutes apart in a rider's life and fifty-nine
+hours apart as a number.
+
+**Shrinkage, not a cliff.** The figure factor 3 receives is `(samples / 50) × model + (1 − samples / 50) × rate`. With no
+evidence the answer is exactly the rate that was there before this rung; at fifty recorded outcomes the model is trusted
+outright. That is the same confidence arithmetic `11 §5` already applies to every other rate in the table, and it means a
+zone cannot be made *worse* by a model it has not trained.
+
+**Configuration, not state.** The weights live in `platform_config` under `dispatch.propensity` — per zone, with the
+all-zero UUID the schema already uses for a global default — so they are versioned, audited and editable from Brain Lab
+like every other number an operator owns. `scoringZone` reads the zone row, falls back to the global one, and treats a
+row that does not parse (a typo, an old shape) as *absent*: a bad coefficient vector must degrade to the rider's record,
+never fail a dispatch.
+
+**The route had run out of room, so the push moved out.** Wiring the model needed about ten lines in `routes/dispatch.ts`,
+which sat at 599 of a 600-line budget. Rather than shave comments, the eighteen lines that turn one offer into one push
+per device became `routes/dispatch-push.ts` — the planner decides *to* ring, that file rings — which is the same split by
+responsibility D129 used for the history joins.
+
+Tests: nineteen in `propensity.test.ts` (the feature list and order, the prior's readable signs, coefficient validation,
+lenient config parsing, sigmoid clamping, prediction ordering, one step's direction both ways, L2 on absent features,
+immutability, convergence, the blend's three anchors and its broken inputs, normalisation and clamping, the hour pair,
+weather and batch), six in `dispatch-scoring.test.ts` (no model = the old answer, zero evidence = the old answer, a
+trained model conditioning on distance, evidence moving in order, the unit interval, and a ranking that flips on distance
+alone), and two in `dispatch-plan-route.test.ts` (a trained zone moving `pNone`; a broken row and a missing row both
+falling back without changing the plan).
+
+*Open:* nothing computes `learnStep` yet — the loop that reads answered offers and writes the weights back is the next
+rung, and until it lands every zone scores with `PROPENSITY_PRIOR`. `weatherSeverity` and `tripDistanceM` are passed as
+absent by the planner because the first needs `09 §8`'s weather feed and the second needs a delivery cell the order table
+does not record; both features are then zero, which is the honest "not known" rather than a guess.

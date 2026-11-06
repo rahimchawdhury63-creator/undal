@@ -23,6 +23,7 @@ import {
   batchFit,
   cashHeadroom,
   etaFit,
+  acceptanceFactor,
   factorsFor,
   fairness,
   freshness,
@@ -39,6 +40,10 @@ import {
   type ScoringFacts,
   type ZoneFeatures,
 } from "../src/domain/order/scoring.ts";
+import { PROPENSITY_FULL_TRUST, PROPENSITY_PRIOR } from "../src/domain/order/propensity.ts";
+
+/** The order's total, in paisa, for the tests that need one. */
+const PAISA = 25_000;
 
 const ZONE: ZoneFeatures = { medianPickupM: 1_100, medianDeliveriesToday: 6 };
 
@@ -317,5 +322,65 @@ describe("ranking is deterministic", () => {
     assert.ok(scored !== undefined);
     assert.equal(Object.keys(scored.factors).length, 14);
     assert.equal(scored.acceptanceProbability, 0.6, "factor 3 alone, which is what pNone multiplies");
+  });
+});
+
+/**
+ * Factor 3 with the zone's model (`09 §7.4`, D133).
+ *
+ * The claim under test is narrow and it is the whole feature: a rider's own acceptance rate is blind to the offer in
+ * front of them, and the model is not. Same rider, same rate, two very different offers — the factor must move. And
+ * with no model, or a model with no evidence behind it, the answer must be exactly the rate it was before this existed.
+ */
+describe("factor 3 — the acceptance model (D133)", () => {
+  const trained = (samples: number, weights: readonly number[] = PROPENSITY_PRIOR) =>
+    ({ ...ZONE, acceptanceModel: { weights, samples, atMs: Date.UTC(2026, 0, 15, 12, 0, 0), payoutPaisa: 10_100 } } as ZoneFeatures);
+
+  test("with no model the factor is the rider's own rate, unchanged", () => {
+    const rider = facts({ acceptanceRate: 0.42 });
+    assert.equal(acceptanceFactor(rider, ZONE), 0.42);
+  });
+
+  test("a model with no evidence behind it does not move the factor", () => {
+    const rider = facts({ acceptanceRate: 0.42 });
+    assert.equal(acceptanceFactor(rider, trained(0)), 0.42);
+  });
+
+  test("a trained model conditions the same rider on the offer's distance", () => {
+    const near = facts({ acceptanceRate: 0.5, routedDistanceToVendorM: 100 });
+    const far = facts({ acceptanceRate: 0.5, routedDistanceToVendorM: 4_000 });
+    const zone = trained(PROPENSITY_FULL_TRUST);
+    const nearFactor = acceptanceFactor(near, zone);
+    const farFactor = acceptanceFactor(far, zone);
+    assert.ok(nearFactor > farFactor, `near ${String(nearFactor)} should outrank far ${String(farFactor)}`);
+    assert.ok(nearFactor !== 0.5 && farFactor !== 0.5, "the model disagreed with the flat rate in both directions");
+  });
+
+  test("evidence moves the answer from the record towards the model, in order", () => {
+    const rider = facts({ acceptanceRate: 0.9, routedDistanceToVendorM: 4_000 });
+    const sooner = acceptanceFactor(rider, trained(10));
+    const later = acceptanceFactor(rider, trained(40));
+    assert.ok(later < sooner, "a distant offer drags a good rate down further the more the zone has learned");
+    assert.ok(later > acceptanceFactor(rider, trained(PROPENSITY_FULL_TRUST)));
+  });
+
+  test("the factor stays inside the unit interval whatever the model says", () => {
+    const odd = trained(PROPENSITY_FULL_TRUST, [50, -50, 50, -50, 50, -50, 50, -50]);
+    const value = acceptanceFactor(facts({ acceptanceRate: 0.5 }), odd);
+    assert.ok(value >= 0 && value <= 1);
+  });
+
+  test("the ranking sees it: two identical riders differ only by distance", () => {
+    const zone = trained(PROPENSITY_FULL_TRUST);
+    const ranked = scoreCandidates(
+      [
+        { facts: facts({ riderId: "rider-far", acceptanceRate: 0.5, routedDistanceToVendorM: 3_500 }) },
+        { facts: facts({ riderId: "rider-near", acceptanceRate: 0.5, routedDistanceToVendorM: 150 }) },
+      ],
+      zone,
+      PAISA,
+    );
+    assert.equal(ranked[0]?.riderId, "rider-near");
+    assert.notEqual(ranked[0]?.acceptanceProbability, ranked[1]?.acceptanceProbability);
   });
 });

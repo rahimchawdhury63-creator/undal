@@ -239,6 +239,16 @@ rider who fails any one of them is not ranked at all.
 > treated as a degraded notification: the alarm reached no socket at all, and the quiet-zone wake would have had
 > nothing to wake for. The catalogue's name is `offer.new`, and the map now carries it.
 
+> **And factor 3 stops being blind to the offer (D133).** The acceptance factor used to be a rate: everything that rider
+> had ever answered, Wilson-bounded, identical for a ৳40 errand at 23:00 and a ৳180 run at noon. `09 §7.4`'s model is
+> now in the scorer: eight normalised features — payout, pickup distance, trip distance, idle time, the sine and cosine
+> of the hour, weather severity, batch flag — a logistic prediction, and a blend with the rider's own rate weighted by
+> how many outcomes trained the zone (`samples / 50`, so a zone's first fifty offers do not lurch from one estimator to
+> another). The weights live in `platform_config` under `dispatch.propensity`, per zone with the all-zero sentinel as the
+> global default, versioned and audited like every other number an operator edits; a row shaped like nothing degrades to
+> the record rather than failing a dispatch. Nothing is trained yet — the learning step exists as `learnStep` and the
+> rung that calls it is next — so every zone currently scores with the prior, whose signs an operator can check by eye.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep

@@ -21,6 +21,8 @@
  * forecast all arrive as inputs; the caller reads them and this function judges them.
  */
 
+import { blendPropensity, predictAcceptance, propensityFeatures } from "./propensity.ts";
+
 /** The weight of each factor. Defaults are `11 §5`'s table; they sum to exactly 1.000. */
 export interface DispatchWeights {
   readonly proximity: number;
@@ -127,10 +129,38 @@ export interface ScoringFacts {
   readonly vehicleSuitability: number;
 }
 
+/**
+ * What the acceptance model needs about *this offer*, plus the weights its zone has trained (`09 §7.4`, D133).
+ *
+ * The weights are the zone's; the payout, the trip and the weather are the offer's. They travel together because the
+ * model is only ever asked one question — "would this rider take this offer" — and splitting them would give a caller
+ * two things to forget instead of one.
+ */
+export interface AcceptanceModel {
+  readonly weights: readonly number[];
+  /** How many recorded outcomes stand behind the weights, which is the blend's confidence (`blendPropensity`). */
+  readonly samples: number;
+  readonly atMs: number;
+  /** The rider's payout, which is the number a rider decides on. */
+  readonly payoutPaisa: number;
+  readonly tripDistanceM?: number;
+  /** `0..1`; absent when the deployment has no weather feed. */
+  readonly weatherSeverity?: number;
+  readonly batch?: boolean;
+}
+
 /** The zone-level figures the factors are measured against. */
 export interface ZoneFeatures {
   readonly medianPickupM: number;
   readonly medianDeliveriesToday: number;
+  /**
+   * The zone's learned acceptance model (`09 §7.4`, D133), or absent.
+   *
+   * Absent is the honest state of a zone with no `platform_config` row: factor 3 is then the rider's own Wilson rate,
+   * which is exactly what it was before this field existed. Present, the model is blended in by how much evidence
+   * stands behind it.
+   */
+  readonly acceptanceModel?: AcceptanceModel;
 }
 
 /** Clamp into `[0, 1]`; every factor's contract says it returns a value in that range. */
@@ -165,6 +195,30 @@ export function etaFit(arrivalAtVendorS: number, readyInS: number): number {
 /** Factor 3: the rider's acceptance rate for this offer, as the model supplies it. */
 export function acceptance(rate: number): number {
   return unit(rate);
+}
+
+/**
+ * Factor 3 with the zone's model consulted (`09 §7.4`, D133).
+ *
+ * The rider's own rate is the honest answer to "does this rider accept", and it is blind to the offer in front of them.
+ * The model sees the offer — payout, distance, trip, idle time, hour, weather, batch — and is blended in by how many
+ * outcomes trained it, so a zone's first offers are still judged by the record and a trained zone is judged by what it
+ * has learned about its own hours and geography.
+ */
+export function acceptanceFactor(facts: ScoringFacts, zone: ZoneFeatures): number {
+  const rate = unit(facts.acceptanceRate);
+  const model = zone.acceptanceModel;
+  if (model === undefined) return rate;
+  const features = propensityFeatures({
+    payoutPaisa: model.payoutPaisa,
+    pickupDistanceM: facts.routedDistanceToVendorM,
+    tripDistanceM: model.tripDistanceM ?? 0,
+    idleS: facts.idleS,
+    atMs: model.atMs,
+    ...(model.weatherSeverity === undefined ? {} : { weatherSeverity: model.weatherSeverity }),
+    ...(model.batch === undefined ? {} : { batch: model.batch }),
+  });
+  return unit(blendPropensity(predictAcceptance(model.weights, features), rate, model.samples));
 }
 
 /** Factor 4: `0.6 × completion + 0.4 × on-time`, both already Wilson-bounded. */
@@ -270,7 +324,7 @@ export function factorsFor(facts: ScoringFacts, zone: ZoneFeatures, orderTotalPa
   return {
     proximity: proximity(facts.routedDistanceToVendorM, zone.medianPickupM),
     etaFit: etaFit(facts.arrivalAtVendorS, facts.readyInS),
-    acceptance: acceptance(facts.acceptanceRate),
+    acceptance: acceptanceFactor(facts, zone),
     reliability: reliability(facts.completionRate, facts.onTimeRate),
     fairness: fairness(facts.idleS, facts.deliveriesToday, zone.medianDeliveriesToday),
     rating: rating(facts.ratingLowerBound),

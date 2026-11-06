@@ -8,8 +8,9 @@ import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { requireInternalToken } from "../middleware/internal-token.ts";
 import * as audit from "../audit/write.ts";
 import { announce } from "../bindings/announce.ts";
-import { createFcmClient, fcmConfigured, fcmData, fcmStatus, FCM_DEFAULT_ENDPOINT } from "../bindings/fcm.ts";
+
 import { createRealtimeClient } from "../bindings/realtime.ts";
+import { pushWaveOffer } from "./dispatch-push.ts";
 import { newId, toHexId } from "../lib/ids.ts";
 import { sqlDatetime } from "../db/time.ts";
 import { estimateRoute, ESTIMATED_SPEED_MPS } from "../domain/order/distance.ts";
@@ -18,10 +19,13 @@ import { planWaveWrite } from "../domain/order/dispatch-plan.ts";
 import { offerAlarm } from "../domain/order/offer-alarm.ts";
 import { DEFAULT_MEDIAN_PICKUP_M, scoreCandidates, wilsonLowerBound, type ScoringFacts } from "../domain/order/scoring.ts";
 import { idleSeconds, riderHistory, type RiderHistory } from "../repositories/dispatch-stats.ts";
-import { claimDispatchLock, insertOfferWave, releaseDispatchLock, waveStateForOrder } from "../repositories/dispatch.ts";
-import { insertDispatch, invalidateToken } from "../repositories/dispatches.ts";
-import { pushFailureIsPermanent, UNREGISTERED_REASON } from "../domain/order/push-retry.ts";
-import { tokensForUser } from "../repositories/recipients.ts";
+import {
+  claimDispatchLock,
+  insertOfferWave,
+  releaseDispatchLock,
+  scoringZone,
+  waveStateForOrder,
+} from "../repositories/dispatch.ts";
 import { parseZoneRing } from "../domain/geo/zone-shape.ts";
 import {
   acceptanceFrom,
@@ -395,10 +399,15 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
       return { facts };
     });
 
-    const scored = scoreCandidates(scoringFacts, {
+    // The zone's own acceptance model, if it has trained one (`09 §7.4`, D133): factor 3 is the rider's record blended
+    // with what this zone has learned about its hours, its distances and its payouts.
+    const zone = await scoringZone(ctx.db, order.zoneId, {
       medianPickupM: DEFAULT_MEDIAN_PICKUP_M,
       medianDeliveriesToday: medianDeliveries(history),
-    }, order.totalPaisa);
+      payoutPaisa: order.riderPayoutPaisa,
+      atMs: at,
+    });
+    const scored = scoreCandidates(scoringFacts, zone, order.totalPaisa);
 
     const candidatesForPlan: ScoredCandidate[] = scored.map((entry) => ({
       riderId: entry.riderId,
@@ -495,41 +504,7 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
         audience: { riderUserId },
       });
 
-      if (!fcmConfigured(ctx.env)) continue;
-      const sender = createFcmClient({
-        endpoint: ctx.env.FCM_ENDPOINT ?? FCM_DEFAULT_ENDPOINT,
-        projectId: ctx.env.FCM_PROJECT_ID ?? "",
-        accessToken: ctx.env.FCM_ACCESS_TOKEN ?? "",
-      });
-      // The wire format wants strings, and a number sent as a number is a message the runtime rejects (D131).
-      const data = fcmData({ ...alarm.data, titleEn: alarm.title.en, titleBn: alarm.title.bn });
-      const userBytes = Buffer.from(riderUserId, "hex");
-      // The pushes are queued, not awaited: eight phones are eight round trips, and an offer's twenty-five seconds are
-      // the rider's, not the network's.
-      ctx.waitUntil(
-        (async () => {
-          const tokens = await tokensForUser(ctx.db, userBytes);
-          for (const token of tokens) {
-            const result = await sender.send({ token, data });
-            await insertDispatch(ctx.db, {
-              id: newId(),
-              orderId: order.id,
-              deviceId: null,
-              token,
-              // The attempt counts sends to *this token*, so a first send is attempt 1 on every device (D131);
-              // D128 numbered by position in the list and gave a rider's second phone an attempt it never had.
-              attempt: 1,
-              outcome: result.ok ? "SENT" : "FAILED",
-              messageId: result.ok ? result.value.messageId : null,
-              sentAt: sqlDatetime(new Date(at)),
-            });
-            // A phone Google answers 404 for is gone; retire it here rather than ringing it again next wave.
-            if (!result.ok && pushFailureIsPermanent(fcmStatus(result.error))) {
-              await invalidateToken(ctx.db, token, UNREGISTERED_REASON, at);
-            }
-          }
-        })(),
-      );
+      pushWaveOffer(ctx, { orderId: order.id, riderUserId, alarm, atMs: at });
     }
 
     return successResponse(

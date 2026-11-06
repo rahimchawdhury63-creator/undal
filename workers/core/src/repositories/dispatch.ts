@@ -19,6 +19,8 @@
 import type { Db } from "../db/client.ts";
 import { sqlDatetime } from "../db/time.ts";
 import { vehiclePolicy, DEFAULT_CASH_LIMIT_PAISA, type VehiclePolicy } from "../domain/order/dispatch-policy.ts";
+import { readPropensityModel } from "../domain/order/propensity.ts";
+import type { ZoneFeatures } from "../domain/order/scoring.ts";
 
 /** A rider in a zone who holds an open shift, with the limits the filters will judge them against. */
 export interface DispatchCandidate {
@@ -379,4 +381,65 @@ export async function waveStateForOrder(
     orderId,
   ]);
   return { lastWave: Number(row?.last ?? 0), liveOffers: Number(row?.live ?? 0) };
+}
+
+/** The `platform_config` key the acceptance model lives under (`09 §7.4`, D133). */
+export const PROPENSITY_CONFIG_KEY = "dispatch.propensity";
+
+/** The all-zero UUID `platform_config` uses for a row that applies to every zone (`08`). */
+const GLOBAL_ZONE = "00000000000000000000000000000000";
+
+/** What the caller already knows about the offer, before the zone's model is added to it. */
+export interface ScoringZoneInput {
+  readonly medianPickupM: number;
+  readonly medianDeliveriesToday: number;
+  readonly payoutPaisa: number;
+  readonly atMs: number;
+  readonly tripDistanceM?: number;
+  readonly weatherSeverity?: number;
+  readonly batch?: boolean;
+}
+
+/**
+ * The zone's figures for the scorer, including the acceptance model it has trained (`09 §7.4`, D133).
+ *
+ * The model is configuration, not state: `platform_config` is versioned and audited, and Brain Lab edits it. Two reads
+ * at most — the zone's own row, then the global one — and a row that is shaped like nothing (a typo, an old version)
+ * is *absent* rather than an error: a bad coefficient vector must degrade to the rider's own rate, never fail a
+ * dispatch. The offer's figures are folded into the same object because that is the only shape the scorer asks for.
+ */
+export async function scoringZone(db: Db, zoneId: string, input: ScoringZoneInput): Promise<ZoneFeatures> {
+  const base = { medianPickupM: input.medianPickupM, medianDeliveriesToday: input.medianDeliveriesToday };
+  const read = async (zone: string): Promise<unknown> => {
+    const row = await db.first<{ value: unknown }>(
+      "SELECT `value` FROM `platform_config` WHERE `key` = ? AND `zone_id` = ? " +
+        "ORDER BY `effective_at` DESC LIMIT 1",
+      [PROPENSITY_CONFIG_KEY, Buffer.from(zone, "hex")],
+    );
+    return row === null ? null : row.value;
+  };
+  const stored = (await read(zoneId)) ?? (await read(GLOBAL_ZONE));
+  const model = stored === null ? null : readPropensityModel(typeof stored === "string" ? safeJson(stored) : stored);
+  if (model === null) return base;
+  return {
+    ...base,
+    acceptanceModel: {
+      weights: model.weights,
+      samples: model.samples,
+      atMs: input.atMs,
+      payoutPaisa: input.payoutPaisa,
+      ...(input.tripDistanceM === undefined ? {} : { tripDistanceM: input.tripDistanceM }),
+      ...(input.weatherSeverity === undefined ? {} : { weatherSeverity: input.weatherSeverity }),
+      ...(input.batch === undefined ? {} : { batch: input.batch }),
+    },
+  };
+}
+
+/** A JSON column, parsed, or `null` when it is not JSON. A driver may hand back either form. */
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
 }

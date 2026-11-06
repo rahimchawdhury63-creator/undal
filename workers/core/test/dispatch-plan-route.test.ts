@@ -54,12 +54,16 @@ interface Options {
   readonly locked?: boolean;
   readonly candidates?: readonly Record<string, unknown>[];
   readonly history?: readonly Record<string, unknown>[];
+  /** The `platform_config` value for the zone's acceptance model (`09 §7.4`, D133), or absent for none. */
+  readonly propensity?: Record<string, unknown>;
 }
 
 function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
   return stubDb([
     { match: /FROM `device_tokens` `t` JOIN `devices` `d`/u, rows: [{ fcm_token: "tok-1" }, { fcm_token: "tok-2" }] },
     { match: /INSERT INTO `fcm_dispatches`/u, affectedRows: 1 },
+    // A zone with no `dispatch.propensity` row scores factor 3 from the rider's own record (D133).
+    { match: /FROM `platform_config`/u, rows: options.propensity === undefined ? [] : [{ value: options.propensity }] },
     {
       match: /FROM `orders` WHERE `code`/u,
       rows: [
@@ -440,5 +444,54 @@ describe("advancing the ladder (D129)", () => {
     stubFeed([USER_HEX]);
     const result = await answer(await advance.run(ctxFor(dbFor({ lastWave: 2 })), INPUT));
     assert.equal(result.data["wave"], 3);
+  });
+});
+
+/**
+ * The acceptance model in the planner (`09 §7.4`, D133).
+ *
+ * The route is where a zone's trained coefficients meet an actual offer, and the assertion is that they arrive: the same
+ * candidates, the same order, and a different `pNone` once the zone has a model. Without the read, every word of the
+ * model would be true and none of it would be used.
+ */
+describe("the zone's acceptance model (D133)", () => {
+  test("a trained zone conditions factor 3, and the wave's pNone moves with it", async () => {
+    stubFeed([USER_HEX]);
+    pending.length = 0;
+    const plain = (await (await route().run(ctxFor(dbFor(), true), INPUT)).json()) as { data: { pNone: number } };
+
+    pending.length = 0;
+    const db = dbFor({
+      // A model that strongly dislikes distance and low payouts. The rider's own rate is unchanged, so any movement in
+      // factor 3 is the model's.
+      propensity: { weights: [3, -3, -1, 0.5, 0, 0, -1, -2], samples: 50 },
+    });
+    const conditioned = (await (await route().run(ctxFor(db, true), INPUT)).json()) as {
+      data: { pNone: number; offered: readonly { score: number }[] };
+    };
+    assert.notEqual(conditioned.data.pNone, plain.data.pNone, "the model has to reach the arithmetic");
+
+    const read = db.calls.find((call) => /FROM `platform_config`/u.test(call.sql));
+    assert.notEqual(read, undefined, "the zone's row is read once per plan");
+    assert.match(read?.sql ?? "", /`key` = \?/u);
+    assert.match(read?.sql ?? "", /ORDER BY `effective_at` DESC/u, "the latest version wins, as every config read does");
+  });
+
+  test("a zone with no row plans exactly as it did before the model existed", async () => {
+    stubFeed([USER_HEX]);
+    pending.length = 0;
+    const baseline = (await (await route().run(ctxFor(dbFor(), true), INPUT)).json()) as { data: { pNone: number } };
+    pending.length = 0;
+    // A zone row that is shaped like nothing — a typo in Brain Lab — must degrade to the record, not fail a dispatch.
+    const broken = dbFor({ propensity: { weights: [1, 2, 3], samples: 9 } });
+    const again = (await (await route().run(ctxFor(broken, true), INPUT)).json()) as { data: { pNone: number } };
+    assert.equal(again.data.pNone, baseline.data.pNone);
+    assert.equal(broken.calls.filter((call) => /FROM `platform_config`/u.test(call.sql)).length, 1);
+
+    // With no zone row at all the global one is consulted: the sentinel row `08` defines for a default.
+    pending.length = 0;
+    const untrained = dbFor();
+    await route().run(ctxFor(untrained, true), INPUT);
+    assert.equal(untrained.calls.filter((call) => /FROM `platform_config`/u.test(call.sql)).length, 2);
   });
 });
