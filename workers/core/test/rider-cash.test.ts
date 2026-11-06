@@ -8,10 +8,12 @@ import { describe, test } from "node:test";
 
 import { stubDb } from "../src/db/client.ts";
 import { testEnv } from "./support.ts";
-import { CASH_ROUTES, REVIEW_SLA_MS } from "../src/routes/cash.ts";
+import { CASH_ROUTES } from "../src/routes/cash.ts";
 import type { Ctx } from "../src/middleware/context.ts";
 import type { Principal } from "../src/rbac/guard.ts";
 import {
+  AUTO_LIFT_MS,
+  autoLiftDue,
   BKASH_NUMBER_PATTERN,
   checkClaim,
   nameSimilarity,
@@ -205,6 +207,49 @@ describe("reading the claim (D141)", () => {
   });
 });
 
+describe("the two-hour rule (D142)", () => {
+  const submitted = Date.parse("2026-11-06T20:41:00.000Z");
+
+  test("nothing pending is never due, and neither is a claim inside the window", () => {
+    assert.equal(autoLiftDue(null, submitted + 10 * AUTO_LIFT_MS), false, "no claim, no wait");
+    assert.equal(autoLiftDue(submitted, submitted), false);
+    assert.equal(autoLiftDue(submitted, submitted + AUTO_LIFT_MS - 1), false, "one second early is still blocked");
+  });
+
+  test("the boundary is the rule, and a clock it cannot read is not a release", () => {
+    assert.equal(autoLiftDue(submitted, submitted + AUTO_LIFT_MS), true);
+    assert.equal(autoLiftDue(submitted, submitted + 5 * AUTO_LIFT_MS), true);
+    assert.equal(autoLiftDue(Number.NaN, submitted), false, "the block is the only collection mechanism; no guesses");
+  });
+
+  test("the read reports the effective block rather than the stored one", async () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = dbFor({ outstanding: 214_000, latest: settlementRow({ created_at: threeHoursAgo }) });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    const parsed = (await response.json()) as { data: { locked: boolean; autoLiftDue: boolean; shiftState: string } };
+    assert.equal(parsed.data.locked, false, "the screen must not show a wall the platform has already dropped");
+    assert.equal(parsed.data.autoLiftDue, true);
+    assert.equal(parsed.data.shiftState, "CASH_LOCKED", "stored state is unchanged: a read writes nothing");
+  });
+
+  test("a fresh submission keeps the block, and a rider with no claim keeps it without a deadline", async () => {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const fresh = dbFor({ outstanding: 214_000, latest: settlementRow({ created_at: fiveMinutesAgo }) });
+    const first = (await (await route("/v1/rider/cash").run(ctxFor(fresh, "/v1/rider/cash"), { params: {}, body: null, reason: null })).json()) as {
+      data: { locked: boolean; autoLiftDue: boolean };
+    };
+    assert.equal(first.data.locked, true);
+    assert.equal(first.data.autoLiftDue, false);
+
+    const none = dbFor({ outstanding: 214_000 });
+    const second = (await (await route("/v1/rider/cash").run(ctxFor(none, "/v1/rider/cash"), { params: {}, body: null, reason: null })).json()) as {
+      data: { locked: boolean; autoLiftDue: boolean };
+    };
+    assert.equal(second.data.locked, true, "never submitted, so nobody is making them wait");
+    assert.equal(second.data.autoLiftDue, false);
+  });
+});
+
 describe("the two comparisons a reviewer sees (D141)", () => {
   test("a number matches across the spellings a rider types", () => {
     assert.equal(sameNumber("+8801812345678", "01812345678"), true);
@@ -296,7 +341,7 @@ describe("POST /v1/rider/cash/settle (D141)", () => {
     assert.equal(result.data["numberMatches"], true);
     assert.equal(result.data["nameMatches"], true);
     assert.equal(result.data["reviewDueBy"], new Date(Date.parse(String(result.data["reviewDueBy"]))).toISOString());
-    assert.ok(Date.parse(String(result.data["reviewDueBy"])) > Date.now(), `the promise is ${String(REVIEW_SLA_MS)} ms out`);
+    assert.ok(Date.parse(String(result.data["reviewDueBy"])) > Date.now(), `the promise is ${String(AUTO_LIFT_MS)} ms out`);
 
     const insert = db.calls.find((call) => call.sql.startsWith("INSERT INTO `rider_cash_settlements`"));
     assert.ok(insert !== undefined);

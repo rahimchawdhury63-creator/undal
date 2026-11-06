@@ -49,16 +49,33 @@ function shiftDb(
     rider?: Record<string, unknown> | null;
     openShift?: boolean;
     assigned?: boolean;
+    /** The rider's settlement still under review, as `created_at` text, or absent (D142). */
+    pendingClaimAt?: string | null;
   } = {},
 ): ReturnType<typeof stubDb> {
   const rider = options.rider === undefined ? RIDER_ROW : options.rider;
+  const claim =
+    options.pendingClaimAt === undefined || options.pendingClaimAt === null
+      ? []
+      : [{
+          id: bytes(SHIFT_HEX),
+          rider_id: bytes(RIDER_HEX),
+          amount_paisa: 214_000,
+          method: "BKASH",
+          trx_id: "9H5K2M8P1Q",
+          status: "PENDING",
+          created_at: options.pendingClaimAt,
+        }];
   return stubDb([
     { match: /FROM `riders` WHERE `user_id`/u, rows: rider === null ? [] : [rider] },
+    { match: /`status` = 'PENDING' ORDER BY/u, rows: claim },
+    { match: /FROM `rider_cash_settlements` WHERE `rider_id` = \? ORDER BY/u, rows: claim },
     {
       match: /FROM `rider_shifts`/u,
       rows: options.openShift === true ? [{ id: bytes(SHIFT_HEX), zone_id: bytes(ZONE_HEX), started_at: "2026-11-06 09:00:00.000000" }] : [],
     },
     { match: /FROM `rider_zone_assignments`/u, rows: options.assigned === true ? [{ id: bytes(SHIFT_HEX) }] : [] },
+    { match: /outstanding_paisa` FROM `rider_cash_balances`/u, rows: [{ outstanding_paisa: 214_000 }] },
     { match: /INSERT INTO `rider_shifts`/u, affectedRows: 1 },
     { match: /UPDATE `riders` SET/u, affectedRows: 1 },
     { match: /DELETE FROM `rider_shifts`/u, affectedRows: 1 },
@@ -253,7 +270,10 @@ describe("POST /v1/rider/shift/start", () => {
   });
 
   test("a rider locked for cash is refused with the amount they owe", async () => {
-    const db = shiftDb({ rider: { ...RIDER_ROW, shift_state: "CASH_LOCKED" } });
+    const db = shiftDb({
+      rider: { ...RIDER_ROW, shift_state: "CASH_LOCKED" },
+      pendingClaimAt: new Date().toISOString().replace("T", " ").replace("Z", "000"),
+    });
     // The balance row answers the amount; the db stub resolves the first matching statement.
     const withCash = {
       ...db,
@@ -272,6 +292,40 @@ describe("POST /v1/rider/shift/start", () => {
     assert.ok(parsed.error.details !== undefined && "due_at" in parsed.error.details);
   });
 
+  test("a review that has waited two hours lifts the block at the door, and says who took the decision (D142)", async () => {
+    // Submitted three hours ago: `25 §8` says the rider is no longer blocked, and no cron exists to have said so.
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = shiftDb({ rider: { ...RIDER_ROW, shift_state: "CASH_LOCKED" }, pendingClaimAt: threeHoursAgo });
+    const served = serveInternal(true);
+    let response: Response;
+    try {
+      response = await route().run(ctxFor(db), { params: {}, body: BODY, reason: null });
+    } finally {
+      served.restore();
+    }
+    assert.equal(response.status, 200, "the door opens: the platform was slow, not the rider");
+    assert.ok(db.calls.some((call) => call.sql === "UPDATE `riders` SET `shift_state` = ? WHERE `id` = ?" && call.params[0] === "OFFLINE"));
+    const audited = db.calls.find((call) => call.sql.startsWith("INSERT INTO `audit_log`"));
+    assert.ok(audited !== undefined);
+    assert.equal(audited.params[9], "rider.cash.auto_lift", "the chain says the platform lifted it, not the rider");
+    assert.equal(audited.params[16], "WARNING", "an auto-lift is a platform failure metric (25 §10)");
+  });
+
+  test("a claim submitted five minutes ago still blocks, which is the whole point of the screen", async () => {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1_000).toISOString().replace("T", " ").replace("Z", "000");
+    const db = shiftDb({ rider: { ...RIDER_ROW, shift_state: "CASH_LOCKED" }, pendingClaimAt: fiveMinutesAgo });
+    const response = await route().run(ctxFor(db), { params: {}, body: BODY, reason: null });
+    assert.equal(response.status, 409);
+    const parsed = (await response.json()) as { error: { code: string } };
+    assert.equal(parsed.error.code, "SHIFT_CASH_OVERDUE");
+  });
+
+  test("a rider who never submitted stays blocked however long it has been", async () => {
+    const db = shiftDb({ rider: { ...RIDER_ROW, shift_state: "CASH_LOCKED" } });
+    const response = await route().run(ctxFor(db), { params: {}, body: BODY, reason: null });
+    assert.equal(response.status, 409, "the two-hour rule is about the platform's slowness, not about the rider's");
+    assert.ok(!db.calls.some((call) => call.sql.startsWith("UPDATE `riders` SET `shift_state`")));
+  });
   test("a deployment with no realtime configured cannot claim a shift is trackable", async () => {
     const db = shiftDb();
     const routeDefinition = route();

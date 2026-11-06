@@ -19,7 +19,7 @@ import {
   writeSettlement,
   type SettlementRow,
 } from "../repositories/cash.ts";
-import { checkClaim, parseSettlement } from "../domain/rider/cash.ts";
+import { AUTO_LIFT_MS, autoLiftDue, checkClaim, parseSettlement } from "../domain/rider/cash.ts";
 
 /**
  * The rider's cash: the balance they are blocked on, and the settlement they submit to clear it (`25`, D140–D141).
@@ -57,6 +57,34 @@ async function riderFor(ctx: Ctx): Promise<RiderRow | Response> {
   return rider;
 }
 
+/** Whether the rider is actually blocked, and whether `25 §8`'s two-hour rule has already released them. */
+export interface CashLift {
+  readonly locked: boolean;
+  readonly autoLiftDue: boolean;
+}
+
+/** When the pending claim arrived, in epoch ms, or `null` if there is nothing pending. */
+export function submittedAtMs(row: SettlementRow | null): number | null {
+  if (row === null || row.status !== "PENDING") return null;
+  const parsed = parseDatetime(row.createdAt);
+  return parsed === null ? null : parsed.getTime();
+}
+
+/**
+ * The effective block, computed rather than stored.
+ *
+ * `riders.shift_state` says `CASH_LOCKED` and stays saying it until the rider next presents themselves at a door, which
+ * is the whole point: there is no cron in this platform, so a deadline cannot fire anything. `25 §8`'s two-hour rule is
+ * therefore a rule about *state* — "a rider whose claim has waited two hours is not blocked" — and this function is that
+ * rule. The read reports it; `POST /v1/rider/shift/start` writes it, because a door that opens is the only moment the
+ * lift needs to become a fact rather than a calculation.
+ */
+export function liftStateOf(shiftState: string, latest: SettlementRow | null, nowMs: number): CashLift {
+  if (shiftState !== "CASH_LOCKED") return { locked: false, autoLiftDue: false };
+  const overdue = autoLiftDue(submittedAtMs(latest), nowMs);
+  return { locked: !overdue, autoLiftDue: overdue };
+}
+
 /** The settlement as the app reads it: identity, amount, status and when it arrived. */
 function serialiseSettlement(row: SettlementRow): Record<string, unknown> {
   return {
@@ -80,6 +108,9 @@ function serialiseSettlement(row: SettlementRow): Record<string, unknown> {
  * `dueAt` is not a future deadline: `25` sets none, because the block is immediate. It is the instant the obligation
  * began — the end of the shift that collected the cash — which is what lets the screen say "you have carried ৳2 140
  * since 22:14" (D140).
+ *
+ * `locked` is the **effective** block (D142): a claim that has waited past `25 §8`'s two hours means the rider is not
+ * blocked, whatever the stored `shift_state` still says, and `autoLiftDue` tells the app why so it can explain itself.
  */
 async function cashPosition(ctx: Ctx): Promise<Response> {
   const rider = await riderFor(ctx);
@@ -88,11 +119,14 @@ async function cashPosition(ctx: Ctx): Promise<Response> {
   const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
   const dueAtMs = await cashDueAtMs(ctx.db, rider.id);
   const latest = await latestSettlement(ctx.db, rider.id);
+  const lift = liftStateOf(rider.shiftState, latest, Date.now());
   return successResponse(
     {
       cashInHandPaisa: outstanding,
       dueAt: dueAtMs === null ? null : new Date(dueAtMs).toISOString(),
-      locked: rider.shiftState === "CASH_LOCKED",
+      // The effective block, not the stored one: a read must never show a rider a wall the platform has already dropped.
+      locked: lift.locked,
+      autoLiftDue: lift.autoLiftDue,
       settlementRequired: outstanding > 0,
       shiftState: rider.shiftState,
       settlement: latest === null ? null : serialiseSettlement(latest),
@@ -239,21 +273,12 @@ async function settleCash(ctx: Ctx, body: unknown): Promise<Response> {
       numberMatches: checks.numberMatches,
       nameMatches: checks.nameMatches,
       dueAt: dueAtMs === null ? null : new Date(dueAtMs).toISOString(),
-      reviewDueBy: new Date(nowMs + REVIEW_SLA_MS).toISOString(),
+      reviewDueBy: new Date(nowMs + AUTO_LIFT_MS).toISOString(),
     },
     ctx.locale,
     ctx.requestId,
   );
 }
-
-/**
- * How long a review may take before the block is meant to lift (`25 §8`).
- *
- * Carried in the answer as `reviewDueBy` so the app can promise a bound rather than an apology. The auto-lift itself is
- * not built — nothing sweeps pending settlements — and until it is, this is a promise the platform makes and does not
- * keep. That is written down here rather than left for a rider to discover.
- */
-export const REVIEW_SLA_MS = 2 * 60 * 60 * 1_000;
 
 /** Where the settlement's `submittedAt` came from, for the tests that assert the two agree. */
 export function submittedAtOf(row: SettlementRow): number | null {

@@ -3325,3 +3325,46 @@ accused, and a bad claim reaching no database call at all. `db/expected.json` wa
 vocabulary (`§6.2`), and the 2-hour auto-lift (`§8`) whose deadline the submission now promises as `reviewDueBy`. The next
 rung should start with the sweep, because a promise in a response that nothing keeps is exactly the kind of thing this
 platform is not supposed to do.
+
+## D142 — The two-hour rule is a deadline the door enforces
+
+`25 §8` calls the two-hour auto-lift "the most important rule in this document", and D141 shipped a submission whose
+response promised `reviewDueBy` while nothing in the platform would ever act on it. That is the kind of promise this
+build has spent twenty rungs removing, so it is the next rung.
+
+**A cron is not available, so the rule moves to the door.** The platform has no scheduler — no Worker owns a schedule,
+and `no-cron` fails the build if one appears. A deadline therefore cannot *fire* anything; what it can do is change what a
+request decides. `riders.shift_state` keeps saying `CASH_LOCKED`, and the moment the rider presents themselves —
+`POST /v1/rider/shift/start` — the route asks whether their pending claim has waited `AUTO_LIFT_MS`, and if it has, lifts
+the block and continues into the shift. One `UPDATE riders`, one audit row.
+
+**The audit row is the record of a platform failure.** Actor `SYSTEM`, action `rider.cash.auto_lift`, reason
+`REVIEW_SLA_EXCEEDED`, severity `WARNING`, `before: CASH_LOCKED`, `after: OFFLINE` with the settlement id. `25 §10` is
+explicit that auto-lifts are "tracked as a platform failure metric, not a rider metric", and the difference between a
+metric and an opinion is that one has a row. The `console.error` beside it exists because the Worker's log is what wakes
+somebody up at 3 am; the audit row is what explains it a week later.
+
+**The read computes, and does not write.** `GET /v1/rider/cash` applies the same rule to answer `locked: false` with
+`autoLiftDue: true` — the screen must not show a rider a wall the platform has already dropped — but a `GET` that mutates
+state is a `GET` that can be triggered by a prefetcher, a crawler or an over-eager app. So the split is: reads compute,
+doors write. The first request after the deadline is where the lift becomes a fact, and it is the only request that
+needs to be correct.
+
+**Neither a missing claim nor an unreadable clock releases anybody.** `autoLiftDue(null, …)` is false — a rider who never
+submitted is not being kept waiting by the platform — and a `created_at` that does not parse is treated as *not* due.
+The rule exists because the platform was slow, not as a general escape hatch; a block that lifts whenever its timestamp
+is garbage is a block that can be defeated by writing garbage.
+
+**`AUTO_LIFT_MS` moved into the domain.** It was `REVIEW_SLA_MS` in `routes/cash.ts`, which is where a constant goes when
+it is only quoted in a response body. It is now the same number the door enforces and the read reports, and a deadline
+with three readers should not live in one of them.
+
+Tests: eight — five in `rider-cash.test.ts` (the domain's three anchors plus the boundary and the `NaN`; the read
+reporting `locked: false` while the stored state still says `CASH_LOCKED`, and a read writing nothing; a fresh claim
+keeping the block; a rider with no claim keeping it without a deadline) and three in `shift-start.test.ts` (an
+auto-lifted start returns `200`, writes `OFFLINE`, and audits `rider.cash.auto_lift` at `WARNING`; a five-minute-old
+claim still gets `SHIFT_CASH_OVERDUE`; a rider who never submitted is never lifted).
+
+*Open:* the review half itself. There is still no approve, reject or escalate route, so every settlement that is not
+auto-lifted waits for a human who has no screen. The auto-lift now bounds the wait, which is what `§8` asks for, but
+"bounded" and "resolved" are different promises and only one of them is kept.

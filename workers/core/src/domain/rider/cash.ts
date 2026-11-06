@@ -39,6 +39,29 @@ export const MAX_ACCOUNT_NAME = 96;
 /** How long a proof URL may be: the same `VARCHAR(512)` the shift selfie uses (`26`). */
 export const MAX_PROOF_URL = 512;
 
+/**
+ * How long a review may take before the block lifts on its own (`25 §8`).
+ *
+ * The document calls this "the most important rule in this document", and the reason is in the sentence after it: it
+ * converts an open-ended detention into a bounded procedure with the platform carrying the cost of its own slowness. A
+ * rider is blocked because the platform has not looked at their screenshot yet, and two hours is long enough for a
+ * queue and short enough that nobody loses an evening to it.
+ */
+export const AUTO_LIFT_MS = 2 * 60 * 60 * 1_000;
+
+/**
+ * Whether a pending submission has waited long enough that the block should lift by itself.
+ *
+ * `submittedAtMs` is `rider_cash_settlements.created_at`, and `null` means no claim is pending — a rider who has not
+ * submitted is not being kept waiting by anybody. An unparseable timestamp is treated as *not* due: the one thing this
+ * rule must never do is release a block on the strength of a clock it could not read, because the block is the
+ * platform's only collection mechanism and a rider's livelihood is on the other side of the mistake.
+ */
+export function autoLiftDue(submittedAtMs: number | null, nowMs: number): boolean {
+  if (submittedAtMs === null || !Number.isFinite(submittedAtMs) || !Number.isFinite(nowMs)) return false;
+  return nowMs - submittedAtMs >= AUTO_LIFT_MS;
+}
+
 /** How similar a typed name must be to the name on file before it stops being flagged (`nameSimilarity`'s output). */
 export const NAME_MATCH_THRESHOLD = 0.75;
 

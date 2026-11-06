@@ -345,10 +345,19 @@ it and are about to go home — not to punish people who do not.
 | The app crashes on the screen | State is persisted; it re-presents on relaunch with everything the rider already typed still filled in |
 | A bug produces a wrong `cash_in_hand` | The "I disagree" path exists precisely for this, and the order-by-order list makes the error visible to both sides |
 
-> **The promise is in the answer; the sweep is not built (D141).** A submission's response carries
-> `reviewDueBy`, two hours out, so the app can say "usually under 30 minutes" with a bound behind it. Nothing sweeps
-> pending settlements yet, so nothing lifts the block at that instant. That is a promise the platform makes and does not
-> currently keep, and it is written here rather than left for a rider to discover at 1 am.
+> **The two-hour rule is a rule about state, and the door applies it (D142).** There is no cron in this platform, so a
+> deadline cannot *fire* anything: what a deadline can do is change what a door decides. `riders.shift_state` stays
+> `CASH_LOCKED` until the rider next presents themselves, and at that moment `POST /v1/rider/shift/start` asks whether
+> their pending claim has waited `AUTO_LIFT_MS`. If it has, the block lifts on the spot — one state write, one audit row
+> with actor `SYSTEM` and the action `rider.cash.auto_lift`, severity `WARNING`, and the start proceeds. If it has not,
+> the refusal is the ordinary `SHIFT_CASH_OVERDUE`. A rider who never submitted is blocked however long it has been,
+> because the rule is about the platform's slowness and not about the rider's.
+>
+> `GET /v1/rider/cash` applies the same rule **without writing**: it answers `locked: false` and `autoLiftDue: true`, so
+> the blocking screen never shows a rider a wall the platform has already dropped. Reads compute, doors write, and the
+> first request after the deadline is the moment the lift becomes a fact. An unparseable `created_at` is treated as *not*
+> due: releasing a block on the strength of a clock nobody could read is the one mistake this rule must not make, since
+> the block is the platform's only collection mechanism and a rider's livelihood is on the other side of it.
 
 The 2-hour auto-lift is the most important rule in this document. It converts the block from an
 open-ended detention into a bounded procedure with the platform carrying the cost of its own

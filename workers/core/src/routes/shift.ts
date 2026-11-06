@@ -23,6 +23,8 @@ import {
   setShiftState,
   zoneIsAssigned,
 } from "../repositories/riders.ts";
+import { latestSettlement, pendingSettlement } from "../repositories/cash.ts";
+import { liftStateOf, submittedAtMs } from "./cash.ts";
 
 /**
  * Beginning a shift: `POST /v1/rider/shift/start` (`08 §8`, D109).
@@ -123,19 +125,47 @@ async function startShift(ctx: Ctx, body: unknown): Promise<Response> {
   // by the shift's end, which is the only thing that knows the amount, so the gate lives here and the balance
   // is read only for a rider who is actually locked.
   if (rider.shiftState === "CASH_LOCKED") {
-    const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
-    const dueAtMs = await cashDueAtMs(ctx.db, rider.id);
-    // `08` fixes this refusal's details as `{ outstanding, due_at }`, and the app's screen is a sentence about time:
-    // "you have carried this since 22:14". A refusal that names the amount and not the moment leaves the rider to
-    // work out whether they are early or late (D140).
-    return failureResponse(
-      {
-        code: "SHIFT_CASH_OVERDUE",
-        details: { outstanding, due_at: dueAtMs === null ? null : new Date(dueAtMs).toISOString() },
-      },
-      ctx.locale,
-      ctx.requestId,
-    );
+    // `25 §8`'s two-hour rule, applied at the door (D142). There is no cron in this platform, so a deadline cannot fire
+    // anything; what a deadline can do is change what a door decides. A rider whose claim has waited past the SLA is not
+    // blocked, and the door is where that stops being a calculation and becomes a fact — one state write and one audit
+    // row, made when it matters, rather than a sweep that would need a schedule nobody has.
+    const lift = liftStateOf(rider.shiftState, await latestSettlement(ctx.db, rider.id), Date.now());
+    if (lift.autoLiftDue) {
+      await setShiftState(ctx.db, rider.id, "OFFLINE");
+      const pending = await pendingSettlement(ctx.db, rider.id);
+      // The platform was slow, so the platform records it: this is a failure metric in `25 §10`, not a rider metric.
+      console.error(`shift: auto-lifted cash block for rider ${toHexId(rider.id)} — review exceeded 2 h`);
+      await audit.appendAudit(ctx.db, {
+        actorId: null,
+        actorType: "SYSTEM",
+        actorRole: null,
+        ip: null,
+        userAgent: null,
+        requestId: ctx.requestId,
+        action: "rider.cash.auto_lift",
+        resourceType: "RIDER",
+        resourceId: toHexId(rider.id),
+        subjectId: toHexId(rider.id),
+        before: { shiftState: "CASH_LOCKED" },
+        after: { shiftState: "OFFLINE", settlementId: pending === null ? null : toHexId(pending.id) },
+        reason: "REVIEW_SLA_EXCEEDED",
+        severity: "WARNING",
+      });
+    } else {
+      const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
+      const dueAtMs = await cashDueAtMs(ctx.db, rider.id);
+      // `08` fixes this refusal's details as `{ outstanding, due_at }`, and the app's screen is a sentence about time:
+      // "you have carried this since 22:14". A refusal that names the amount and not the moment leaves the rider to
+      // work out whether they are early or late (D140).
+      return failureResponse(
+        {
+          code: "SHIFT_CASH_OVERDUE",
+          details: { outstanding, due_at: dueAtMs === null ? null : new Date(dueAtMs).toISOString() },
+        },
+        ctx.locale,
+        ctx.requestId,
+      );
+    }
   }
 
   const open = await openShiftFor(ctx.db, rider.id);
