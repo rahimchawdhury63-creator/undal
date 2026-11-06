@@ -14,6 +14,7 @@
  */
 
 import type { Db } from "../db/client.ts";
+import { parseDatetime } from "../db/time.ts";
 
 /** The rider a token resolves to, with the columns a shift start judges. */
 export interface RiderRow {
@@ -189,4 +190,22 @@ export async function cashOutstandingPaisa(db: Db, riderId: Uint8Array): Promise
   );
   const value = row === null ? null : row.outstanding_paisa;
   return value === null || value === undefined ? 0 : Math.max(0, Number(value));
+}
+
+/**
+ * When the cash became owed: the instant the shift that collected it ended (D140).
+ *
+ * `25` fixes no future deadline, because there is none — the block is immediate and the rider is `CASH_LOCKED` from the
+ * moment they tap End shift. So "due" is not a countdown, it is the moment the obligation began, and that is what the
+ * app needs to say "you have been carrying ৳2 340 since 22:14". `null` means no shift has ever ended, which for a
+ * rider with cash outstanding would be a data question rather than a state.
+ */
+export async function cashDueAtMs(db: Db, riderId: Uint8Array): Promise<number | null> {
+  const row = await db.first<{ ended_at: unknown }>(
+    "SELECT MAX(`ended_at`) AS `ended_at` FROM `rider_shifts` WHERE `rider_id` = ? AND `ended_at` IS NOT NULL",
+    [riderId],
+  );
+  if (row === null || row.ended_at === null || row.ended_at === undefined) return null;
+  const parsed = parseDatetime(String(row.ended_at));
+  return parsed === null ? null : parsed.getTime();
 }

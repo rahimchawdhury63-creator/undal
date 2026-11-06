@@ -262,9 +262,14 @@ describe("POST /v1/rider/shift/start", () => {
     } as typeof db;
     const response = await route().run(ctxFor(withCash), { params: {}, body: BODY, reason: null });
     assert.equal(response.status, 409);
-    const parsed = (await response.json()) as { error: { code: string; details?: { outstanding?: number } } };
+    const parsed = (await response.json()) as {
+      error: { code: string; details?: { outstanding?: number; due_at?: string | null } };
+    };
     assert.equal(parsed.error.code, "SHIFT_CASH_OVERDUE");
     assert.equal(parsed.error.details?.outstanding, 214_000);
+    // `08` fixes this refusal's details as `{ outstanding, due_at }`, and a screen that says "settle" without saying
+    // since when leaves the rider to guess whether they are early or late (D140).
+    assert.ok(parsed.error.details !== undefined && "due_at" in parsed.error.details);
   });
 
   test("a deployment with no realtime configured cannot claim a shift is trackable", async () => {

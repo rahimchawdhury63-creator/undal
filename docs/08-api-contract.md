@@ -491,7 +491,7 @@ completely transparent about how position is earned, and that transparency is it
 | `GET` | `/v1/rider/earnings` | Today / week / custom window with per-order breakdown |
 | `GET` | `/v1/rider/invoices` | Weekly invoices |
 | `GET` | `/v1/rider/invoices/{id}/pdf` | Signed URL |
-| `GET` | `/v1/rider/cash` | Cash in hand, settlement status, deadline |
+| `GET` | `/v1/rider/cash` | Cash in hand, settlement status, deadline. Implemented (D140) |
 | `POST` | `/v1/rider/cash/settle` | Submit a settlement (see [`25`](25-rider-cash-settlement.md)) |
 | `GET` | `/v1/rider/heatmap` | Demand surface for positioning |
 | `GET` | `/v1/rider/stats` | Acceptance, completion, rating, on-time |

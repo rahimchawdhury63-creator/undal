@@ -12,6 +12,7 @@ import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
 import { parsePointE7 } from "../domain/order/distance.ts";
 import {
+  cashDueAtMs,
   cashOutstandingPaisa,
   closeShift,
   countActiveOrders,
@@ -122,8 +123,16 @@ async function startShift(ctx: Ctx, body: unknown): Promise<Response> {
   // by the shift's end, which is the only thing that knows the amount, so the gate lives here and the balance
   // is read only for a rider who is actually locked.
   if (rider.shiftState === "CASH_LOCKED") {
+    const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
+    const dueAtMs = await cashDueAtMs(ctx.db, rider.id);
+    // `08` fixes this refusal's details as `{ outstanding, due_at }`, and the app's screen is a sentence about time:
+    // "you have carried this since 22:14". A refusal that names the amount and not the moment leaves the rider to
+    // work out whether they are early or late (D140).
     return failureResponse(
-      { code: "SHIFT_CASH_OVERDUE", details: { outstanding: await cashOutstandingPaisa(ctx.db, rider.id) } },
+      {
+        code: "SHIFT_CASH_OVERDUE",
+        details: { outstanding, due_at: dueAtMs === null ? null : new Date(dueAtMs).toISOString() },
+      },
       ctx.locale,
       ctx.requestId,
     );
@@ -462,6 +471,49 @@ async function toggleBreak(ctx: Ctx, body: unknown): Promise<Response> {
 }
 
 /** The shift routes. */
+
+/**
+ * The rider's cash position: `GET /v1/rider/cash` (`08 §8`).
+ *
+ * The settlement screen is the most coercive surface in the platform (`25`), so the number it blocks on must be
+ * readable without being blocked on: a rider who wants to know what they owe before ending their shift has no other
+ * place to ask. Four facts, and none of them derived by the app: what is outstanding, whether the block is on, when the
+ * obligation began, and whether settling is required at all.
+ *
+ * A rider who owes nothing is not an error: `cashInHandPaisa: 0` with `locked: false` is the ordinary end of a shift
+ * that collected no cash, and it is the state in which the app shows the summary and nothing else.
+ */
+async function cashPosition(ctx: Ctx): Promise<Response> {
+  const principal = ctx.principal;
+  if (principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+
+  let userBytes: Uint8Array;
+  try {
+    userBytes = uuidBytes(principal.userId);
+  } catch {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+  const rider = await findRiderByUserId(ctx.db, userBytes);
+  if (rider === null) {
+    return failureResponse({ code: "PERM_DENIED", details: { reason: "not_a_rider" } }, ctx.locale, ctx.requestId);
+  }
+
+  const outstanding = await cashOutstandingPaisa(ctx.db, rider.id);
+  const dueAtMs = await cashDueAtMs(ctx.db, rider.id);
+  return successResponse(
+    {
+      cashInHandPaisa: outstanding,
+      dueAt: dueAtMs === null ? null : new Date(dueAtMs).toISOString(),
+      locked: rider.shiftState === "CASH_LOCKED",
+      settlementRequired: outstanding > 0,
+      shiftState: rider.shiftState,
+    },
+    ctx.locale,
+    ctx.requestId,
+  );
+}
+
+/** The shift and cash routes, in the order `08 §8` lists them: start, read, break, cash, end. */
 export const SHIFT_ROUTES: readonly RouteDefinition[] = [
   {
     method: "POST",
@@ -487,6 +539,15 @@ export const SHIFT_ROUTES: readonly RouteDefinition[] = [
     group: "PRESENCE",
     maxBodyBytes: 1_024,
     run: async (ctx, input) => toggleBreak(ctx, input.body),
+  },
+  {
+    // Reads the rider's own balance and the clock, so it is not a `shift.read` route: the key the RIDER actor holds for
+    // money is `rider.view_finance`, and reusing it keeps the register where it was (D140).
+    method: "GET",
+    path: "/v1/rider/cash",
+    permission: "rider.view_finance",
+    group: "PRESENCE",
+    run: async (ctx) => cashPosition(ctx),
   },
   {
     method: "POST",

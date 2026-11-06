@@ -3230,3 +3230,39 @@ and statement-count tests moved from four to five statements. `db/expected.json`
 but an order placed before `006` (there are none outside the seed) or one with null coordinates will always read as no
 evidence. And factor 12's `coverageValue` is still the constant `1` in the route, which the next session should not
 mistake for a wired factor.
+
+## D140 — The cash gate says when, and the rider can read the number
+
+`08 §6` fixes the `SHIFT_CASH_OVERDUE` refusal's details as `{ outstanding, due_at }`, and the route has been sending
+`{ outstanding }` since D109 — a documented shape that was never met. The fix is small and it exposed the question
+underneath it: what is `due_at`?
+
+**There is no future deadline, so `due_at` is the past.** `25` sets no settlement deadline at all, because there does
+not need to be one: the block is immediate and the rider is `CASH_LOCKED` from the instant they tap End shift. Inventing
+a countdown — "settle within 24 hours" — would be inventing policy in a route. What the screen actually needs is when the
+obligation began, so `due_at` is `MAX(ended_at)` over the rider's shifts: the moment the cash became theirs to return.
+Said out loud, the sentence is "you have carried ৳2 140 since 22:14", which is true and actionable; "settle your cash"
+is neither.
+
+**`cashDueAtMs` is a second statement, not a join.** The balance and the last shift-ended instant live in different
+tables with different cardinalities, and a join between `rider_cash_balances` and `rider_shifts` multiplies rows for a
+rider with a hundred shifts. Two reads on a path that runs once per shift start is cheaper than one clever query nobody
+can read. `null` when no shift has ever ended.
+
+**`GET /v1/rider/cash` exists now** (`08 §8` has listed it since the beginning). The blocking screen is the most
+coercive surface in the platform, and a number you are blocked on must be readable *without* being blocked on: a rider
+who wants to know what they owe before ending their shift had nowhere to ask. The body is the four facts and nothing
+derived: `{ cashInHandPaisa, dueAt, locked, settlementRequired, shiftState }`. Owing nothing is a `200` with zeroes, not
+an error — that is the ordinary end of a shift that collected no cash.
+
+**The key is `rider.view_finance`.** The RIDER actor already holds it, so the register stays at 416 and no new key was
+added for a noun that already has one. The route reads the rider's own rows by the token's user id, exactly as the shift
+routes do.
+
+Tests: three in `shift-current.test.ts` — a locked rider's amount, block and instant; nothing owed as a `200` with
+`locked: false`; a token with no rider row refused before any balance is read — and the cash-locked start test in
+`shift-start.test.ts` now asserts the refusal carries `due_at` at all.
+
+*Open:* `POST /v1/rider/cash/settle` — the bKash TrxID, the screenshot, the admin approval and the auto-lift when review
+exceeds the two-hour SLA (`25 §8`) — is not built. Until it is, a `CASH_LOCKED` rider has a readable balance and no way
+to clear it, which is the one gap in this flow that a rider would notice first.

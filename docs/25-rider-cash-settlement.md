@@ -23,6 +23,13 @@ The mechanism is social and procedural rather than technical: the rider sends th
 submits proof, and the app does not let them do anything else until an admin confirms it arrived.
 It works because it is unambiguous.
 
+The two figures the screen is built from are now readable without being blocked on (D140). `GET /v1/rider/cash`
+answers `{ cashInHandPaisa, dueAt, locked, settlementRequired, shiftState }`, and the `SHIFT_CASH_OVERDUE` refusal that
+starts the next shift carries the same pair — `{ outstanding, due_at }`, which is the shape `08 §6` fixes for it.
+`due_at` is **not a future deadline**: this document sets none, because the block is immediate. It is the moment the
+obligation began — the `ended_at` of the shift that collected the cash — which is what lets the screen say "you have been
+carrying ৳2 140 since 22:14" instead of "settle your cash".
+
 ---
 
 ## 2. The design constraints this screen must respect

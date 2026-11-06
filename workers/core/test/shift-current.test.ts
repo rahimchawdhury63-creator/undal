@@ -53,11 +53,19 @@ const SHIFT_ROW = {
   distance_m: 12_480,
 };
 
-function dbFor(options: { rider?: Record<string, unknown> | null; openShift?: boolean; outstanding?: number | null } = {}): ReturnType<typeof stubDb> {
+function dbFor(
+  options: {
+    rider?: Record<string, unknown> | null;
+    openShift?: boolean;
+    outstanding?: number | null;
+    /** When the last shift ended, which is when the cash became owed (D140). */
+    endedAt?: string | null;
+  } = {},
+): ReturnType<typeof stubDb> {
   const rider = options.rider === undefined ? RIDER_ROW : options.rider;
   return stubDb([
     { match: /FROM `riders` WHERE `user_id`/u, rows: rider === null ? [] : [rider] },
-    { match: /FROM `rider_shifts`/u, rows: options.openShift === false ? [] : [SHIFT_ROW] },
+    { match: /FROM `rider_shifts`/u, rows: options.openShift === false ? [] : [{ ...SHIFT_ROW, ended_at: options.endedAt ?? null }] },
     { match: /outstanding_paisa` FROM `rider_cash_balances`/u, rows: options.outstanding === undefined || options.outstanding === null ? [] : [{ outstanding_paisa: options.outstanding }] },
     { match: /UPDATE `riders` SET/u, affectedRows: 1 },
     { match: /FROM `audit_log`/u, rows: [] },
@@ -188,5 +196,46 @@ describe("POST /v1/rider/shift/break", () => {
     const response = await onBreak(db, { onBreak: "yes" });
     assert.equal(response.status, 422);
     assert.deepEqual(db.calls, []);
+  });
+});
+
+/**
+ * The cash read (D140).
+ *
+ * The blocking screen (`25`) is the most coercive surface in the platform, so the number it blocks on must be readable
+ * *without* being blocked on. These three tests pin the answer's four facts and the one refusal: a rider who owes cash
+ * and one who does not are the same route, and the difference is in the body rather than in the status code.
+ */
+describe("GET /v1/rider/cash (D140)", () => {
+  const locked = { ...RIDER_ROW, shift_state: "CASH_LOCKED" };
+
+  test("a locked rider sees the amount, the block and the moment it began", async () => {
+    const db = dbFor({ rider: locked, outstanding: 214_000, endedAt: "2026-11-06 22:14:00.000000" });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    assert.equal(response.status, 200);
+    const parsed = (await response.json()) as {
+      data: { cashInHandPaisa: number; dueAt: string | null; locked: boolean; settlementRequired: boolean };
+    };
+    assert.equal(parsed.data.cashInHandPaisa, 214_000);
+    assert.equal(parsed.data.locked, true);
+    assert.equal(parsed.data.settlementRequired, true);
+    assert.equal(parsed.data.dueAt, "2026-11-06T22:14:00.000Z", "the app says \"since 22:14\", so the instant must be the shift's end");
+  });
+
+  test("a rider who owes nothing is not an error, and is not locked", async () => {
+    const db = dbFor({ outstanding: null });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    assert.equal(response.status, 200);
+    const parsed = (await response.json()) as { data: { cashInHandPaisa: number; locked: boolean; settlementRequired: boolean } };
+    assert.equal(parsed.data.cashInHandPaisa, 0);
+    assert.equal(parsed.data.locked, false);
+    assert.equal(parsed.data.settlementRequired, false);
+  });
+
+  test("a token with no rider row is refused without reading a balance", async () => {
+    const db = dbFor({ rider: null });
+    const response = await route("/v1/rider/cash").run(ctxFor(db, "/v1/rider/cash"), { params: {}, body: null, reason: null });
+    assert.equal(response.status, 403);
+    assert.ok(!db.calls.some((call) => call.sql.includes("rider_cash_balances")));
   });
 });
