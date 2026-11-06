@@ -2827,3 +2827,56 @@ that does not stop it, a wave failure that is recorded rather than thrown, and n
 only while its zone has traffic — an order in a quiet zone still needs a driver. The honest fix is either a scheduled
 sweeper over `RIDER_SEARCH` orders or moving the tick to the vendor room, which already wakes for a placed order; both
 are deployment questions rather than dispatch ones, and this rung states them rather than guessing.
+
+## D131 — A push that failed was the end of the story
+
+D128 sent one push per valid token and recorded `SENT` or `FAILED`. It also said, in its own doc comment, that "no
+retry logic" belonged there "because the retry story belongs to the caller that knows how long an offer lives" — and
+then nothing ever picked that story up. A 503 from Google, a socket that aborted at 1 500 ms, a rate limit: any of
+them meant a rider whose phone never rang for an offer that was still theirs, with a row in `fcm_dispatches` as the
+only trace.
+
+**The retry is a statement, not a scheduler.** `POST /internal/dispatch/pushes/retry` runs one query whose joins *are*
+the policy: `outcome = 'FAILED'`, `attempt < 3`, the failure at least 2 s old, the offer unanswered and with 3 s or
+more of life left, the token still `valid`, and `NOT EXISTS` a later row for the same token and order (which covers
+both "it has been delivered since" and "we are looking at an older failure than the newest one"). A pass has no
+judgement of its own to get wrong, and the caps are the query's: `LIMIT 20` bounds a pass, `attempt < 3` bounds a
+token, and the wave's own 25 s bounds the whole thing.
+
+**Why the retry waits, and why it stops early.** A timeout that just happened will fail the same way if repeated
+immediately, so a retry is due 2 s after the failure. And an alarm for an expired offer is worse than silence — the
+rider taps, and the accept answers `OFFER_EXPIRED` — so a retry is abandoned once the offer has under 3 s left. Both
+windows are constants in `domain/order/push-retry.ts` next to the attempt cap, and both are passed into the query as
+`DATETIME(6)` bounds so the database does the arithmetic.
+
+**Permanent failures prune, transient ones wait.** `pushFailureIsPermanent` splits the statuses: 404 (unregistered),
+400 (a payload that will be refused the same way), 401/403 (credentials), and everything else that is not 408, 425,
+429 or 5xx. A permanent failure invalidates the `device_tokens` row — `valid = false`, `invalidated_at`,
+`invalid_reason` — and the retry query's `valid = 1` join is what stops the next pass, without a second table or a
+nightly sweep. A 404 is also pruned at **first** send now, which is where the token actually died.
+
+**Two D128 defects fell out of building it.** The alarm carried `offerId` as the **rider's** id, so the deep link a
+rider tapped asked `/v1/orders/{code}/offer/{riderId}/accept` for an offer that does not exist; it now carries the
+offer row's id, which is what the plan already minted. And `attempt` was the token's index in the device list, so a
+rider's second phone started life on attempt 2 and the retry arithmetic (`attempt + 1`, `attempt < 3`) would have been
+nonsense. Both are the kind of bug that only surfaces when a second caller reads the first one's rows.
+
+**One audit row per pass, at `INFO`,** listing the orders and the four counters — retried, sent, failed, pruned. The
+per-device detail stays in `fcm_dispatches`, exactly as `dispatch-log` put it there, and a pass with nothing to do
+writes nothing at all: no rows, no audit line, no chain entry. A table that records heartbeats is a table nobody reads.
+
+**The tick gained a third step, and it had to come last.** Expire → advance → retry. The wave the advance just planned
+is the one that just pushed, so its failures are precisely what the pass is for; running it first would find the
+previous wave's offers, which the expire has already emptied. Realtime's `createCoreWave` gained `retry()` and the
+`WaveTick` gained `retried`, and the alarm's log line only prints when something expired or something was re-rung.
+
+Tests: ten in `push-retry.test.ts` — the permanence table, per-token attempts, a failed send retried and recorded as
+attempt 2, the query's window asserted clause by clause, the alarm naming the offer, a 503 left alone against a 404
+pruned, nothing-to-do writing nothing, absent credentials, the shared token, and one audit row per pass — plus two in
+`dispatch-plan-route.test.ts` for the two D128 defects, and three in `core-wave.test.ts` / `sweep.test.ts` for the
+three-step tick and its log line.
+
+*Open:* a retried alarm carries `pickupDistanceM: 0`, because the routing snapshots belong to the request that planned
+the wave and are gone by the time the retry runs. Payout and countdown — the two numbers a rider decides on — are the
+offer's own, and inventing a distance would be worse than omitting one; the honest fix is a paid routing call per retry,
+which is not obviously worth it for a figure the rider has already seen once.

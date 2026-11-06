@@ -51,10 +51,11 @@ export interface ZoneAlarmDeps {
    * The dispatch tick, or `null` when this deployment does not coordinate waves (D130).
    *
    * It runs last, after the sweep: an offer that expired this tick belongs to a rider whose row may be about to be
-   * erased, and advancing a wave towards a phone that has just died would ring nobody. Absent, the alarm is exactly
-   * what it was before this hook existed.
+   * erased, and advancing a wave towards a phone that has just died would ring nobody. Its own last step is the retry
+   * pass for pushes that failed while the offer is live (D131), which is why the answer carries that count too.
+   * Absent, the alarm is exactly what it was before this hook existed.
    */
-  wave: (() => Promise<{ readonly expired: number; readonly advanced: number }>) | null;
+  wave: (() => Promise<{ readonly expired: number; readonly advanced: number; readonly retried: number }>) | null;
 }
 
 /**
@@ -91,8 +92,13 @@ async function tickDispatch(deps: ZoneAlarmDeps): Promise<void> {
   if (deps.wave === null) return;
   try {
     const result = await deps.wave();
-    if (result.expired > 0) {
-      console.warn(`dispatch: expired ${String(result.expired)} offer(s), advanced ${String(result.advanced)} order(s)`);
+    // Logged only when something moved: a tick that did nothing is the normal tick, and a line per five seconds is a
+    // log nobody reads.
+    if (result.expired > 0 || result.retried > 0) {
+      console.warn(
+        `dispatch: expired ${String(result.expired)} offer(s), advanced ${String(result.advanced)} order(s), ` +
+          `retried ${String(result.retried)} push(es)`,
+      );
     }
   } catch (error) {
     deps.reportError(error);

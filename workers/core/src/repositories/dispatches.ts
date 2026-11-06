@@ -14,7 +14,7 @@
  */
 
 import type { Db } from "../db/client.ts";
-import { sqlNow } from "../db/time.ts";
+import { parseDatetime, sqlNow } from "../db/time.ts";
 
 /** One send, as core receives it from realtime. */
 export interface DispatchInput {
@@ -142,6 +142,100 @@ export async function markReceived(
     "UPDATE `fcm_dispatches` SET `received_at` = ?, `device_latency_ms` = ?, `device_path` = ? " +
       "WHERE `id` = ? AND `received_at` IS NULL",
     [receivedAt, details.latencyMs, details.path, dispatchId],
+  );
+  return result.affectedRows === 1;
+}
+
+/**
+ * A push that failed and is still worth repeating: one row of a retry pass (`15 §8`, D131).
+ *
+ * Everything needed to rebuild the alarm is here, because the ranking pass that built the first one is gone by the
+ * time the retry runs — the wave was planned in another request. `expiresAtMs` is the offer's, not the wave's, so a
+ * retried alarm counts down to the same deadline the rider's screen does.
+ */
+export interface PushRetryCandidate {
+  readonly orderId: Uint8Array;
+  readonly orderCode: string;
+  readonly token: string;
+  /** The attempt the failed send recorded; the retry writes `attempt + 1`. */
+  readonly attempt: number;
+  /** The offer row the rider still holds, as the alarm names it. */
+  readonly offerId: Uint8Array;
+  readonly payoutPaisa: number;
+  readonly expiresAtMs: number;
+}
+
+/** What one retry pass asks the log for. */
+export interface RetryQuery {
+  readonly nowMs: number;
+  readonly maxAttempts: number;
+  readonly retryAfterMs: number;
+  readonly minRemainingMs: number;
+  readonly limit: number;
+}
+
+/**
+ * The failed sends whose offer is still live, newest failure first.
+ *
+ * The joins are the policy. `order_offers` unanswered and unexpired is "the rider can still take this"; `devices` and
+ * `device_tokens` on `valid = 1` is "this phone can still be reached" — which is how a token pruned after a 404 stops
+ * being retried without a second table. `NOT EXISTS` a later row for the same token is what stops a pass from
+ * re-sending an alarm that has already been delivered since, and it also means one candidate per token per order
+ * rather than one per historical failure.
+ */
+export async function retryCandidates(db: Db, query: RetryQuery): Promise<readonly PushRetryCandidate[]> {
+  const rows = await db.query<{
+    order_id: Uint8Array;
+    code: string;
+    fcm_token: string;
+    attempt: number;
+    offer_id: Uint8Array;
+    payout_paisa: number;
+    expires_at: string;
+  }>(
+    "SELECT d.`order_id`, o.`code`, d.`fcm_token`, d.`attempt`, f.`id` AS `offer_id`, f.`payout_paisa`, " +
+      "f.`expires_at` FROM `fcm_dispatches` d " +
+      "JOIN `orders` o ON o.`id` = d.`order_id` " +
+      "JOIN `order_offers` f ON f.`order_id` = d.`order_id` " +
+      "JOIN `riders` r ON r.`id` = f.`rider_id` " +
+      "JOIN `devices` v ON v.`user_id` = r.`user_id` " +
+      "JOIN `device_tokens` t ON t.`device_id` = v.`id` AND t.`fcm_token` = d.`fcm_token` AND t.`valid` = 1 " +
+      "WHERE d.`outcome` = 'FAILED' AND d.`attempt` < ? AND d.`sent_at` <= ? " +
+      "AND f.`response` IS NULL AND f.`expires_at` > ? " +
+      "AND NOT EXISTS (SELECT 1 FROM `fcm_dispatches` n WHERE n.`order_id` = d.`order_id` " +
+      "AND n.`fcm_token` = d.`fcm_token` AND n.`sent_at` > d.`sent_at`) " +
+      "ORDER BY d.`sent_at` LIMIT ?",
+    [
+      query.maxAttempts,
+      sqlNow(query.nowMs - query.retryAfterMs),
+      sqlNow(query.nowMs + query.minRemainingMs),
+      query.limit,
+    ],
+  );
+  return rows.map((row) => ({
+    orderId: new Uint8Array(row.order_id),
+    orderCode: String(row.code),
+    token: String(row.fcm_token),
+    attempt: Number(row.attempt),
+    offerId: new Uint8Array(row.offer_id),
+    payoutPaisa: Number(row.payout_paisa),
+    expiresAtMs: parseDatetime(row.expires_at)?.getTime() ?? 0,
+  }));
+}
+
+/**
+ * Retire a token Google says is gone.
+ *
+ * Written once and never un-written: a token that FCM answered 404 for is dead for good, and the `valid` flag is
+ * what every later wave reads before deciding who to ring. `valid = 1` in the `WHERE` keeps a second prune from
+ * overwriting the timestamp of the first, which is the one support wants when the question is "when did that phone
+ * stop receiving orders?".
+ */
+export async function invalidateToken(db: Db, token: string, reason: string, atMs: number): Promise<boolean> {
+  const result = await db.execute(
+    "UPDATE `device_tokens` SET `valid` = false, `invalidated_at` = ?, `invalid_reason` = ? " +
+      "WHERE `fcm_token` = ? AND `valid` = 1",
+    [sqlNow(atMs), reason, token],
   );
   return result.affectedRows === 1;
 }

@@ -25,6 +25,7 @@ import { createCoreReceiptRecorder } from "../authority/core-receipts.ts";
 import { absenceEraser } from "../d1/on-absence.ts";
 import { d1Positions } from "../d1/store.ts";
 import { createCoreWave } from "../authority/core-wave.ts";
+import type { WaveTick } from "../authority/core-wave.ts";
 import { runZoneAlarm } from "../d1/sweep.ts";
 import type { ReceiptRecorder } from "../authority/core-receipts.ts";
 import type { CoordinatorEnv } from "../coordination/from-env.ts";
@@ -279,8 +280,9 @@ export class ZoneHub {
         reportError: (error) => {
           console.error(`sweep: erasure failed, the next alarm retries: ${String(error)}`);
         },
-        // The dispatch tick (D130): expire what has timed out, then advance each order it left without a wave. Absent
-        // configuration is absent — the alarm is otherwise what it was.
+        // The dispatch tick (D130, D131): expire what has timed out, advance each order it left without a wave, then
+        // retry the pushes that failed while their offer is still live. Absent configuration is absent — the alarm is
+        // otherwise what it was.
         wave: waveTick === null ? null : () => waveTick.tick(),
       },
       nowMs,
@@ -379,9 +381,11 @@ export function roleFor(actorType: string): PresenceRole {
  * Same rule as every other core client in this Worker: absent configuration is absent behaviour, not an error on
  * every alarm tick.
  */
-function coreWave(env: { readonly CORE_BASE_URL?: string; readonly PUBLIC_API_BASE?: string; readonly INTERNAL_TOKEN?: string }): {
-  tick(): Promise<{ readonly expired: number; readonly advanced: number }>;
-} | null {
+function coreWave(env: {
+  readonly CORE_BASE_URL?: string;
+  readonly PUBLIC_API_BASE?: string;
+  readonly INTERNAL_TOKEN?: string;
+}): { tick(): Promise<WaveTick> } | null {
   const base = (env.CORE_BASE_URL ?? env.PUBLIC_API_BASE ?? "").trim();
   const token = (env.INTERNAL_TOKEN ?? "").trim();
   if (base === "" || token === "") return null;

@@ -19,7 +19,7 @@
  * carries on with the rest of the wave: one dead token is not a reason to leave seven riders un-rung.
  */
 
-import { fail, ok, type Result } from "../lib/result.ts";
+import { fail, ok, type Failure, type Result } from "../lib/result.ts";
 
 /** The Google endpoint, overridable so tests never leave the process. */
 export const FCM_DEFAULT_ENDPOINT = "https://fcm.googleapis.com";
@@ -100,4 +100,34 @@ export function fcmConfigured(env: {
     env.FCM_ACCESS_TOKEN !== undefined &&
     env.FCM_ACCESS_TOKEN !== ""
   );
+}
+
+/**
+ * The wire's `data` object, from a payload that carries numbers and booleans (`15 §9`, D131).
+ *
+ * FCM accepts only string values in `data`, and a number sent as a number is a message the runtime rejects
+ * outright — so the conversion has to happen exactly once, at the boundary, rather than in every caller. `null`
+ * and `undefined` are *dropped* rather than stringified: `String(undefined)` is the word `"undefined"`, which the
+ * app would draw as a payout.
+ */
+export function fcmData(source: Readonly<Record<string, unknown>>): Readonly<Record<string, string>> {
+  const data: Record<string, string> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value === null || value === undefined) continue;
+    data[key] = String(value);
+  }
+  return data;
+}
+
+/**
+ * The HTTP status behind a failed send, or `null` when there was no response at all.
+ *
+ * The distinction is the whole retry policy (`15 §8`, D131): a **404** is Google saying the token is gone and a
+ * retry can only fail again; a **5xx** or a timeout is the network having a bad minute, and the same send a
+ * second later often lands. A `null` means the call never reached an answer — an abort or a socket error — and
+ * that is transient by definition.
+ */
+export function fcmStatus(failure: Failure): number | null {
+  const status = failure.details?.["status"];
+  return typeof status === "number" && Number.isFinite(status) ? status : null;
 }

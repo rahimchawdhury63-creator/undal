@@ -33,7 +33,7 @@ function deps(
     fail?: boolean;
     presenceFails?: boolean;
     wave?: boolean;
-    waveResult?: { expired: number; advanced: number };
+    waveResult?: { expired: number; advanced: number; retried: number };
     waveFails?: boolean;
   } = {},
 ): Recorder & Parameters<typeof runZoneAlarm>[0] {
@@ -66,7 +66,7 @@ function deps(
         : async () => {
             recorder.order.push("wave");
             if (options.waveFails === true) throw new Error("core unavailable");
-            return options.waveResult ?? { expired: 0, advanced: 0 };
+            return options.waveResult ?? { expired: 0, advanced: 0, retried: 0 };
           },
   };
 }
@@ -133,7 +133,7 @@ describe("the dispatch tick inside the alarm (D130)", () => {
   });
 
   test("a sweep failure does not stop the wave tick", async () => {
-    const recorder = deps({ fail: true, waveResult: { expired: 2, advanced: 1 } });
+    const recorder = deps({ fail: true, waveResult: { expired: 2, advanced: 1, retried: 0 } });
     await runZoneAlarm(recorder, 1_000_000);
     assert.equal(recorder.failures.length, 1);
     assert.equal(recorder.order.at(-1), "wave");
@@ -144,6 +144,19 @@ describe("the dispatch tick inside the alarm (D130)", () => {
     await runZoneAlarm(recorder, 1_000_000);
     assert.equal(recorder.failures.length, 1);
     assert.equal(recorder.order.at(-1), "wave");
+  });
+
+  test("a pass that re-rang a phone is worth a line; a tick that only expired one is the same line (D131)", async () => {
+    const lines: string[] = [];
+    const original = console.warn;
+    console.warn = (message: string) => lines.push(message);
+    try {
+      await runZoneAlarm(deps({ waveResult: { expired: 0, advanced: 0, retried: 2 } }), 1_000_000);
+      assert.equal(lines.length, 1);
+      assert.match(lines[0] ?? "", /retried 2 push/u);
+    } finally {
+      console.warn = original;
+    }
   });
 
   test("no configured core means no tick, and the alarm is what it was", async () => {

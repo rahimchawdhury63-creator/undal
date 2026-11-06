@@ -360,6 +360,36 @@ describe("the push behind the ring (D128)", () => {
     assert.equal(body.message.android.priority, "high");
   });
 
+  test("the alarm names the offer row, because that is the id the rider's accept call carries (D131)", async () => {
+    stubFeed([USER_HEX]);
+    pending.length = 0;
+    const db = dbFor();
+    await route().run(ctxFor(db, true), INPUT);
+    await Promise.all(pending);
+    const written = db.calls.find((call) => /INSERT INTO `order_offers`/u.test(call.sql));
+    const offerHex = Buffer.from(written?.params[0] as Uint8Array).toString("hex");
+    const push = sent.find((entry) => entry.url === "https://fcm.test/v1/projects/undal-prod/messages:send");
+    const body = push?.body as { message: { data: Record<string, string> } };
+    // D128 pushed the rider's id here, so the deep link a rider tapped asked for an offer that did not exist.
+    assert.equal(body.message.data["offerId"], offerHex, "the offer, not the rider");
+    assert.notEqual(offerHex, RIDER_HEX);
+  });
+
+  test("an attempt is counted per phone, not by position in the device list (D131)", async () => {
+    stubFeed([USER_HEX]);
+    pending.length = 0;
+    const db = dbFor();
+    await route().run(ctxFor(db, true), INPUT);
+    await Promise.all(pending);
+    const rows = db.calls.filter((call) => /INSERT INTO `fcm_dispatches`/u.test(call.sql));
+    assert.equal(rows.length, 2);
+    // The second phone is not on its second attempt; both have been rung once for this offer.
+    assert.deepEqual(
+      rows.map((row) => row.params[4]),
+      [1, 1],
+    );
+  });
+
   test("without credentials nothing is sent and no dispatch row claims otherwise", async () => {
     stubFeed([USER_HEX]);
     pending.length = 0;

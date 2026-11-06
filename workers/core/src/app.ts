@@ -29,6 +29,7 @@ import { COORDINATION_ROUTES } from "./routes/coordination.ts";
 import { SHIFT_ROUTES } from "./routes/shift.ts";
 import { DISPATCH_ROUTES } from "./routes/dispatch.ts";
 import { OFFER_ROUTES } from "./routes/offers.ts";
+import { PUSH_RETRY_ROUTES } from "./routes/push-retry.ts";
 
 /**
  * The pipeline, in the order a request meets it: identify, throttle, parse, authenticate,
@@ -56,6 +57,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   ...SHIFT_ROUTES,
   ...OFFER_ROUTES,
   ...DISPATCH_ROUTES,
+  ...PUSH_RETRY_ROUTES,
 ];
 
 /** A matched route plus the parameters its template captured. */

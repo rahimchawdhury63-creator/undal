@@ -8,9 +8,9 @@ import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { requireInternalToken } from "../middleware/internal-token.ts";
 import * as audit from "../audit/write.ts";
 import { announce } from "../bindings/announce.ts";
-import { createFcmClient, fcmConfigured, FCM_DEFAULT_ENDPOINT } from "../bindings/fcm.ts";
+import { createFcmClient, fcmConfigured, fcmData, fcmStatus, FCM_DEFAULT_ENDPOINT } from "../bindings/fcm.ts";
 import { createRealtimeClient } from "../bindings/realtime.ts";
-import { newId } from "../lib/ids.ts";
+import { newId, toHexId } from "../lib/ids.ts";
 import { sqlDatetime } from "../db/time.ts";
 import { estimateRoute, ESTIMATED_SPEED_MPS } from "../domain/order/distance.ts";
 import { MAX_WAVES, planWaves, type ScoredCandidate } from "../domain/order/assignment.ts";
@@ -19,7 +19,8 @@ import { offerAlarm } from "../domain/order/offer-alarm.ts";
 import { DEFAULT_MEDIAN_PICKUP_M, scoreCandidates, wilsonLowerBound, type ScoringFacts } from "../domain/order/scoring.ts";
 import { idleSeconds, riderHistory, type RiderHistory } from "../repositories/dispatch-stats.ts";
 import { claimDispatchLock, insertOfferWave, releaseDispatchLock, waveStateForOrder } from "../repositories/dispatch.ts";
-import { insertDispatch } from "../repositories/dispatches.ts";
+import { insertDispatch, invalidateToken } from "../repositories/dispatches.ts";
+import { pushFailureIsPermanent, UNREGISTERED_REASON } from "../domain/order/push-retry.ts";
 import { tokensForUser } from "../repositories/recipients.ts";
 import { parseZoneRing } from "../domain/geo/zone-shape.ts";
 import {
@@ -432,13 +433,16 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
 
     const planned = planWaveWrite(first, { nowMs: at, payoutPaisa: order.riderPayoutPaisa, scored: candidatesForPlan });
     const traceId = newId();
+    // The offer rows carry their ids from here on: the alarm has to name the offer the rider will accept, and D128
+    // named the *rider* instead — a deep link that could only ever 404 (D131).
+    const offers = planned.offers.map((offer) => ({ ...offer, id: newId() }));
     const written = await insertOfferWave(ctx.db, {
       orderId: order.id,
       wave: planned.wave,
       traceId,
       offeredAtMs: at,
       expiresAtMs: planned.expiresAtMs,
-      offers: planned.offers.map((offer) => ({ ...offer, id: newId() })),
+      offers,
     });
 
     await audit.appendAudit(
@@ -471,13 +475,13 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
     // the user id and the offer row only carries the rider row id (`D110`'s distinction, again). Then, for a phone
     // whose socket is closed, one push per valid token — recorded against the token whether it lands or not (D128).
     const userOf = new Map(candidates.map((candidate) => [hexOf(candidate.riderId), hexOf(candidate.userId)]));
-    for (const offer of planned.offers) {
+    for (const offer of offers) {
       const riderId = Buffer.from(offer.riderId).toString("hex");
       const riderUserId = userOf.get(riderId);
       if (riderUserId === undefined) continue;
       const alarm = offerAlarm({
         orderCode: order.code,
-        offerId: Buffer.from(offer.riderId).toString("hex"),
+        offerId: toHexId(offer.id),
         payoutPaisa: offer.payoutPaisa,
         pickupDistanceM: assembled.snapshots.find((snapshot) => snapshot.riderId === riderId)?.routedDistanceToVendorM ?? 0,
         expiresAtMs: planned.expiresAtMs,
@@ -497,29 +501,32 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
         projectId: ctx.env.FCM_PROJECT_ID ?? "",
         accessToken: ctx.env.FCM_ACCESS_TOKEN ?? "",
       });
-      const data: Record<string, string> = {};
-      for (const [key, value] of Object.entries({ ...alarm.data, titleEn: alarm.title.en, titleBn: alarm.title.bn })) {
-        // The wire format wants strings, and a number sent as a number is a message the runtime rejects.
-        data[key] = String(value);
-      }
+      // The wire format wants strings, and a number sent as a number is a message the runtime rejects (D131).
+      const data = fcmData({ ...alarm.data, titleEn: alarm.title.en, titleBn: alarm.title.bn });
       const userBytes = Buffer.from(riderUserId, "hex");
       // The pushes are queued, not awaited: eight phones are eight round trips, and an offer's twenty-five seconds are
       // the rider's, not the network's.
       ctx.waitUntil(
         (async () => {
           const tokens = await tokensForUser(ctx.db, userBytes);
-          for (const [index, token] of tokens.entries()) {
+          for (const token of tokens) {
             const result = await sender.send({ token, data });
             await insertDispatch(ctx.db, {
               id: newId(),
               orderId: order.id,
               deviceId: null,
               token,
-              attempt: index + 1,
+              // The attempt counts sends to *this token*, so a first send is attempt 1 on every device (D131);
+              // D128 numbered by position in the list and gave a rider's second phone an attempt it never had.
+              attempt: 1,
               outcome: result.ok ? "SENT" : "FAILED",
               messageId: result.ok ? result.value.messageId : null,
               sentAt: sqlDatetime(new Date(at)),
             });
+            // A phone Google answers 404 for is gone; retire it here rather than ringing it again next wave.
+            if (!result.ok && pushFailureIsPermanent(fcmStatus(result.error))) {
+              await invalidateToken(ctx.db, token, UNREGISTERED_REASON, at);
+            }
           }
         })(),
       );

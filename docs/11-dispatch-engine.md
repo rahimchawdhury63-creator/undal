@@ -210,6 +210,18 @@ rider who fails any one of them is not ranked at all.
 > and forgotten, because the next tick retries with the same state. A `null` wave — nobody eligible, or the ladder
 > exhausted — is an answer, not an advance.
 
+> **And a phone that did not wake gets a second call (D131).** A `FAILED` send used to be the end of the story: Google
+> answered 503, the socket timed out at 1 500 ms, and the rider stayed dark for the whole offer. Most of those failures
+> are transient and the offer is still live, so `POST /internal/dispatch/pushes/retry` re-sends it — once a failure is
+> at least 2 s old, and only while the offer has 3 s or more left, because a retry that lands after the deadline is a
+> phone ringing for somebody else's order. The policy lives in one statement: an unanswered, unexpired offer, a token
+> still `valid`, no later row for that token, and **attempts left** (three sends per token per offer). A **404 prunes**
+> — the token is retired in `device_tokens` and drops out of the retry and of every later wave — while a 5xx, a 429 or
+> a silence is left valid for the next tick. The tick's order is expire → advance → retry: the wave that was just
+> planned is the one whose pushes are worth repeating. Two things were wrong in D128 and are fixed here: the alarm
+> named the **rider** where the deep link needs the **offer row**, and `attempt` counted a device's position in the list
+> rather than the tries that phone had, which would have made "third attempt" mean nothing.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep
