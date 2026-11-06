@@ -391,3 +391,81 @@ describe("the candidate feed a wave writer reads (D117)", () => {
     assert.equal(response.status, 501);
   });
 });
+
+/**
+ * The announcement carries the wake (`11 §7`, D132).
+ *
+ * Core's offer broadcast is the only traffic that reaches a zone with no sockets, so it is also the only chance to tell
+ * that zone when to tick. The assertions are: the instants are derived from the payload's own `expiresAtMs`, a broadcast
+ * with no offer deadline forwards nothing, and a wake that fails does not fail the broadcast — the frame is the fact,
+ * the wake is an optimisation of when its expiry is noticed.
+ */
+for (const backend of BACKENDS) {
+  describe(`the announced wake/${backend.name}`, () => {
+    /** A context whose wake is recorded rather than forwarded. */
+    function wakingContext(wake: (zoneId: string, atMs: readonly number[]) => Promise<unknown>) {
+      const built = backend.make();
+      const woken: { zoneId: string; atMs: readonly number[] }[] = [];
+      const context: InternalContext = {
+        coordinator: built.coordinator,
+        store: new MemoryFrameStore(new StreamHub()),
+        internalToken: TOKEN,
+        clock: built.clock,
+        wake: (zoneId, atMs) => {
+          woken.push({ zoneId, atMs });
+          return wake(zoneId, atMs);
+        },
+      };
+      return { context, woken, clock: built.clock };
+    }
+
+    test("an offer's broadcast arms the zone room for its retry and its expiry", async () => {
+      const { context, woken, clock } = wakingContext(async () => true);
+      const nowMs = clock.nowMs();
+      const response = await handleInternal(
+        post("/internal/broadcast", {
+          zoneId: "zone-1",
+          orderId: "UND-7K2M9QX4",
+          event: "offer.new",
+          payload: { expiresAtMs: nowMs + 25_000 },
+        }),
+        context,
+      );
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { data: { recorded: number; armed: boolean } };
+      assert.equal(body.data.recorded, 2, "the ring is still written first");
+      assert.equal(body.data.armed, true);
+      assert.deepEqual(woken, [{ zoneId: "zone-1", atMs: [nowMs + 3_000, nowMs + 26_000] }]);
+    });
+
+    test("a broadcast with nothing to expire forwards nothing", async () => {
+      const { context, woken } = wakingContext(async () => true);
+      const response = await handleInternal(
+        post("/internal/broadcast", { zoneId: "zone-1", orderId: "UND-7K2M9QX4", event: "order.assigned", payload: {} }),
+        context,
+      );
+      const body = (await response.json()) as { data: { armed: boolean } };
+      assert.equal(body.data.armed, false);
+      assert.deepEqual(woken, [], "a state change is not a deadline");
+    });
+
+    test("a wake that fails is a missed wake, not a failed broadcast", async () => {
+      const { context, clock } = wakingContext(async () => {
+        throw new Error("room unavailable");
+      });
+      const response = await handleInternal(
+        post("/internal/broadcast", {
+          zoneId: "zone-1",
+          orderId: "UND-7K2M9QX4",
+          event: "offer.new",
+          payload: { expiresAtMs: clock.nowMs() + 25_000 },
+        }),
+        context,
+      );
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { data: { recorded: number; armed: boolean } };
+      assert.equal(body.data.recorded, 2, "the frame was recorded before the wake was attempted");
+      assert.equal(body.data.armed, false);
+    });
+  });
+}

@@ -178,7 +178,8 @@ rider who fails any one of them is not ranked at all.
 > riders the order is gone. It writes **wave 1 only** — the rest of the cascade is planned and returned, and the caller
 > comes back when this one expires. Nothing rings yet: the alarm is the FCM binding's job.
 
-> **And then it rings (D127).** Each offer is announced on its rider's own channel — `order.offer`, audienced to
+> **And then it rings (D127).** Each offer is announced on its rider's own channel — `offer.new` (the catalogue's
+> name; D127 spelled it `order.offer` and realtime's ring refused it, corrected in D132), audienced to
 > that rider's **user id**, since the rider channel is keyed by `sub` while the offer row carries the rider row id —
 > with a data-only payload from `domain/order/offer-alarm.ts`: order code, offer id, payout, pickup distance and the
 > seconds remaining, computed from the offer's own expiry rather than a caller's arithmetic. Both languages travel
@@ -221,6 +222,22 @@ rider who fails any one of them is not ranked at all.
 > planned is the one whose pushes are worth repeating. Two things were wrong in D128 and are fixed here: the alarm
 > named the **rider** where the deep link needs the **offer row**, and `attempt` counted a device's position in the list
 > rather than the tries that phone had, which would have made "third attempt" mean nothing.
+
+> **And a zone with no riders in it still ticks (D132).** D130's tick lives in the zone alarm, and that alarm belongs
+> to a room that only exists while that zone has sockets — so an order placed where every rider is in their pocket had
+> nothing to advance it. The fix needs no cron and no global sweeper: the announcement of a wave is itself a request to
+> the zone room, so the room exists for at least that moment, and `/internal/wake` is what the broadcast now also does.
+> It arms the room's alarm for **two instants** per wave — a retry pass three seconds out (D131 needs one while the
+> offer is live) and the offer's expiry plus a second of slack — and the room's single alarm becomes the earliest of
+> those and every presence deadline. The loop then sustains itself: alarm fires, tick expires and advances, core
+> announces the next wave, the announcement arms the next wake; when the ladder ends nothing re-arms and the object is
+> a candidate for eviction, which is what keeps this legal under the no-cron rule. Fired instants are spent, an earlier
+> instant is never postponed, and a wake that cannot reach its room is a missed wake rather than a failed broadcast.
+>
+> Finding that hole exposed a second one. Realtime's ring carries a **closed** set of event names and D127's alarm used
+> `order.offer`, which is not in `08 §9.1`'s catalogue — so every offer announcement was refused as `unknown_event` and
+> treated as a degraded notification: the alarm reached no socket at all, and the quiet-zone wake would have had
+> nothing to wake for. The catalogue's name is `offer.new`, and the map now carries it.
 
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible

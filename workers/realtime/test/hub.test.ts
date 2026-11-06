@@ -248,3 +248,67 @@ for (const backend of BACKENDS) {
     });
   });
 }
+
+/**
+ * The offer as a deadline (`11 §7`, D132).
+ *
+ * Presence gives a room an alarm only while somebody is connected, which is the wrong shape for an offer: the zone that
+ * needs a tick most is the one whose riders are all in their pockets. The room therefore holds a second kind of
+ * deadline — the instants an announced wave asked for — and the assertions here are the three that keep the two kinds
+ * from fighting: an earlier instant wins, a later one is ignored, and a fired instant is spent rather than repeated.
+ */
+for (const backend of BACKENDS) {
+  describe(`dispatch deadlines in the room/${backend.name}`, () => {
+    test("an armed instant moves the alarm ahead of every heartbeat", async () => {
+      const { hub, storage, clock } = hubFor(backend);
+      await hub.connect(new FakeSocket(), { actorId: "rider-a", deviceId: "d1", role: "RIDER" });
+      assert.equal(storage.alarmAtMs, clock.nowMs() + 2_000);
+      await hub.armDispatch([clock.nowMs() + 500]);
+      assert.equal(storage.alarmAtMs, clock.nowMs() + 500, "the offer's instant is earlier than the beat's deadline");
+    });
+
+    test("an instant later than a presence deadline does not postpone it", async () => {
+      const { hub, storage, clock } = hubFor(backend);
+      await hub.connect(new FakeSocket(), { actorId: "rider-a", deviceId: "d1", role: "RIDER" });
+      const heartbeatAt = storage.alarmAtMs;
+      await hub.armDispatch([clock.nowMs() + 30_000]);
+      assert.equal(storage.alarmAtMs, heartbeatAt, "a person's deadline is not moved by an offer's");
+    });
+
+    test("the fired instant is spent and the later one takes the alarm", async () => {
+      const { hub, storage, clock } = hubFor(backend);
+      const retryAt = clock.nowMs() + 3_000;
+      const expiresAt = clock.nowMs() + 26_000;
+      await hub.armDispatch([retryAt, expiresAt]);
+      assert.equal(storage.alarmAtMs, retryAt);
+      clock.advance(3_001);
+      await hub.alarm();
+      assert.deepEqual(hub.dispatchDeadlines(), [expiresAt], "the retry pass ran; the expiry is still owed");
+      assert.equal(storage.alarmAtMs, expiresAt);
+    });
+
+    test("when the last instant is spent the alarm is cleared, so the room may be evicted", async () => {
+      const { hub, storage, clock } = hubFor(backend);
+      await hub.armDispatch([clock.nowMs() + 1_000]);
+      clock.advance(1_001);
+      await hub.alarm();
+      assert.deepEqual(hub.dispatchDeadlines(), []);
+      assert.equal(storage.alarmAtMs, null, "a room with nothing to wait for must not stay awake");
+    });
+
+    test("an instant in the past is dropped rather than scheduled", async () => {
+      const { hub, storage, clock } = hubFor(backend);
+      await hub.armDispatch([clock.nowMs() - 1, clock.nowMs() + 2_000]);
+      assert.deepEqual(hub.dispatchDeadlines(), [clock.nowMs() + 2_000]);
+      assert.equal(storage.alarmAtMs, clock.nowMs() + 2_000);
+    });
+
+    test("arming the same instant twice writes the alarm once", async () => {
+      const { hub, storage, clock } = hubFor(backend);
+      await hub.armDispatch([clock.nowMs() + 2_000]);
+      const writes = storage.alarmWrites;
+      await hub.armDispatch([clock.nowMs() + 2_000]);
+      assert.equal(storage.alarmWrites, writes, "a wave every few seconds is not a storage write every few seconds");
+    });
+  });
+}

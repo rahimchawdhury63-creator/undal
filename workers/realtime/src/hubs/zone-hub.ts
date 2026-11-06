@@ -66,6 +66,20 @@ export interface ZoneSocketIdentity {
 /** The storage key the zone id is remembered under. */
 export const ZONE_KEY = "zone:id";
 
+/**
+ * Where the Worker posts the instants this zone must wake for (`11 §7`, D132).
+ *
+ * An offer is a deadline, and in a quiet zone the room holding it has no sockets — so nothing in the alarm's usual
+ * arithmetic would keep it alive. The announcement of the wave wakes the room (any request to a Durable Object does)
+ * and this route is what it says: *wake me again at these instants*. Without it a zone whose riders are all in their
+ * pockets would never tick, and the wave it was offered would sit unanswered until some other zone's alarm happened
+ * to run.
+ */
+export const WAKE_PATH = "/internal/wake";
+
+/** The most instants one wake carries. Two per wave; the cap is so a caller cannot fill the room's list. */
+export const MAX_WAKE_INSTANTS = 4;
+
 /** The two ends of an accepted socket, as the runtime hands them over. */
 export interface SocketPair {
   readonly client: WebSocket;
@@ -127,6 +141,10 @@ export class ZoneHub {
    * parses a token itself. A request without them is refused rather than connected as a ghost.
    */
   async fetch(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    // The wake is not an upgrade: it carries no identity because it makes no claim about a person, only about when
+    // this room's next deadline is.
+    if (path === WAKE_PATH) return this.wake(request);
     const accepted = await this.upgrade(request);
     if (!accepted.ok) {
       return new Response(JSON.stringify({ ok: false, error: accepted.reason }), {
@@ -135,6 +153,31 @@ export class ZoneHub {
       });
     }
     return new Response(null, { status: 101, webSocket: accepted.client });
+  }
+
+  /**
+   * Arm the room for the instants a wave's announcement asked for (`11 §7`, D132).
+   *
+   * The zone comes from the query and is remembered here if the room has never been connected: a room that refused
+   * the wake of a zone it does not know would never arm anything for the first wave in a new zone — which is exactly
+   * the wave this exists for.
+   */
+  private async wake(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const zoneId = (url.searchParams.get("zone") ?? "").trim();
+    if (zoneId === "" || zoneId.length > 64) return wakeResponse(422, { ok: false, error: "no_zone" });
+    const instants = readWakeInstants(await readJson(request));
+    if (instants === null) return wakeResponse(400, { ok: false, error: "not_a_wake" });
+    const remembered = (await this.state.storage.get<string>(ZONE_KEY)) ?? "";
+    if (remembered !== zoneId) await this.state.storage.put(ZONE_KEY, zoneId);
+    try {
+      const armed = await (await this.hub(zoneId)).armDispatch(instants);
+      return wakeResponse(200, { ok: true, armed });
+    } catch (error) {
+      // A deployment with no coordinator cannot hold a room. The caller treats this as a missed wake and the order's
+      // own expiry still happens — it just happens late, which is the degradation every core client here accepts.
+      return wakeResponse(503, { ok: false, error: "coordinator_not_configured", detail: String(error) });
+    }
   }
 
   /**
@@ -338,6 +381,38 @@ export class ZoneHub {
     }
     return hub;
   }
+}
+
+/** A JSON answer from the wake route, which has no envelope because only a Worker calls it. */
+function wakeResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+/** The body, parsed, or `null` when it is not JSON. */
+async function readJson(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The instants a wake carries, or `null` when the body is not one.
+ *
+ * A wake that carried a nonsense instant would set the room's alarm to a time that never arrives, so the shape is
+ * checked here and a refusal is the answer: the caller logs it and the next wave tries again.
+ */
+export function readWakeInstants(body: unknown): readonly number[] | null {
+  if (typeof body !== "object" || body === null) return null;
+  const raw = (body as { atMs?: unknown }).atMs;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_WAKE_INSTANTS) return null;
+  const instants: number[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "number" || !Number.isFinite(entry) || entry <= 0) return null;
+    instants.push(Math.trunc(entry));
+  }
+  return instants;
 }
 
 /** What an upgrade produced: the two ends, or the reason it did not happen. */

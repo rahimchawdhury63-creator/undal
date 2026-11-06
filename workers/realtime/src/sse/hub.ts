@@ -42,6 +42,10 @@ export const EVENT_NAMES: Readonly<Record<string, string>> = {
   ITEMS_CHANGED: "order.items_changed",
   DISPUTED: "order.disputed",
   SEARCHING: "order.searching",
+  // The Offer group (`08 §9.1`). Only `offer.new` is emitted today — core announces a wave's offers and nothing else —
+  // and it had to be added the hard way: D127 spelled the event `order.offer`, this map refused it, and the ring
+  // dropped every alarm the dispatch engine built (D132).
+  OFFER_NEW: "offer.new",
   // Two names the vendor ladder publishes (`14 §4.1`). They are in `08 §9.1`'s catalogue and are emitted by
   // a component other than the coordinator, which is legitimate — but the ring's gate is this map, so a
   // name that is missing here is an event that is silently dropped rather than one that travels.

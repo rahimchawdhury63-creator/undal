@@ -22,6 +22,7 @@ import { handleLocationBatch } from "./routes/location.ts";
 import { handleEraseInternal, handleEraseSelf } from "./routes/erase.ts";
 import { d1Positions } from "./d1/store.ts";
 import { DurableObjectFrameStore } from "./sse/durable-store.ts";
+import { zoneWake } from "./hubs/zone-wake.ts";
 
 export { OrderRoom } from "./order-room.ts";
 export { CoordinationRoom } from "./coordination/durable-object.ts";
@@ -296,6 +297,9 @@ export default {
         // A shift's first row is written here on core's behalf: without it the first flush of the shift is
         // refused as `SHIFT_NOT_OPEN`, which is the whole live-tracking channel failing to start (D108).
         ...(env.RIDER_DB === undefined ? {} : { positions: d1Positions(env.RIDER_DB) }),
+        // An announced wave arms the zone room's alarm for its own expiry (D132). Without a room to arm there is no
+        // forwarding, and the announcement is recorded exactly as it was before.
+        ...(env.ZONE_HUB === undefined ? {} : { wake: zoneWake({ namespace: env.ZONE_HUB }) }),
       });
     }
 

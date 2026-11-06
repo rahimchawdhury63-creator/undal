@@ -68,11 +68,24 @@ export interface PresenceHubOptions {
   readonly onPublished?: (record: AbsenceRecord) => void | Promise<void>;
 }
 
+/** The most dispatch instants one room will hold. Two per wave, so this is several waves of margin. */
+export const MAX_DISPATCH_INSTANTS = 8;
+
 /** The storage key the ledger is persisted under. */
 export const LEDGER_KEY = "presence:ledger";
 
 /** The storage key the alarm's current instant is remembered under. */
 export const ALARM_KEY = "presence:alarm";
+
+/**
+ * The instants the dispatch tick must run for this zone (`11 §7`, D132).
+ *
+ * Presence is not the only deadline a room holds. An offer expires twenty-five seconds after it is written, and in a
+ * zone whose riders are all in pockets — no sockets, so no heartbeats — nothing in this room would wake to notice.
+ * Core announces the wave to the room anyway, and the announcement is what arms these instants: a retry pass a few
+ * seconds after the push, and the expiry itself.
+ */
+export const DISPATCH_KEY = "dispatch:at";
 
 /** One zone's presence. */
 export class PresenceHub {
@@ -84,6 +97,14 @@ export class PresenceHub {
   private readonly sockets = new Map<string, LiveSocket>();
   private ledger: PresenceLedger = emptyLedger();
   private loaded = false;
+  /**
+   * When the room must run the dispatch tick, ascending (`11 §7`, D132).
+   *
+   * Two instants per wave — the retry pass and the expiry — and the room's single alarm is set to the earliest of them
+   * and of every presence deadline. A room with no sockets but a live offer therefore keeps its alarm, which is the
+   * whole point: the offer is a deadline too.
+   */
+  private dispatchAtMs: readonly number[] = [];
 
   constructor(options: PresenceHubOptions) {
     this.zoneId = options.zoneId;
@@ -188,6 +209,35 @@ export class PresenceHub {
   }
 
   /**
+   * Ask the room to wake for the dispatch tick (`11 §7`, D132).
+   *
+   * Core's announcement of a wave carries the offer's deadline, and the Worker that forwards it posts the instants
+   * here. Earlier wins: an instant already at or before the new ones makes the call a no-op, so a wave every few
+   * seconds does not turn into a storage write every few seconds. Instants in the past are dropped rather than
+   * scheduled, because a deadline that has passed is a tick the caller already missed.
+   */
+  async armDispatch(instants: readonly number[]): Promise<readonly number[]> {
+    await this.load();
+    const atMs = this.clock.nowMs();
+    const merged = [...new Set([...this.dispatchAtMs, ...instants])]
+      .filter((at) => Number.isFinite(at) && at > atMs)
+      .sort((left, right) => left - right)
+      .slice(0, MAX_DISPATCH_INSTANTS);
+    if (merged.length === this.dispatchAtMs.length && merged.every((at, index) => at === this.dispatchAtMs[index])) {
+      return this.dispatchAtMs;
+    }
+    this.dispatchAtMs = merged;
+    await this.storage.put(DISPATCH_KEY, merged);
+    await this.rearm();
+    return merged;
+  }
+
+  /** The instants this room is still waiting to wake for, for a test or an admin view. */
+  dispatchDeadlines(): readonly number[] {
+    return this.dispatchAtMs;
+  }
+
+  /**
    * The room's alarm fired.
    *
    * Two things expire at once: a silence that outlived the heartbeat deadline, and a grace that ran out.
@@ -220,6 +270,13 @@ export class PresenceHub {
       await this.onPublished?.(record);
     }
     await this.persist();
+    // A dispatch instant that has fired is spent; the tick it belongs to has run. What is left is the wave's later
+    // instant — the expiry, when this was the retry pass — which re-arms the alarm for it and nothing more.
+    const remaining = this.dispatchAtMs.filter((at) => at > atMs);
+    if (remaining.length !== this.dispatchAtMs.length) {
+      this.dispatchAtMs = remaining;
+      await this.storage.put(DISPATCH_KEY, remaining);
+    }
     await this.rearm();
     return swept.published;
   }
@@ -244,6 +301,8 @@ export class PresenceHub {
     if (this.loaded) return;
     const stored = await this.storage.get<PresenceLedger>(LEDGER_KEY);
     this.ledger = stored ?? emptyLedger();
+    const dispatch = await this.storage.get<readonly number[]>(DISPATCH_KEY);
+    this.dispatchAtMs = Array.isArray(dispatch) ? dispatch.filter((at) => Number.isFinite(at)) : [];
     this.loaded = true;
   }
 
@@ -272,7 +331,12 @@ export class PresenceHub {
         deadlineMs: absence.publishAtMs,
       })),
     ];
-    const next = nextAlarmAt(entries);
+    const presenceNext = nextAlarmAt(entries);
+    // The earliest of the presence deadlines and the dispatch instants: one alarm, and it is the next instant anything
+    // in this room can change. A room with a live offer keeps its alarm even when every socket has gone.
+    const dispatchNext = this.dispatchAtMs[0] ?? null;
+    const next =
+      presenceNext === null ? dispatchNext : dispatchNext === null ? presenceNext : Math.min(presenceNext, dispatchNext);
     const current = (await this.storage.get<number | null>(ALARM_KEY)) ?? null;
     if (!shouldRearm(current, next)) return;
     if (next === null) {

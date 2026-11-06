@@ -43,4 +43,11 @@ describe("the catalogue covers the state machine", () => {
     assert.equal(catalogueName("AUTO_CANCELLED"), "order.cancelled");
     assert.equal(EVENT_NAMES["RIDER_ASSIGNED"], "order.assigned");
   });
+
+  test("the offer alarm's event is the catalogue's `offer.new`, not the `order.offer` D127 invented", () => {
+    // The gate is a map, so a misspelt event is not an error anybody sees: the internal route answers `unknown_event`
+    // and `announce` treats that as a degraded notification. D127's alarm therefore reached no socket at all (D132).
+    assert.equal(catalogueName("offer.new"), "offer.new");
+    assert.equal(catalogueName("order.offer"), null);
+  });
 });

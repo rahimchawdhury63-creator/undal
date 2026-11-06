@@ -2880,3 +2880,55 @@ three-step tick and its log line.
 the wave and are gone by the time the retry runs. Payout and countdown — the two numbers a rider decides on — are the
 offer's own, and inventing a distance would be worse than omitting one; the honest fix is a paid routing call per retry,
 which is not obviously worth it for a figure the rider has already seen once.
+
+## D132 — The announcement nobody received
+
+D130 closed the dispatch loop and recorded its own gap: the tick lives in the zone's Durable Object alarm, and that
+object exists while the zone has traffic. An order placed in a quiet zone — every rider in a pocket, no sockets, so no
+heartbeats — had nothing to advance its wave. The honest fix is not a cron (the no-cron rule is not an obstacle to be
+worked around: a scheduled Worker that silently stops firing is invisible) and not a global sweeper in another Worker
+(core would have to guess at cadences realtime already knows). It is in the room.
+
+**The announcement is the wake.** Core already broadcasts each wave to the zone room (`offer.new`), and a broadcast is a
+request, so the object exists for at least that moment. What it lacked was a reason to be alive later, and an offer is
+one. `POST /internal/wake` takes the instants the room must wake for, `PresenceHub.armDispatch` merges them into a
+sorted list, and `rearm()` now sets the room's single alarm to the earliest of the presence deadlines **and** those
+instants. Two per wave: `RETRY_WAKE_MS` (3 s — D131's retry needs a tick while the offer is live, not at its expiry) and
+`expiresAtMs + EXPIRE_SLACK_MS` (1 s of slack, because the expiry is a comparison against the database's clock and a
+wake a millisecond early expires nothing). The loop then sustains itself — alarm, expire, advance, announce, arm — and
+when the ladder runs out nothing re-arms and the object becomes a candidate for eviction, which is exactly the argument
+`presence/deadline.ts` already made for being allowed at all.
+
+**The invariants are the interesting part.** An instant already at or before the new ones makes arming a no-op, so a
+wave every few seconds is not a storage write every few seconds; a later instant never postpones an earlier one, so an
+offer's expiry cannot delay a person's heartbeat deadline; an instant in the past is dropped rather than scheduled,
+because a deadline that has passed is a tick already missed; and a fired instant is *spent* — `alarm()` removes what it
+fired for and re-arms for what is left, so the retry pass hands the alarm to the expiry and the expiry hands it to
+nothing. The body is bounded (`MAX_WAKE_INSTANTS`) and validated, because an alarm set to a nonsense instant is a room
+that never ticks again. The zone travels on the wake, and a room that has never been connected **learns** it there —
+the first wave into a new zone is precisely the wave that arrives at a room with no history.
+
+**A wake that fails is a missed wake.** The frame is recorded before the forward is attempted, the answer carries
+`armed`, and a room that cannot be reached costs a late tick rather than a lost broadcast. Absent `ZONE_HUB` there is
+no forward at all and the announcement is exactly what it was before this rung.
+
+**And the hole had a second bottom.** Wiring the wake meant watching an offer actually travel, which is how `order.offer`
+turned out to be a name realtime's ring does not carry: `08 §9.1`'s catalogue has an **Offer group** — `offer.new`,
+`offer.withdrawn`, `offer.expired`, `offer.claimed_by_other` — and D127 had invented an Order-group spelling. The gate
+is a map, so the failure was silent by design: the internal route answered `unknown_event`, `announce` treated that as
+a degraded notification, and not one offer frame ever reached a socket. The alarm now emits `offer.new`, the map
+carries it, and a catalogue test pins both halves — that `offer.new` resolves, and that the invented name does not.
+
+Tests: six in `dispatch-deadline.test.ts` (the two instants, no deadline, a far horizon, an expiry already past, a wave
+announced inside its retry window, ordering), five in `zone-wake.test.ts` (addressing, no-op with nothing to arm,
+refusal and a dead transport, the body's validation, route/client agreement), six in `hub.test.ts` (earlier wins, later
+ignored, fired instants spent, cleared when empty, past dropped, no redundant write), three in `zone-hub.test.ts` (the
+wake arms and teaches the zone, an earlier deadline is not postponed, bad wake refused), three in `internal.test.ts`
+(the instants derived from the payload, nothing forwarded without a deadline, a failed wake not failing the broadcast),
+and one in `catalogue-coverage.test.ts` for the name.
+
+*Open:* the retry wake is one instant per announcement, so a wave whose retries also fail gets no second retry instant
+until the next announcement — the expiry tick runs D131's pass anyway, but by then the offer is gone. A second retry
+instant would need the announcement to know `RETRY_AFTER_MS × 2`, which is a policy the room should not have to hold;
+the honest fix is for the pass to re-arm itself when it retried something, which is a change to `core-wave.tick`'s
+answer rather than to the room.

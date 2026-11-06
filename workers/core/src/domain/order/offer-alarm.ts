@@ -22,8 +22,13 @@
 
 /** The alarm for one offer, as the broadcast and the push both carry it. */
 export interface OfferAlarm {
-  /** The catalogue name (`08 §9.1`) the stream and the app both switch on. */
-  readonly event: "order.offer";
+  /**
+   * The catalogue name (`08 §9.1`) the stream and the app both switch on.
+   *
+   * `offer.new`, not the `order.offer` this file first spelled: the catalogue carries an Offer *group*, and realtime's
+   * ring refuses a name it does not carry — so D127's spelling was an alarm that never reached a single socket (D132).
+   */
+  readonly event: "offer.new";
   readonly title: { readonly en: string; readonly bn: string };
   readonly body: { readonly en: string; readonly bn: string };
   /** Everything the app needs to render the alarm without a second request. */
@@ -72,7 +77,7 @@ export function offerAlarm(input: OfferAlarmInput): OfferAlarm {
   const pay = taka(input.payoutPaisa);
   const where = distance(input.pickupDistanceM);
   return {
-    event: "order.offer",
+    event: "offer.new",
     title: { en: "New delivery", bn: "নতুন ডেলিভারি" },
     body: {
       en: `৳${String(pay)} · ${where} to pick up · ${String(secondsRemaining)}s to accept`,

@@ -76,6 +76,6 @@ describe("the offer alarm (D127)", () => {
   });
 
   test("the event name is the catalogue's, so the app switches on one string", () => {
-    assert.equal(alarm().event, "order.offer");
+    assert.equal(alarm().event, "offer.new");
   });
 });

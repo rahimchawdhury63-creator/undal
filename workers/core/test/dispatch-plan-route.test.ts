@@ -306,7 +306,7 @@ describe("the ring (D127)", () => {
     const broadcasts = sent.filter((entry) => entry.url.endsWith("/internal/broadcast"));
     assert.equal(broadcasts.length, 1);
     const body = broadcasts[0]?.body as { event: string; audience: { riderUserId: string }; payload: Record<string, unknown> };
-    assert.equal(body.event, "order.offer");
+    assert.equal(body.event, "offer.new");
     assert.equal(body.audience.riderUserId, USER_HEX, "the rider channel is keyed by user id, not the row id");
     assert.equal(body.payload["orderCode"], "UND-7K2M9QX4");
     assert.ok(typeof body.payload["secondsRemaining"] === "number");

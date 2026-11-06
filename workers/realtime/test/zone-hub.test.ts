@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { ZoneHub, ZONE_KEY, identityFrom, roleFor } from "../src/hubs/zone-hub.ts";
+import { ZoneHub, ZONE_KEY, WAKE_PATH, identityFrom, roleFor } from "../src/hubs/zone-hub.ts";
 import type { SocketPair, ZoneHubEnv } from "../src/hubs/zone-hub.ts";
 import type { Clock } from "../src/lib/clock.ts";
 import { FixedClock } from "../src/lib/clock.ts";
@@ -510,5 +510,61 @@ describe("an absence erases the live channel (D99)", () => {
     clock.advance(2_001);
     await hub.alarm();
     assert.deepEqual(await hub.presence(), []);
+  });
+});
+
+/**
+ * The wake route (D132): the room that has never held a socket is the room this exists for.
+ *
+ * The assertions are about what a quiet zone needs: the zone is remembered from the wake itself (nothing else would
+ * ever tell this room its name), and arming never *delays* an earlier deadline — a presence heartbeat is a promise
+ * about a person, and an offer's expiry does not get to postpone it.
+ */
+describe("the wake route (D132)", () => {
+  /** A room with its state in hand, so a test can read the alarm the runtime would fire. */
+  function wakeable(clock = new FixedClock(T0)) {
+    const state = fakeState();
+    const pair = () => ({
+      client: new FakeWebSocket() as unknown as WebSocket,
+      server: new FakeWebSocket() as unknown as WebSocket,
+    });
+    const hub = new ZoneHub(state, environment(clock), { clock, pair, receipts: null });
+    const alarm = state.storage as unknown as { alarmAtMs: number | null };
+    return { hub, state, alarm, clock };
+  }
+
+  const wake = (zone: string, body: unknown): Request =>
+    new Request(`https://zone.undal.app${WAKE_PATH}?zone=${zone}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  test("a wake arms the alarm and teaches the room its own zone", async () => {
+    const { hub, state, alarm } = wakeable();
+    const response = await hub.fetch(wake("zone-9", { atMs: [T0 + 3_000, T0 + 26_000] }));
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { ok: boolean; armed: number[] };
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.armed, [T0 + 3_000, T0 + 26_000]);
+    assert.equal(alarm.alarmAtMs, T0 + 3_000, "the earliest instant is the alarm");
+    assert.equal(await state.storage.get(ZONE_KEY), "zone-9", "a room woken first has to be told its zone");
+  });
+
+  test("an earlier deadline already standing is not postponed by a newer one", async () => {
+    const { hub, alarm } = wakeable();
+    await hub.fetch(wake("zone-9", { atMs: [T0 + 1_000] }));
+    await hub.fetch(wake("zone-9", { atMs: [T0 + 5_000] }));
+    assert.equal(alarm.alarmAtMs, T0 + 1_000, "arming moves the alarm earlier, never later");
+    await hub.fetch(wake("zone-9", { atMs: [T0 + 500] }));
+    assert.equal(alarm.alarmAtMs, T0 + 500);
+  });
+
+  test("a wake with no instants is refused and arms nothing", async () => {
+    const { hub, alarm } = wakeable();
+    const response = await hub.fetch(wake("zone-9", { atMs: [] }));
+    assert.equal(response.status, 400);
+    assert.equal(alarm.alarmAtMs, null);
+    assert.equal((await hub.fetch(wake("", { atMs: [T0 + 1_000] }))).status, 422, "a room with no zone holds nothing");
   });
 });

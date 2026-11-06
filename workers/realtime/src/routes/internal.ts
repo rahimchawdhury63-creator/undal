@@ -32,6 +32,7 @@ import type { FrameStore } from "../sse/store.ts";
 import type { BroadcastInput } from "../sse/fanout.ts";
 import { broadcast } from "../sse/fanout.ts";
 import { cadenceFor } from "../d1/cadence.ts";
+import { dispatchInstants } from "../hubs/dispatch-deadline.ts";
 import type { PositionStore } from "../d1/store.ts";
 
 /** What the internal routes are given. */
@@ -56,6 +57,14 @@ export interface InternalContext {
    * live tracking at all, and the route says so rather than pretending the shift opened.
    */
   readonly positions?: PositionStore;
+  /**
+   * Arm a zone room for the instants its wave needs (`11 §7`, D132).
+   *
+   * A broadcast is the only thing that reaches a zone with no sockets, so it is also the only chance to tell that zone
+   * when to wake. Absent — no zone rooms bound — the announcement is recorded and nothing is armed, which is exactly
+   * the behaviour before D132.
+   */
+  readonly wake?: (zoneId: string, atMs: readonly number[]) => Promise<unknown>;
   readonly clock?: Clock;
 }
 
@@ -185,8 +194,25 @@ export async function handleInternal(request: Request, context: InternalContext)
     if (context.broadcastEnabled === false || context.store === undefined) {
       return refuse("NOT_IMPLEMENTED", requestId, { reason: "rings_not_durable" });
     }
-    const result = await broadcast(context.store, { ...body, atMs: body.atMs === 0 ? clock.nowMs() : body.atMs });
-    return json(success({ recorded: result.recorded.length, orderId: body.orderId }, { requestId }), 200, requestId);
+    const sentAtMs = body.atMs === 0 ? clock.nowMs() : body.atMs;
+    const result = await broadcast(context.store, { ...body, atMs: sentAtMs });
+    // An announced offer is also a deadline (D132): the zone room has to wake when the alarm it just carried no longer
+    // has a live offer. Forwarded after the ring is written, and swallowed on failure — a broadcast that could not arm
+    // a room is a tick that runs on the next alarm that zone sees, which is what happened before this hook existed.
+    const instants = dispatchInstants(body.payload, sentAtMs);
+    let armed = false;
+    if (instants.length > 0 && context.wake !== undefined) {
+      try {
+        armed = (await context.wake(body.zoneId, instants)) === true;
+      } catch {
+        armed = false;
+      }
+    }
+    return json(
+      success({ recorded: result.recorded.length, orderId: body.orderId, armed }, { requestId }),
+      200,
+      requestId,
+    );
   }
 
   if (url.pathname === "/internal/shift/open") {
