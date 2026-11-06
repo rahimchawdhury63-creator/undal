@@ -2308,3 +2308,43 @@ vehicle and a numeric string from TiDB.
 *Open:* the wave writer that consumes this — join to the D117 feed by `userId`, fill the three fields neither side
 supplies (`distanceToZoneEdgeM` needs core's zone polygon, `routedDistanceToVendorM` needs routing that is not
 built, `notificationsAllowed` needs the device table), run `FILTERS`, `planWaves`, insert the offers, ring.
+
+## D119 — Zone geometry is JSON, so the distance is ours to compute
+
+Filter 7 asks how far outside their own zone a rider is. TiDB has no spatial types — `zones.polygon` is a JSON
+ring of `[lon_e7, lat_e7]` — so there is no `ST_Distance` to lean on and no second opinion available. The
+alternative was to leave the field at `0` "until we have PostGIS", which is not a placeholder: a `0` means *this
+rider is inside their zone*, so a wrong zero makes every rider in the city eligible for every order in every zone,
+and no test would fail because nothing would look broken.
+
+**So the shape gets a module, and the plane is local.** `domain/geo/zone-shape.ts` parses the stored ring, answers
+inside/outside by even-odd ray casting, and measures to the nearest segment in an equirectangular frame scaled by
+`cos(lat)`. At zone scale — a few kilometres — that frame is accurate to centimetres and fits in a page; a proper
+geodesic segment distance is an elliptic integral for a precision nobody downstream can use, since the answer is
+consumed as a comparison against 3 000 m.
+
+**Boundary counts as inside.** A rider standing on their zone's edge is available, not a metre away from being
+available, and the difference would be an order offered to nobody while a rider sat on the line. This is the case
+the deletion proof turns red: removing the inside short-circuit makes the boundary test report a distance instead
+of zero, which is exactly the bug that a naive "distance to the ring" implementation ships with.
+
+**A ring with no interior is refused at parse time, not answered with zero.** Three collinear vertices, or four
+copies of one point, describe no shape; a zero there would make every rider look inside every zone. `parseZoneRing`
+returns `null` for it and `distanceOutsideZoneM` throws, because both callers need a different kind of stop: the
+writer wants to reject a bad polygon with a field error, and dispatch wants to fail loudly rather than wave.
+
+**Two honest limits, named in the file rather than discovered later.** The projection degrades far from the
+equator's cosine and the ring convention breaks across the antimeridian; Sylhet is neither, and `ringExtentM`
+against `MAX_PLANAR_RING_M` (50 km) gives the writer a way to refuse a "zone" that is actually a province. The
+antimeridian is stated as unsupported, which is true, rather than handled by code that would never run here.
+
+**What this closes.** Three fields were blocking the wave writer. `distanceToZoneEdgeM` is now computed from data
+the platform already stores. `routedDistanceToVendorM` still needs routing, and the honest interim is the ring's
+own `estimateRoute` — a straight line marked `ESTIMATED`, which is the same provenance `D67` already promises
+customers for the fee. `notificationsAllowed` needs the device tables and is a join, not a decision. So the
+assembly is one rung away rather than one design question away.
+
+Tests: fourteen in `zone-shape.test.ts` — parsing, an open ring closed on the way in, refusals for degrees and
+floats and unreachable latitudes, inside-ness at the origin and on every vertex and edge midpoint, 445 m for four
+steps north, a corner measured to the corner, monotonicity, a concave L whose cut corner is outside while its arm
+is inside, the degenerate ring throwing, and the extent guard.
