@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  EXPIRY_WEIGHT,
   PROPENSITY_CONFIG_KEY,
   PROPENSITY_FULL_TRUST,
   PROPENSITY_PRIOR,
@@ -105,9 +106,10 @@ function configDb(options: Options = {}): ReturnType<typeof stubDb> & { readonly
 const VECTOR = [0.84, 0.15, 0.3, 0.5, 0.62, 0.38, 0, 0];
 
 describe("folding outcomes into the weights (D135)", () => {
-  const sample = (accepted: boolean, respondedAtMs = T0): TrainingSample => ({
+  const sample = (accepted: boolean, respondedAtMs = T0, weight = 1): TrainingSample => ({
     features: VECTOR,
     accepted,
+    weight,
     respondedAtMs,
   });
 
@@ -130,10 +132,29 @@ describe("folding outcomes into the weights (D135)", () => {
 
   test("a vector that is not eight numbers is skipped, and the rest still taught", () => {
     const trained = trainModel(PROPENSITY_PRIOR, [
-      { features: [0.1, 0.2], accepted: true, respondedAtMs: T0 },
+      { features: [0.1, 0.2], accepted: true, weight: 1, respondedAtMs: T0 },
       sample(true),
     ]);
     assert.equal(trained.applied, 1, "one bad row does not stop the pass");
+  });
+
+  test("an expired offer teaches half of what a refusal teaches (D136)", () => {
+    const refused = trainModel(PROPENSITY_PRIOR, [sample(false, T0, 1)]);
+    const silent = trainModel(PROPENSITY_PRIOR, [sample(false, T0, EXPIRY_WEIGHT)]);
+    const start = PROPENSITY_PRIOR[0] as number;
+    const refusedMove = (refused.weights[0] as number) - start;
+    const silentMove = (silent.weights[0] as number) - start;
+    assert.ok(Math.abs(refusedMove) > Math.abs(silentMove), "silence is weaker evidence than a no");
+    assert.ok(Math.abs(silentMove / refusedMove - 0.5) < 0.02, `ratio ${String(silentMove / refusedMove)}`);
+    assert.equal(silent.applied, 1, "the row was still folded in, at half strength");
+  });
+
+  test("a withdrawn offer is not a refusal the model can learn from", () => {
+    const withdrawn = sampleFromRow({ features: JSON.stringify(VECTOR), response: "WITHDRAWN", responded_at: "2023-11-14 22:13:20.000000" });
+    assert.equal(withdrawn, null);
+    const expired = sampleFromRow({ features: JSON.stringify(VECTOR), response: "EXPIRED", responded_at: "2023-11-14 22:13:20.000000" });
+    assert.equal(expired?.weight, EXPIRY_WEIGHT);
+    assert.equal(expired?.accepted, false);
   });
 
   test("no samples is no change at all", () => {
@@ -143,7 +164,12 @@ describe("folding outcomes into the weights (D135)", () => {
   });
 
   test("a row is read as a sample, and a null column is not one", () => {
-    assert.deepEqual(sampleFromRow(row(VECTOR, true)), { features: VECTOR, accepted: true, respondedAtMs: T0 });
+    assert.deepEqual(sampleFromRow(row(VECTOR, true)), {
+      features: VECTOR,
+      accepted: true,
+      weight: 1,
+      respondedAtMs: T0,
+    });
     assert.equal(sampleFromRow(row(null, true)), null, "an offer judged without a model is not evidence");
     assert.equal(sampleFromRow({ features: "[1,2]", response: "ACCEPTED", responded_at: "nonsense" }), null);
   });

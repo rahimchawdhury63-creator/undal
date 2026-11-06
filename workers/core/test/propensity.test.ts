@@ -18,8 +18,10 @@ import { describe, test } from "node:test";
 
 import {
   blendPropensity,
+  EXPIRY_WEIGHT,
   IDLE_UNIT_S,
   isPropensityWeights,
+  labelWeight,
   learnStep,
   MAX_LOGIT,
   PAYOUT_UNIT_PAISA,
@@ -133,6 +135,36 @@ describe("the online step (09 §7.4)", () => {
     assert.notEqual(moved, weights);
     assert.deepEqual(weights, [...PROPENSITY_PRIOR]);
     assert.notDeepEqual(moved, weights);
+  });
+
+  test("silence moves the weights half as far as a refusal (11 §9.3, D136)", () => {
+    const weights: readonly number[] = [0, 0, 0, 0, 0, 0, 0, 0];
+    const features = [1, 0, 0, 0, 0, 0, 0, 0];
+    const refused = learnStep(weights, { features, accepted: false }, 0.1);
+    const silent = learnStep(weights, { features, accepted: false, weight: EXPIRY_WEIGHT }, 0.1);
+    // p = 0.5 for both, so the two gradients are 0.5 and 0.25: the L2 term is identical, the evidence is not.
+    assert.ok(Math.abs((silent[0] as number) - (refused[0] as number) / 2) < 1e-12);
+    assert.ok(Math.abs((silent[0] as number) + 0.1 * 0.25) < 1e-12);
+  });
+
+  test("a weight is clamped, and a zero weight is not a decay", () => {
+    const weights: readonly number[] = [1, -1, 0, 0, 0, 0, 0, 0];
+    const features = [1, 0, 0, 0, 0, 0, 0, 0];
+    assert.deepEqual(
+      learnStep(weights, { features, accepted: false, weight: 9 }, 0.1),
+      learnStep(weights, { features, accepted: false, weight: 1 }, 0.1),
+      "a weight above one is a caller's mistake, not twice the evidence",
+    );
+    assert.deepEqual(learnStep(weights, { features, accepted: false, weight: 0 }, 0.1), weights, "no evidence, no step");
+  });
+
+  test("only the three labels a decision produced are evidence", () => {
+    assert.equal(labelWeight("ACCEPTED"), 1);
+    assert.equal(labelWeight("REJECTED"), 1);
+    assert.equal(labelWeight("EXPIRED"), EXPIRY_WEIGHT);
+    assert.equal(labelWeight("WITHDRAWN"), null, "the vendor closed; that is not this rider's preference");
+    assert.equal(labelWeight("CANCELLED"), null);
+    assert.equal(labelWeight(undefined), null);
   });
 
   test("many accepted offers converge towards certainty without leaving [0, 1]", () => {

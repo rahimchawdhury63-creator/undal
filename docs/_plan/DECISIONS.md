@@ -3067,3 +3067,40 @@ expiries does not run a training pass at all).
 *Open:* the samples are ordered by `responded_at`, which means a burst of expiries from one wave teaches the model the
 same eight features 40 times. A dedupe by `(wave, zone)` or a per-offer reweighting is the next thing worth measuring,
 and the label itself — `EXPIRED` counting as a hard `y = 0` — contradicts `11 §9.3`'s half-weight for silence.
+
+## D136 — Silence is not a refusal, even to a gradient
+
+`11 §9.3` settles the question in one sentence: an expired offer counts at half the strength of an explicit rejection,
+because the rider may have been riding, in a lift, or on a call. The acceptance *rate* obeys that. D135's trainer did
+not — it trained on `y = 0` for every row that was not `ACCEPTED`, so the loop contradicted the rule it was built to
+serve, and did so in the direction that matters: a zone whose alarm is broken looks exactly like a zone that is saying
+no, and the model would have learned to stop offering work there.
+
+**The sample carries its weight.** `PropensitySample` and `TrainingSample` gain `weight`; `learnStep` multiplies the
+gradient by it (`g = w · (p − y)`), leaving the L2 term alone — a decay that scaled with evidence would make silence
+*shrink* the weights less than a refusal, which is a second, unintended opinion. `sampleFromRow` sets it from the label.
+
+**Zero weight is a no-op, not a decay.** `learnStep` with `weight === 0` returns the weights unchanged and skips the
+defensive return-value copy question entirely. A weight above 1 is clamped: it is a caller's arithmetic error, not
+twice the evidence.
+
+**The labels are a map, not an `if`.** `labelWeight(response)` returns `1`, `EXPIRY_WEIGHT`, or `null`, and `null` means
+the row is not evidence. Written as `response === 'ACCEPTED' ? 1 : 0.5` it would have been wrong for `WITHDRAWN` — the
+vendor closed, an admin reassigned, the customer cancelled — and `CANCELLED`, neither of which says anything about the
+rider's preference. Both would have taught the model a refusal nobody established. A map makes adding a label a
+deliberate act, which is what a label is.
+
+Rejected: subtracting half a step's worth of confidence from `samples` (the count is how much evidence exists, the
+weight is how strongly one piece speaks — mixing them makes `samples` mean two things, and factor 3's trust reads it),
+and excluding expiries from training entirely (they are the majority of the data in a healthy zone; `§9.3` says weigh
+them, not ignore them).
+
+Tests: three in `propensity.test.ts` (a half-weighted sample moves a coefficient exactly half as far as a refusal, a
+weight is clamped and a zero weight changes nothing, and the label map answers for all five responses plus a missing
+one) and two in `propensity-train.test.ts` (an `EXPIRED` row folded through `trainModel` lands at ~half the distance of
+a `REJECTED` one and still counts as applied; a `WITHDRAWN` row is not a sample while an `EXPIRED` one is).
+
+*Open:* a `WITHDRAWN` offer has no half-weight because it is not evidence at all — if dispatch ever wants "the offer was
+pulled out from under the rider" to mean something, that is a separate feature and a separate label. The training read
+still scans by `responded_at` for a zone, so bursts stay ordered but unweighted by wave; that observation from D135's
+open list stands.

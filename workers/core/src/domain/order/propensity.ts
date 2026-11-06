@@ -92,10 +92,36 @@ export const PROPENSITY_PRIOR: readonly number[] = Object.freeze([
   -1.0, // batch flag
 ]);
 
-/** What one recorded offer looks like to the model: the features, and whether the rider took it. */
+/**
+ * What one recorded offer looks like to the model: the features, and whether the rider took it.
+ *
+ * `weight` is how much the outcome counts, and it exists because `11 §9.3` already decided that an **expired** offer
+ * counts at half the strength of an explicit refusal. A rider who did nothing may have been riding, in a lift, or on a
+ * call; silence is ambiguous and ambiguity should not be learned at full strength. The factor that reads the record
+ * applies that rule to a rate; this is the same rule applied to a gradient.
+ */
 export interface PropensitySample {
   readonly features: readonly number[];
   readonly accepted: boolean;
+  /** `1` for a decision the rider made; `EXPIRY_WEIGHT` for silence. Absent means `1`. */
+  readonly weight?: number;
+}
+
+/** How much an expired offer counts against a model, from `11 §9.3`: half of a refusal, because silence is ambiguous. */
+export const EXPIRY_WEIGHT = 0.5;
+
+/**
+ * The labels a model may learn from, and how much each one counts.
+ *
+ * A denylist rather than `response !== 'ACCEPTED'`: a `WITHDRAWN` offer was withdrawn for reasons that have nothing to
+ * do with this rider's preference — the vendor closed, an admin reassigned, the customer cancelled — and a `CANCELLED`
+ * one never reached a decision at all. Both would teach the model that this offer was refused, which is a fact nobody
+ * established. `null` means the row is not evidence.
+ */
+export function labelWeight(response: unknown): number | null {
+  if (response === "ACCEPTED" || response === "REJECTED") return 1;
+  if (response === "EXPIRED") return EXPIRY_WEIGHT;
+  return null;
 }
 
 /**
@@ -180,12 +206,17 @@ export function learnStep(
   lr: number = PROPENSITY_LR,
 ): readonly number[] {
   if (!isPropensityWeights(weights) || sample.features.length !== PROPENSITY_SIZE) return weights;
+  // A weight of 2 is not twice the evidence, it is a caller's mistake; and a zero-weight sample would still decay the
+  // weights through the L2 term, which is a change nobody asked for.
+  const raw = sample.weight === undefined ? 1 : sample.weight;
+  const weight = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 1;
+  if (weight === 0) return weights;
   const predicted = predictAcceptance(weights, sample.features);
-  const gradient = predicted - (sample.accepted ? 1 : 0);
-  return weights.map((weight, index) => {
+  const gradient = weight * (predicted - (sample.accepted ? 1 : 0));
+  return weights.map((current, index) => {
     const feature = sample.features[index] as number;
     const value = Number.isFinite(feature) ? feature : 0;
-    return weight - lr * (gradient * value + PROPENSITY_L2 * weight);
+    return current - lr * (gradient * value + PROPENSITY_L2 * current);
   });
 }
 
@@ -209,6 +240,8 @@ export interface TrainingSample {
   readonly features: readonly number[];
   /** `true` for `ACCEPTED`; a rejection and an expiry are both "did not accept", which is what the model predicts. */
   readonly accepted: boolean;
+  /** How much the outcome counts: `1` for a refusal, `EXPIRY_WEIGHT` for silence (`11 §9.3`). */
+  readonly weight: number;
   readonly respondedAtMs: number;
 }
 
@@ -234,7 +267,7 @@ export function trainModel(weights: readonly number[], samples: readonly Trainin
   for (const sample of samples) {
     throughMs = Math.max(throughMs, sample.respondedAtMs);
     if (!isPropensityWeights(sample.features)) continue;
-    current = [...learnStep(current, { features: sample.features, accepted: sample.accepted })];
+    current = [...learnStep(current, { features: sample.features, accepted: sample.accepted, weight: sample.weight })];
     applied += 1;
   }
   return { weights: current, applied, throughMs };

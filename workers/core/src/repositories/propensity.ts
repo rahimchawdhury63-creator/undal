@@ -24,6 +24,7 @@
 import type { Db } from "../db/client.ts";
 import { sqlDatetime } from "../db/time.ts";
 import {
+  labelWeight,
   PROPENSITY_CONFIG_KEY,
   PROPENSITY_PRIOR,
   readPropensityModel,
@@ -105,11 +106,16 @@ export interface TrainingRow {
 export function sampleFromRow(row: TrainingRow): TrainingSample | null {
   const raw = typeof row.features === "string" ? parseJson(row.features) : row.features;
   if (!Array.isArray(raw) || raw.length !== 8) return null;
+  // `WITHDRAWN`, `CANCELLED` and anything else this deploy has not heard of are not evidence (D136) — and a label the
+  // model has no weight for is skipped here rather than folded in as a refusal.
+  const weight = labelWeight(row.response);
+  if (weight === null) return null;
   const features = raw.map((entry) => (typeof entry === "number" && Number.isFinite(entry) ? entry : Number.NaN));
   const respondedAtMs = typeof row.responded_at === "string" ? Date.parse(`${row.responded_at.replace(" ", "T")}Z`) : Number.NaN;
   return {
     features,
     accepted: row.response === "ACCEPTED",
+    weight,
     respondedAtMs: Number.isFinite(respondedAtMs) ? respondedAtMs : 0,
   };
 }

@@ -270,6 +270,19 @@ rider who fails any one of them is not ranked at all.
 > folded in, so a five-second tick does the same work once instead of re-learning the same lunch hour forever. Two rows
 > could disagree about what has been seen and there is no transaction between them. `null` vectors stay skipped, which
 > is what makes D134's "no model, no sample" decision load-bearing rather than tidy.
+>
+> **And silence is not a refusal, even to a gradient (D136).** `§9.3` above already says an expired offer counts at half
+> the strength of an explicit no, and D135's trainer counted it at full strength — a plain `y = 0` — so the loop was
+> quietly contradicting the sentence it was built to serve. A training sample now carries a **weight**: 1 for a decision
+> the rider actually made, `EXPIRY_WEIGHT` (0.5) for an offer nobody answered, and the weight multiplies the loss's
+> gradient rather than the sample count. Silence therefore moves the coefficients half as far, and a zone that goes
+> quiet because the alarm is broken moves them half as far as one whose riders are saying no.
+>
+> The same change is where the denylist lives. The trainer takes its labels as a **map** — `ACCEPTED`/`REJECTED` at 1,
+> `EXPIRED` at a half — and a response the map does not know is not evidence at all. `WITHDRAWN` (the vendor closed, an
+> admin reassigned) and `CANCELLED` say nothing about this rider's preference, and folding them in as refusals would
+> have taught the model that a rider declines orders the customer cancelled before anybody was asked. `null` in the map
+> is why `sampleFromRow` can answer `null` for a row that has a perfectly good vector.
 
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
