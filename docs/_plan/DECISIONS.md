@@ -3104,3 +3104,52 @@ a `REJECTED` one and still counts as applied; a `WITHDRAWN` row is not a sample 
 pulled out from under the rider" to mean something, that is a separate feature and a separate label. The training read
 still scans by `responded_at` for a zone, so bursts stay ordered but unweighted by wave; that observation from D135's
 open list stands.
+
+## D137 — The rating arrives
+
+`order_ratings` has been in the schema since the first migration and had no writer, which is why `11 §5` factor 6 has
+been answered with `rating: null` for the whole build and the dispatch scorer returns a zero it calls plausible. Every
+rung that touched scoring has noted it. This one moves the row.
+
+**The route is `POST /v1/orders/{id}/rate`, and the body is the sheet.** `{ target, stars, comment?, tags? }` — `target`
+is `VENDOR` or `RIDER` because `17 §8.1` says food and delivery are separate ratings, and conflating them "punishes a
+rider for a cold kitchen and a vendor for a slow rider". `tags` is a closed set of six chips from the same sheet; a
+`JSON` column nothing parses is a place to lose meaning in.
+
+**The window is seven days from `delivered_at`.** `08` fixes the closing code (`ORDER_RATING_WINDOW_CLOSED`) and not the
+length. A week is the shortest interval that still lets a weekly customer rate the order they are thinking about, and
+the longest in which the answer is a memory of the meal rather than of the month. The window opens at delivery, so
+before it the rating resource does not exist and the answer is `ORDER_NOT_FOUND` — the same sentence the read route
+uses for an order that is not yours, because "not created yet" and "not yours" are both "there is nothing here", and
+neither is "you may not".
+
+**One rating per order, enforced by the table and answered without a new code.** `27 §4` names the rule; the unique key
+`uq_order_rating_target` is the mechanism. A second request inside the window is answered with the stored rating and
+`created: false`, writes no row and no audit entry. *Rejected:* a correction window (a rating a vendor can ask to have
+changed is not a rating, and `17 §8.1` offers "Skip", not "Edit"), a `SUPERSEDED` second row (every reader would then
+have to remember to filter), and inventing `ORDER_ALREADY_RATED` (the registry is pinned at 185 codes and D36 already
+refused to add a system code for symmetry).
+
+**The rider a rating is about is not stored.** `order_ratings` has an order and a target and no rider column, so the
+join is `order_assignments` where `end_reason = 'DELIVERED'`. `orders.rider_id` is the *current* rider: a rating written
+after a reassignment must not follow the order to somebody who never carried it. `riderTally` therefore returns
+`{ good, total }` — the Wilson bound's two inputs — and clamps `good` to `total` rather than trusting a driver.
+
+**`orders.delivered_at` joined `OrderRow`.** The column has been there since `006`; the row type had never selected them
+because nothing needed them. The window is a function of that instant and nothing else, and a second query for it would
+have been a second place to be wrong.
+
+**One more permission key.** `order.rating.create` — the register is 416, and `docs/21`'s two counts moved with it. The
+specification enumerates the admin half of the rating surface (`read`, `moderate`) and not the customer's half, exactly
+as it did for the rider's shift (`D109`–`D111`). CUSTOMER holds it; no admin role does, because there is no admin flow
+that rates an order.
+
+Tests: fourteen in the new `order-rating.test.ts` — the body reader's happy path (trimmed comment, de-duplicated chips)
+and its eight refusals each naming a field, the pickup-order rule, the window's open/close boundary, the insert's seven
+bindings and its audit row, a second rating answered with the first and writing nothing, an undelivered order's `404`, a
+stranger's `404` with no rating read at all, a week-old delivery's `409`, a pickup order's `422` naming `["VENDOR"]`, the
+tally's join and clamp, and the writer reading before it writes.
+
+*Open:* `docs/27 §4` also promises "velocity and device-cluster checks" on rating — one rating per order is structural,
+the velocity half is not built. And factor 6 still reads `null`: `riderTally` exists, the loader that calls it is the
+next rung.

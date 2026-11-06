@@ -105,7 +105,7 @@ export function inScope(principal: Principal, zoneId: string | undefined): boole
  * keeps the audit log readable.
  */
 const ACTOR_KEYS: Readonly<Record<string, readonly PermissionKey[]>> = {
-  CUSTOMER: ["order.read", "order.list", "order.create", "order.cancel", "order.rating.read", "customer.address.read", "customer.address.create", "customer.address.update", "customer.address.delete", "customer.address.set_default"],
+  CUSTOMER: ["order.read", "order.list", "order.create", "order.cancel", "order.rating.read", "order.rating.create", "customer.address.read", "customer.address.create", "customer.address.update", "customer.address.delete", "customer.address.set_default"],
   VENDOR_OWNER: ["vendor.read", "vendor.update", "order.read", "order.list", "order.accept", "order.reject", "catalogue.item.read", "catalogue.item.update", "catalogue.item.set_availability", "catalogue.item.mark_sold_out", "catalogue.menu.read", "catalogue.menu.update"],
   RIDER: ["order.read", "order.list", "order.pickup", "order.deliver", "rider.shift.read", "rider.shift.start", "rider.shift.end", "rider.shift.break", "rider.view_finance"],
 };

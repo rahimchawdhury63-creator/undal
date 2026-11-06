@@ -302,7 +302,7 @@ charging more.
 | `GET` | `/v1/orders/{code}` | Customer, Vendor, Rider, Admin | Order detail, scoped to the caller's view |
 | `GET` | `/v1/orders/{code}/track` | Customer | Lightweight tracking payload |
 | `POST` | `/v1/orders/{code}/cancel` | Customer | Cancel |
-| `POST` | `/v1/orders/{code}/rate` | Customer | Rate vendor and rider |
+| `POST` | `/v1/orders/{code}/rate` | Customer | Rate vendor and rider. Implemented (D137) |
 | `POST` | `/v1/orders/{code}/dispute` | Customer | Open a dispute |
 | `POST` | `/v1/orders/{code}/accept` | Vendor | Accept with a prep time |
 | `POST` | `/v1/orders/{code}/reject` | Vendor | Reject with a reason |

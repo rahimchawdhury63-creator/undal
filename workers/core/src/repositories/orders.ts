@@ -47,6 +47,8 @@ export interface OrderRow {
   readonly rider_id: Uint8Array | null;
   readonly customer_note: string | null;
   readonly placed_at: string | null;
+  /** When the order reached `DELIVERED`; null until then. The rating window opens here (D137). */
+  readonly delivered_at: string | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -57,7 +59,7 @@ const COLUMNS =
   "`discount_paisa`, `delivery_fee_paisa`, `small_order_fee_paisa`, `tax_paisa`, `tip_paisa`, " +
   "`rounding_paisa`, `total_paisa`, `cash_collected_paisa`, `commission_paisa`, `rider_bonus_paisa`, " +
   "`rider_payout_paisa`, `vendor_payout_paisa`, `surge_bps`, `prep_time_s`, `rider_id`, " +
-  "`customer_note`, `placed_at`, `created_at`, `updated_at`";
+  "`customer_note`, `placed_at`, `delivered_at`, `created_at`, `updated_at`";
 
 /** One order by id. */
 export async function findOrder(db: Db, orderId: Uint8Array): Promise<OrderRow | null> {

@@ -283,6 +283,14 @@ rider who fails any one of them is not ranked at all.
 > admin reassigned) and `CANCELLED` say nothing about this rider's preference, and folding them in as refusals would
 > have taught the model that a rider declines orders the customer cancelled before anybody was asked. `null` in the map
 > is why `sampleFromRow` can answer `null` for a row that has a perfectly good vector.
+>
+> **And the rating factor finally has rows to read (D137).** Factor 6 is `09 §2`'s Wilson lower bound of four- and
+> five-star *delivery* ratings, and until now `order_ratings` had no writer, so the loader answered `rating: null` and
+> the scorer returned a plausible zero. The customer's sheet now writes it: one row per `(order, target)` — food or
+> delivery, never both in one row, because `17 §8.1` refuses to punish a rider for a cold kitchen — inside a seven-day
+> window that opens at `delivered_at`. The rider a delivery rating is about is joined through `order_assignments` where
+> `end_reason = 'DELIVERED'`: `orders.rider_id` moves when an order is reassigned, and a rating must follow the rider
+> who actually carried the food. The scorer's own wiring is the next rung; what exists here is the evidence.
 
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible

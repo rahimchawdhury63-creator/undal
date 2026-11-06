@@ -394,6 +394,13 @@ One screen, three taps maximum, appearing as a sheet on next app open rather tha
 Separate ratings for food and delivery, because conflating them punishes a rider for a cold
 kitchen and a vendor for a slow rider. Skipping is one tap and carries no nagging.
 
+Those two sentences are now two rows (D137). `POST /v1/orders/{id}/rate` writes one `order_ratings` row per
+`(order, target)` — the table's own unique key is the anti-manipulation rule `27 §4` states as "one rating per
+order" — with `stars` 1–5, an optional 500-character comment, and up to six chips from the sheet's set. The window
+opens when the order reaches `DELIVERED` and lasts seven days; before delivery the rating does not exist yet, so the
+request is a `404` rather than a refusal. A second tap is answered with the first rating (`created: false`, no new
+row, no audit entry) instead of a new code: the answer the customer gave is the answer the order has.
+
 ### 8.2 Disputes
 
 A "Something was wrong" entry on every past order, leading to a structured flow: category (missing

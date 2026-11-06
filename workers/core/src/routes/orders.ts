@@ -14,6 +14,8 @@ import { canTransition } from "../domain/order/state-machine.ts";
 import type { TransitionContext } from "../domain/order/guards.ts";
 import type { OrderState } from "../domain/order/states.ts";
 import { findOrder, listOrders, moveState, nextEventSeq, vendorForUser, type OrderRow } from "../repositories/orders.ts";
+import { parseRatingBody, ratingWindow, targetAllowed } from "../domain/order/rating.ts";
+import { ratingSubject, writeRating } from "../repositories/ratings.ts";
 
 /**
  * The order routes: read one, list mine, accept, reject.
@@ -223,6 +225,101 @@ async function vendorMove(
   );
 }
 
+
+/**
+ * Leave the rating for a delivery: `POST /v1/orders/{id}/rate` (`17 §8.1`).
+ *
+ * The customer has five taps and a chip row, and the answer lands in `order_ratings` as one of two rows — food or
+ * delivery — that factor 6 has been waiting for since the dispatch scorer was written (D137). Three refusals, in the
+ * order a person would meet them: an order that is not yours is `ORDER_NOT_FOUND`; an order that has not been delivered
+ * has no rating to leave and is `ORDER_NOT_FOUND` for the same reason (the resource does not exist yet, which is a
+ * different sentence from "you may not"); and an order delivered more than seven days ago is
+ * `ORDER_RATING_WINDOW_CLOSED`. A pickup order has no rider to rate, which is an enum refusal rather than a missing
+ * order.
+ *
+ * One rating per order (`27 §4`): a second request inside the window is answered with the first one, `created: false`
+ * and no new row, because the answer the customer gave is the answer the order has.
+ */
+async function rateOrder(ctx: Ctx, orderId: string, body: unknown): Promise<Response> {
+  const principal = ctx.principal;
+  if (principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+
+  const parsed = parseRatingBody(body);
+  if (!parsed.ok) return failureResponse({ code: parsed.code, details: parsed.details }, ctx.locale, ctx.requestId);
+  const draft = parsed.draft;
+
+  let orderBytes: Uint8Array;
+  try {
+    orderBytes = uuidBytes(orderId);
+  } catch {
+    return failureResponse({ code: "ORDER_NOT_FOUND" }, ctx.locale, ctx.requestId);
+  }
+
+  const row = await findOrder(ctx.db, orderBytes);
+  // A stranger is told the order does not exist. So is a caller asking about their own order that nobody delivered.
+  if (row === null || toHexId(row.customer_user_id) !== principal.userId)
+    return failureResponse({ code: "ORDER_NOT_FOUND" }, ctx.locale, ctx.requestId);
+  if (row.delivered_at === null) return failureResponse({ code: "ORDER_NOT_FOUND" }, ctx.locale, ctx.requestId);
+
+  if (!targetAllowed(row.fulfilment, draft.target))
+    return failureResponse(
+      { code: "VALIDATION_ENUM", details: { field: "target", allowed: ["VENDOR"] } },
+      ctx.locale,
+      ctx.requestId,
+    );
+
+  const nowMs = Date.now();
+  // `orders.delivered_at` is `YYYY-MM-DD HH:mm:ss.SSSSSS` in Asia/Dhaka, the form every timestamp in the schema uses.
+  const deliveredAtMs = Date.parse(`${row.delivered_at.replace(" ", "T")}Z`);
+  const window = ratingWindow(Number.isFinite(deliveredAtMs) ? deliveredAtMs : nowMs, nowMs);
+  if (!window.open) return failureResponse({ code: "ORDER_RATING_WINDOW_CLOSED" }, ctx.locale, ctx.requestId);
+
+  const written = await writeRating(ctx.db, orderBytes, draft, nowMs);
+  // One rating per order (`27 §4`): a second request is answered with the first, and writes nothing further.
+  const answered = written.stored === null ? draft : written.stored;
+
+  if (written.created) {
+    await audit.appendAudit(
+      ctx.db,
+      {
+        actorId: principal.userId,
+        actorType: "CUSTOMER",
+        actorRole: principal.role,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        requestId: ctx.requestId,
+        action: "order.rating.create",
+        resourceType: "ORDER",
+        resourceId: toHexId(row.id),
+        subjectId: null,
+        before: null,
+        after: { target: draft.target, stars: draft.stars, tags: draft.tags },
+        reason: null,
+        severity: "INFO",
+      },
+      nowMs,
+    );
+  }
+
+  return successResponse(
+    {
+      rating: {
+        id: toHexId(written.id),
+        orderCode: row.code,
+        subject: ratingSubject(row.code, draft.target),
+        target: draft.target,
+        stars: answered.stars,
+        comment: answered.comment,
+        tags: answered.tags,
+        created: written.created,
+      },
+      windowClosesAt: new Date(window.closesAtMs).toISOString(),
+    },
+    ctx.locale,
+    ctx.requestId,
+  );
+}
+
 /** The order routes, in the order `08` lists them. */
 export const ORDER_ROUTES: readonly RouteDefinition[] = [
   { method: "GET", path: "/v1/orders", permission: "order.list", group: "ORDER_WRITE", run: (ctx) => listMyOrders(ctx) },
@@ -244,5 +341,14 @@ export const ORDER_ROUTES: readonly RouteDefinition[] = [
     group: "ORDER_WRITE",
     maxBodyBytes: 4 * 1024,
     run: (ctx, input) => vendorMove(ctx, input.params["id"] as string, "REJECTED", input.body),
+  },
+  {
+    method: "POST",
+    path: "/v1/orders/{id}/rate",
+    permission: "order.rating.create",
+    write: true,
+    group: "ORDER_WRITE",
+    maxBodyBytes: 4 * 1024,
+    run: (ctx, input) => rateOrder(ctx, input.params["id"] as string, input.body),
   },
 ];

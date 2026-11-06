@@ -4,7 +4,7 @@
  */
 
 /**
- * Orders, from quote to settlement — 44 keys.
+ * Orders, from quote to settlement — 45 keys.
  *
  * Every key is `resource.action` beneath a domain prefix, spelled out rather than
  * composed at runtime: a permission a client cannot grep for is a permission nobody
@@ -59,6 +59,7 @@ export const ORDER_KEYS = [
   "order.proof.verify",
   // order.rating
   "order.rating.read",
+  "order.rating.create",
   "order.rating.moderate",
   // order.dispute
   "order.dispute.read",
