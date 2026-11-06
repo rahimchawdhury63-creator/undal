@@ -40,6 +40,18 @@ export function ratesFrom(past: RiderHistory | undefined): { readonly completion
   return { completion, onTime: completion };
 }
 
+/**
+ * Factor 6's rate: the Wilson bound of four- and five-star delivery ratings (`09 §2`, `11 §5`, D137).
+ *
+ * The bound is what stops one five-star rating from outranking a rider with four hundred of them — the same arithmetic
+ * factor 3 and 4 use, on the same scale. A rider nobody has rated scores zero, which reads as "no evidence" rather
+ * than as an average one; the alternative (a neutral 0.5) would quietly reward a rider who has never delivered.
+ */
+export function ratingFrom(past: RiderHistory | undefined): number {
+  if (past === undefined || past.rating === null) return 0;
+  return wilsonLowerBound(past.rating.good, past.rating.total);
+}
+
 /** A rider's idle time in seconds, or zero when nothing is recorded. */
 export function idleFrom(past: RiderHistory | undefined, nowMs: number): number {
   return past === undefined ? 0 : idleSeconds(past, nowMs);

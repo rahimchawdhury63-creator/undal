@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { idleSeconds, riderHistory } from "../src/repositories/dispatch-stats.ts";
-import { acceptanceFrom, medianDeliveries, ratesFrom, startOfDayMs } from "../src/domain/order/dispatch-facts.ts";
+import { acceptanceFrom, medianDeliveries, ratesFrom, ratingFrom, startOfDayMs } from "../src/domain/order/dispatch-facts.ts";
 import { wilsonLowerBound } from "../src/domain/order/scoring.ts";
 import { stubDb } from "../src/db/client.ts";
 
@@ -72,10 +72,14 @@ describe("reading a candidate list's history (D125)", () => {
         match: /FROM `orders` WHERE `rider_id` IN/u,
         rows: [{ rider_id: bytes(RIDER_HEX), delivered: 210, from_vendor: 12, last_delivered: "2023-11-14 22:00:00.000000" }],
       },
+      {
+        match: /FROM `order_ratings` `r` JOIN `order_assignments`/u,
+        rows: [{ rider_id: bytes(RIDER_HEX), good: 47, total: 52 }],
+      },
     ]);
   }
 
-  test("three statements cover the whole candidate list, whatever its size", async () => {
+  test("four statements cover the whole candidate list, whatever its size", async () => {
     const db = dbFor();
     await riderHistory(db, {
       riderIds: [bytes(RIDER_HEX), bytes(OTHER_HEX)],
@@ -83,13 +87,13 @@ describe("reading a candidate list's history (D125)", () => {
       nowMs: NOW,
       dayStartMs: NOW - 3_600_000,
     });
-    assert.equal(db.calls.length, 3);
+    assert.equal(db.calls.length, 4);
     for (const call of db.calls) {
       assert.match(call.sql, /IN \(\?, \?\)/u, "one placeholder per candidate, never a query per candidate");
     }
   });
 
-  test("the three answers merge into one history per rider", async () => {
+  test("the four answers merge into one history per rider", async () => {
     const history = await riderHistory(dbFor(), {
       riderIds: [bytes(RIDER_HEX)],
       vendorId: bytes(VENDOR_HEX),
@@ -103,12 +107,14 @@ describe("reading a candidate list's history (D125)", () => {
     assert.equal(rider.deliveredFromVendor, 12);
     assert.equal(rider.deliveredLifetime, 210);
     assert.equal(rider.lastDeliveredAtMs, Date.parse("2023-11-14T22:00:00.000Z"));
+    assert.deepEqual(rider.rating, { good: 47, total: 52 }, "the tally arrives with the same three queries");
   });
 
   test("a rider with no history at all is absent from the map, which the caller reads as empty", async () => {
     const db = stubDb([
       { match: /rider_stats/u, rows: [] },
       { match: /FROM `orders`/u, rows: [] },
+      { match: /FROM `order_ratings`/u, rows: [] },
     ]);
     const history = await riderHistory(db, {
       riderIds: [bytes(RIDER_HEX)],
@@ -143,6 +149,74 @@ describe("reading a candidate list's history (D125)", () => {
     assert.ok(delivery !== undefined);
     assert.deepEqual(delivery.params[0], bytes(VENDOR_HEX));
     assert.match(delivery.sql, /state` IN \('DELIVERED', 'SETTLED'\)/u, "settlement bookkeeping is not lateness");
+  });
+
+  test("the rating join follows the assignment that delivered, not the rider the order has now", async () => {
+    const db = dbFor();
+    await riderHistory(db, {
+      riderIds: [bytes(RIDER_HEX)],
+      vendorId: bytes(VENDOR_HEX),
+      nowMs: NOW,
+      dayStartMs: NOW,
+    });
+    const ratings = db.calls.find((call) => /FROM `order_ratings`/u.test(call.sql));
+    assert.match(ratings?.sql ?? "", /`a`\.`end_reason` = 'DELIVERED'/u);
+    assert.match(ratings?.sql ?? "", /`r`\.`target` = 'RIDER'/u, "a food rating is the vendor's, not the rider's");
+    assert.match(ratings?.sql ?? "", /GROUP BY `a`\.`rider_id`/u);
+    assert.deepEqual(ratings?.params, [bytes(RIDER_HEX)], "the candidates, in one statement");
+  });
+
+  test("a rider with no ratings is not a rider with a bad rating", async () => {
+    const db = stubDb([
+      { match: /rider_stats/u, rows: [] },
+      { match: /FROM `orders`/u, rows: [] },
+      { match: /FROM `order_ratings`/u, rows: [] },
+    ]);
+    const history = await riderHistory(db, {
+      riderIds: [bytes(RIDER_HEX)],
+      vendorId: bytes(VENDOR_HEX),
+      nowMs: NOW,
+      dayStartMs: NOW,
+    });
+    assert.equal(history.size, 0);
+    assert.equal(ratingFrom(undefined), 0);
+    assert.equal(ratingFrom(history.get(RIDER_HEX)), 0, "no evidence is zero, and a neutral half would be a lie");
+  });
+
+  test("the rating a driver reports as a string is still a number, and a null sum is none", async () => {
+    const db = stubDb([
+      { match: /rider_stats/u, rows: [] },
+      { match: /FROM `orders`/u, rows: [] },
+      { match: /FROM `order_ratings`/u, rows: [{ rider_id: bytes(RIDER_HEX), good: null, total: 3 }] },
+    ]);
+    const history = await riderHistory(db, {
+      riderIds: [bytes(RIDER_HEX)],
+      vendorId: bytes(VENDOR_HEX),
+      nowMs: NOW,
+      dayStartMs: NOW,
+    });
+    assert.deepEqual(history.get(RIDER_HEX)?.rating, { good: 0, total: 3 }, "three one-star ratings are three ratings");
+    assert.equal(ratingFrom(history.get(RIDER_HEX)), 0);
+  });
+
+  test("factor 6 is the Wilson bound of four- and five-star ratings", async () => {
+    const empty = {
+      deliveriesToday: 0,
+      offersSentToday: 0,
+      offersAcceptedToday: 0,
+      offersSentLifetime: 0,
+      offersAcceptedLifetime: 0,
+      deliveredFromVendor: 0,
+      deliveredLifetime: 0,
+      lastDeliveredAtMs: null,
+    };
+    assert.ok(ratingFrom({ ...empty, rating: { good: 47, total: 52 } }) > 0.75);
+    assert.ok(
+      ratingFrom({ ...empty, rating: { good: 47, total: 52 } }) <
+        ratingFrom({ ...empty, rating: { good: 470, total: 520 } }),
+      "a longer record with the same rate is trusted more, which is what a lower bound is for",
+    );
+    assert.ok(ratingFrom({ ...empty, rating: { good: 1, total: 1 } }) < 0.25, "one five-star rating is inexperience");
   });
 
   test("idle time is measured from the last delivery and capped at a day", () => {

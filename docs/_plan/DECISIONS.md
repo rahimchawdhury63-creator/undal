@@ -3153,3 +3153,41 @@ tally's join and clamp, and the writer reading before it writes.
 *Open:* `docs/27 §4` also promises "velocity and device-cluster checks" on rating — one rating per order is structural,
 the velocity half is not built. And factor 6 still reads `null`: `riderTally` exists, the loader that calls it is the
 next rung.
+
+## D138 — Factor 6 reads the tally, and nobody rated is zero
+
+D137 gave `order_ratings` a writer and left factor 6 answering `0` from a hardcoded literal in the planner, which is a
+table with a reader-shaped hole. This rung closes it in the same statement pattern the loader already uses: one more
+`IN (...)` query in the `Promise.all`, grouped by rider, so a wave of sixty costs four round trips rather than a
+hundred and twenty.
+
+**The join is the assignment, and it is the only honest one.** `order_ratings` knows the order and the target;
+`order_assignments` knows who carried it (`end_reason = 'DELIVERED'`). `orders.rider_id` is the rider the order has
+*now*, and using it would hand a reassigned order's three-star rating to a rider who never touched it. The same join
+appears in `repositories/ratings.ts`'s `riderTally`, deliberately duplicated rather than shared: one is a wave-scoped
+`IN` list, the other a single rider, and a shared builder parameterised by "one or many" is how a batched query becomes
+a sixty-query loop again.
+
+**`RiderHistory.rating` changed shape.** It has been `{ count, starsTimesTen } | null` since D125, a placeholder for a
+table nobody wrote. It is now `{ good, total } | null` — the Wilson bound's two inputs, which is what factor 6 actually
+consumes. Keeping the sum of stars would have needed an average-then-bound conversion, which is a different statistic
+(the bound of a mean is not the bound of a proportion) and would have priced a rider with one 5★ and one 1★ as if they
+were a rider with two 3★s.
+
+**No ratings is zero.** `ratingFrom` answers `0` for a rider with no tally, matching `acceptanceFrom` and `ratesFrom`.
+*Rejected:* a neutral `0.5`, which would have made a first-shift rider indistinguishable from an average one and given
+them a hand up on the riders the customers actually like.
+
+**A `NULL` sum is not a `NaN`.** `SUM(CASE …)` over zero rows is `NULL` in SQL and `Number(null)` is `0` only by
+accident of `??`; the merge normalises it explicitly, because a `NaN` reaching the scorer is a `NaN` in the total score
+and the ranking silently becomes insertion order.
+
+Tests: six in `dispatch-stats.test.ts` — the fourth statement's `IN` list and its `end_reason`/`target` predicates, the
+tally arriving with the other three, a rider with no rows staying out of the map, a `NULL` sum reading as zero good out
+of three, factor 6's bound against a longer record with the same rate, and the one-of-one rider priced as inexperience
+— plus one in `dispatch-plan-route.test.ts`: the same candidate scores higher with ninety-six good ratings out of a
+hundred than without any.
+
+*Open:* `11 §5` factor 8 (`area_familiarity`) still has no evidence — `orders` has no delivery-cell column — and the
+VENDOR side of the rating has no reader at all: the vendor's rank still uses `vendor_stats`. Both are recorded; neither
+is this rung's business.

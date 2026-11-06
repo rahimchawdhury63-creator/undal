@@ -54,6 +54,8 @@ interface Options {
   readonly locked?: boolean;
   readonly candidates?: readonly Record<string, unknown>[];
   readonly history?: readonly Record<string, unknown>[];
+  /** Delivery rating tallies, as the fourth history statement returns them (D138). */
+  readonly ratings?: readonly Record<string, unknown>[];
   /** The `platform_config` value for the zone's acceptance model (`09 §7.4`, D133), or absent for none. */
   readonly propensity?: Record<string, unknown>;
 }
@@ -94,6 +96,7 @@ function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
     { match: /FROM `rider_suspensions`/u, rows: [] },
     { match: /FROM `rider_stats`/u, rows: [...(options.history ?? [])] },
     { match: /FROM `orders` WHERE `rider_id` IN/u, rows: [] },
+    { match: /FROM `order_ratings` `r` JOIN `order_assignments`/u, rows: [...(options.ratings ?? [])] },
     { match: /INSERT INTO `order_offers`/u, affectedRows: 1 },
     { match: /FROM `audit_log`/u, rows: [{ seq: 4, hash: null }] },
     { match: /INSERT INTO `audit_log`/u, affectedRows: 1 },
@@ -206,6 +209,21 @@ describe("planning a wave (D126)", () => {
     assert.equal(offered[0]?.rank, 1);
     assert.ok((offered[0]?.score ?? 0) > 0, "the score is the fourteen-factor sum, not acceptance alone");
     assert.equal(result.data["written"], 1);
+  });
+
+  test("factor 6 lifts a rated rider over the same rider unrated (D138)", async () => {
+    stubFeed([USER_HEX]);
+    const unrated = await answer(await route().run(ctxFor(dbFor()), INPUT));
+    stubFeed([USER_HEX]);
+    const rated = await answer(
+      await route().run(
+        ctxFor(dbFor({ ratings: [{ rider_id: bytes(RIDER_HEX), good: 96, total: 100 }] })),
+        INPUT,
+      ),
+    );
+    const before = (unrated.data["offered"] as { score: number }[])[0]?.score ?? 0;
+    const after = (rated.data["offered"] as { score: number }[])[0]?.score ?? 0;
+    assert.ok(after > before, `a rider customers rate well should score higher: ${String(before)} then ${String(after)}`);
   });
 
   test("the offers are written once, with one expiry and the order's payout", async () => {

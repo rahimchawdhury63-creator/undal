@@ -11,16 +11,20 @@
  * how they are rated, whether they know this vendor's back door, how long they have been idle, and how much they have
  * already done today. This module reads exactly that and nothing else.
  *
- * **Three statements, whatever the wave size.** Every query takes the whole candidate list as an `IN` list, because
+ * **Four statements, whatever the wave size.** Every query takes the whole candidate list as an `IN` list, because
  * the alternative — a rider at a time — is the same mistake the candidate feed avoided (D117) and would put sixty
  * round trips inside a twenty-five-second wave.
  *
- * **Two figures the schema cannot supply, stated rather than invented.** `orders` carries no delivery-cell column, so
- * `area_familiarity` (`11 §5` factor 8) has no input: the caller scores it zero, which is the honest value for "no
- * evidence about this cell". There is also no ratings table, so `rating` has no history either; the loader returns
- * `null` and the caller treats it as a Wilson bound of zero. Both are recorded as gaps in `DECISIONS.md` — a factor
- * fed a zero because the evidence does not exist is different from a factor fed a zero because nobody wrote the query,
- * and only one of them is a bug.
+ * **The rating tally arrived with the sheet that writes it (D137).** Factor 6 wants the Wilson bound of four- and
+ * five-star delivery ratings, and for most of the build there was nothing to read: the table existed and no route wrote
+ * it. `POST /v1/orders/{id}/rate` now does, and the fourth statement counts them per candidate. The join is
+ * `order_assignments` where `end_reason = 'DELIVERED'`, not `orders.rider_id` — the latter is the *current* rider, and
+ * a rating must follow the rider who actually carried the food.
+ *
+ * **One figure the schema still cannot supply.** `orders` carries no delivery-cell column, so `area_familiarity`
+ * (`11 §5` factor 8) has no input and the caller scores it zero — the honest value for "no evidence about this cell".
+ * That gap is recorded in `DECISIONS.md` and it is visible in the code as a literal rather than a query that returns
+ * nothing, which is the difference between a factor that is missing its evidence and one that is missing its reader.
  */
 
 import type { Db } from "../db/client.ts";
@@ -41,8 +45,13 @@ export interface RiderHistory {
   readonly deliveredLifetime: number;
   /** When the rider last delivered, or `null` if never — the base of `idle_s`. */
   readonly lastDeliveredAtMs: number | null;
-  /** Rated deliveries and their star total, or `null` when the schema has no ratings (see the module note). */
-  readonly rating: { readonly count: number; readonly starsTimesTen: number } | null;
+  /**
+   * Delivery ratings: how many were four or five stars, out of how many (`11 §5` factor 6, D137).
+   *
+   * `null` means nobody has rated this rider — which is the first shift, not an error — and the caller prices that as a
+   * Wilson bound of zero rather than as a middling 0.5.
+   */
+  readonly rating: { readonly good: number; readonly total: number } | null;
 }
 
 /** What a history read needs. */
@@ -98,6 +107,19 @@ const SELECT_DELIVERIES = `SELECT \`rider_id\` AS \`rider_id\`, COUNT(*) AS \`de
   GROUP BY \`rider_id\``;
 
 /**
+ * The delivery ratings behind factor 6, per candidate.
+ *
+ * Both numbers matter: the Wilson bound of eight good ratings out of ten is not the bound of eighty out of a hundred,
+ * and a single five-star rating is priced as inexperience rather than as perfection. `SUM` returns `NULL` for a rider
+ * with no rows, which is why the merge treats it as zero rather than as `NaN`.
+ */
+const SELECT_RATINGS = `SELECT \`a\`.\`rider_id\` AS \`rider_id\`, SUM(CASE WHEN \`r\`.\`stars\` >= 4 THEN 1 ELSE 0 END) AS \`good\`,
+    COUNT(*) AS \`total\`
+  FROM \`order_ratings\` \`r\` JOIN \`order_assignments\` \`a\` ON \`a\`.\`order_id\` = \`r\`.\`order_id\`
+  WHERE \`r\`.\`target\` = 'RIDER' AND \`a\`.\`rider_id\` IN (IDS) AND \`a\`.\`end_reason\` = 'DELIVERED'
+  GROUP BY \`a\`.\`rider_id\``;
+
+/**
  * Read every candidate's history.
  *
  * A rider with no `rider_stats` row and no deliveries gets `EMPTY`, which is not a failure: a rider on their first
@@ -112,10 +134,11 @@ export async function riderHistory(db: Db, query: HistoryQuery): Promise<Readonl
   const ids = placeholders(query.riderIds.length);
   const day = sqlDatetime(new Date(query.dayStartMs));
 
-  const [today, lifetimeOffers, deliveries] = await Promise.all([
+  const [today, lifetimeOffers, deliveries, ratings] = await Promise.all([
     db.query<Record<string, unknown>>(SELECT_TODAY.replace("IDS", ids), [...query.riderIds, day]),
     db.query<Record<string, unknown>>(SELECT_LIFETIME_OFFERS.replace("IDS", ids), [...query.riderIds]),
     db.query<Record<string, unknown>>(SELECT_DELIVERIES.replace("IDS", ids), [query.vendorId, ...query.riderIds]),
+    db.query<Record<string, unknown>>(SELECT_RATINGS.replace("IDS", ids), [...query.riderIds]),
   ]);
 
   const merge = (riderId: string): RiderHistory => out.get(riderId) ?? EMPTY;
@@ -147,6 +170,15 @@ export async function riderHistory(db: Db, query: HistoryQuery): Promise<Readonl
       deliveredLifetime: Number(row["delivered"] ?? 0),
       deliveredFromVendor: Number(row["from_vendor"] ?? 0),
       lastDeliveredAtMs: Number.isFinite(lastDeliveredAtMs) ? lastDeliveredAtMs : null,
+    });
+  }
+  for (const row of ratings) {
+    const riderId = hex(row["rider_id"]);
+    const total = Number(row["total"] ?? 0);
+    const good = row["good"] === null || row["good"] === undefined ? 0 : Number(row["good"]);
+    out.set(riderId, {
+      ...merge(riderId),
+      rating: { good: Number.isFinite(good) ? good : 0, total: Number.isFinite(total) ? total : 0 },
     });
   }
   return out;

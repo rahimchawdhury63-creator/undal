@@ -33,6 +33,7 @@ import {
   idleFrom,
   medianDeliveries,
   ratesFrom,
+  ratingFrom,
   startOfDayMs,
 } from "../domain/order/dispatch-facts.ts";
 import { eligibility, type AssignmentTarget } from "../domain/order/assignment.ts";
@@ -382,7 +383,7 @@ async function planWave(ctx: Ctx, body: Record<string, unknown>): Promise<Respon
         onTimeRate: ratesFrom(past).onTime,
         idleS: idleFrom(past, at),
         deliveriesToday: past?.deliveriesToday ?? 0,
-        ratingLowerBound: 0,
+        ratingLowerBound: ratingFrom(past),
         deliveriesFromVendor: past?.deliveredFromVendor ?? 0,
         // No delivery-cell column on `orders`, so factor 8 has no evidence (D125).
         deliveriesIntoCell: 0,

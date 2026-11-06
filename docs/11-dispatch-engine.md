@@ -290,7 +290,18 @@ rider who fails any one of them is not ranked at all.
 > delivery, never both in one row, because `17 §8.1` refuses to punish a rider for a cold kitchen — inside a seven-day
 > window that opens at `delivered_at`. The rider a delivery rating is about is joined through `order_assignments` where
 > `end_reason = 'DELIVERED'`: `orders.rider_id` moves when an order is reassigned, and a rating must follow the rider
-> who actually carried the food. The scorer's own wiring is the next rung; what exists here is the evidence.
+> who actually carried the food.
+>
+> **And factor 6 was wired the next rung (D138), because a tally nobody reads is a table again.** The ranking query now
+> carries a fourth statement: the same `IN (...)` list of candidates, the same one round trip, `SUM(stars >= 4)` and
+> `COUNT(*)` grouped by the rider the delivery assignment names. Factor 6 is `wilsonLowerBound(good, total)` — the
+> arithmetic factors 3 and 4 already use — so a rider with forty-seven good ratings out of fifty-two scores about 0.79
+> and a rider with four hundred and seventy out of five hundred and twenty scores about 0.88: same rate, more evidence,
+> more trust. Nobody rated is **zero**, not a neutral half; a middling default would quietly reward the rider who has
+> never delivered, which is the opposite of what the factor is for.
+>
+> Four statements now cover a wave of any size, and the module's own comment said "three" for three rungs — a number in
+> a docstring is a claim, and this one had been false since the rating landed.
 
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
