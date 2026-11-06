@@ -169,6 +169,15 @@ rider who fails any one of them is not ranked at all.
 > zero on all three rate factors and gets the full `fairness` load term — a visible disadvantage rather than a padded
 > default.
 
+> **One route plans and writes wave 1 (D126).** `POST /internal/dispatch/plan {orderCode}` is the composition the
+> previous nine rungs were for: lock → order still searching → no live wave → zone shape → live riders → snapshots →
+> filter verdicts → history → scores → `planWaves` → `planWaveWrite` → one `INSERT` → audit → release. Three guards
+> before any work, and each one has a reason: `dispatch_locks` (unique on `order_id`, and the claim steals an *expired*
+> lock so a crashed planner cannot block an order) stops a retried trigger writing wave 1 twice; an assigned order is a
+> race the claim route won; a **live** wave means wave 1's phones are still ringing and writing wave 2 would tell eight
+> riders the order is gone. It writes **wave 1 only** — the rest of the cascade is planned and returned, and the caller
+> comes back when this one expires. Nothing rings yet: the alarm is the FCM binding's job.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep

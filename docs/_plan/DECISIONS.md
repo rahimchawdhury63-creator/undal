@@ -2610,3 +2610,52 @@ from the last delivery, never-delivered, capped, and clock-skewed.
 *Open:* the writer route. With history, scores, the plan and the wave insert all in place, it is order → snapshots →
 facts → scores → waves → `planWaveWrite` → `insertOfferWave` → audit → ring, plus a `dispatch_locks` guard so two
 coordinators cannot plan the same order twice.
+
+## D126 — The route that finally writes a wave
+
+Nine rungs of pieces and one line that uses them: `POST /internal/dispatch/plan {orderCode}`. It takes the planning
+lock, re-reads the order, asks realtime where the riders are, assembles and filters them, reads their history, scores
+them, plans the cascade, writes **wave 1**, records an audit row and releases the lock. Nothing rings yet — the alarm
+is the FCM binding's rung — but an offer row that a rider can claim now exists, which means D113's claim route has
+something real to accept.
+
+**Three guards, each for a race that actually happens.** The **lock** first: two coordinators woken for the same order
+(a retried trigger and the original) would otherwise both write wave 1, producing duplicate offers, and
+`dispatch_locks` is unique on `order_id`. The claim uses `ON DUPLICATE KEY UPDATE … IF(expires_at <= now, …)` so a
+stale lock from a crashed planner is stolen instead of blocking the order until somebody deletes a row by hand, and
+the read-back check is what tells *us* we own it rather than assuming the statement succeeded. It is held for ten
+seconds and released in a `finally`, including on every refusal path. The **order state** second: if it was assigned
+while we were thinking, this is not a wave, it is a race the claim route already won. The **live wave** third:
+unanswered offers inside their TTL mean eight phones ringing, and writing wave 2 tells those riders the order is gone.
+
+**Wave 1 only, and the cascade returned.** `planWaves` returns up to five waves; writing all five offers the order to
+everybody at once, which is the exact opposite of a cascade. So one is written and the plan is answered, so the caller
+knows when to come back — D116's sweep is already the thing that will notice expiry and call this again.
+
+**No eligible candidates is a 200 with a reason.** `{wave: null, offered: [], reason: "NO_ELIGIBLE_CANDIDATES"}`,
+because a zone with nobody available is the state the fallback ladder exists for, not a request to fail. The per-rider
+verdicts are what an operator reads to find out *why* (D122), and the route answers rather than 404-ing into a retry
+loop.
+
+**Two scoring inputs are deliberately constant, and named.** `coverageValue: 1` and `vehicleSuitability: 1` — the
+demand forecast (`09`) and the vehicle judgement (`12`) are not built, and a `1` means "no penalty from this factor",
+which is the only honest value available: a `0` would suppress every rider. Factor 8 (`deliveriesIntoCell`) stays `0`
+because `orders` has no cell column (D125), and factor 6 (`rating`) stays `0` because there is no ratings table. The
+difference between "1, because there is no evidence of a problem" and "0, because there is no evidence of quality" is
+the difference between the two kinds of missing data, and it is written down at each field.
+
+**The completion rate is Wilson-bounded from what the platform actually records**: deliveries over lifetime accepted
+offers. On-time rate has no separate signal, so it takes the same figure rather than a guess — which makes a rider who
+accepts and does not deliver look unreliable, exactly what factor 4 is for. When penalties feed scoring, the two rates
+separate; until then one number doing two jobs is stated rather than hidden.
+
+**A ten-second lock, not a transaction.** TiDB's HTTP driver has no session to hold a transaction across a Worker's
+`fetch` calls (D90's reasoning), and the work between the lock and the insert includes a network call to realtime. So
+the lock is a lease with a deadline, and its failure mode — a planner that dies mid-plan leaves the order blocked for
+ten seconds — is strictly better than two planners writing the same wave.
+
+Tests: ten in `dispatch-plan-route.test.ts` — the offer written with wave, rank, score and payout; the single insert
+with its ten bindings; the plan returned with wave 1's 25 s TTL; a live wave blocking before any write; another
+planner's lock reported as `409 ORDER_LOCKED` with no work done; the lock released on the success path; an assigned
+order refused before the lock; no candidates answered rather than failed; the audit row carrying the wave and the
+unjudgeable candidates; and a missing token with zero database calls.

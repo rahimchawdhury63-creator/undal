@@ -233,12 +233,14 @@ export interface DispatchOrder {
   readonly vendorId: string;
   readonly totalPaisa: number;
   readonly riderPayoutPaisa: number;
+  /** When the kitchen expects the food to be ready, in epoch ms, or `null` if the estimate was never set. */
+  readonly readyAtMs: number | null;
   /** Where the food is, in E7 — the origin of every candidate's distance. */
   readonly pickup: { readonly latE7: number; readonly lonE7: number };
 }
 
 const SELECT_DISPATCH_ORDER = `SELECT \`id\`, \`code\`, \`state\`, \`zone_id\`, \`vendor_id\`, \`total_paisa\`, \`rider_payout_paisa\`,
-    \`pickup_lat_e7\`, \`pickup_lon_e7\`
+    \`pickup_lat_e7\`, \`pickup_lon_e7\`, \`ready_at_estimate\`
   FROM \`orders\` WHERE \`code\` = ?`;
 
 /** The order, or `null` when no such code exists. */
@@ -254,6 +256,9 @@ export async function orderForDispatch(db: Db, code: string): Promise<DispatchOr
     vendorId: hex(row["vendor_id"]),
     totalPaisa: Number(row["total_paisa"] ?? 0),
     riderPayoutPaisa: Number(row["rider_payout_paisa"] ?? 0),
+    readyAtMs: row["ready_at_estimate"] === null || row["ready_at_estimate"] === undefined
+      ? null
+      : new Date(String(row["ready_at_estimate"]).replace(" ", "T") + "Z").getTime(),
     pickup: { latE7: Number(row["pickup_lat_e7"] ?? 0), lonE7: Number(row["pickup_lon_e7"] ?? 0) },
   };
 }
@@ -294,4 +299,84 @@ export async function suspendedRiderIds(db: Db, atMs: number): Promise<ReadonlyS
   const at = sqlDatetime(new Date(atMs));
   const rows = await db.query<{ rider_id: unknown }>(SELECT_SUSPENDED, [at, at]);
   return new Set(rows.map((row) => hex(row.rider_id)));
+}
+
+/** A lock row's holder. */
+export interface DispatchLock {
+  readonly orderId: Uint8Array;
+  readonly holder: string;
+  readonly expiresAtMs: number;
+}
+
+const CLAIM_LOCK = `INSERT INTO \`dispatch_locks\` (\`id\`, \`order_id\`, \`holder\`, \`expires_at\`, \`created_at\`)
+  VALUES (?, ?, ?, ?, ?)
+  ON DUPLICATE KEY UPDATE
+    \`holder\` = IF(\`expires_at\` <= ?, VALUES(\`holder\`), \`holder\`),
+    \`expires_at\` = IF(\`expires_at\` <= ?, VALUES(\`expires_at\`), \`expires_at\`)`;
+
+const SELECT_LOCK = "SELECT `holder` AS `holder`, `expires_at` AS `expires_at` FROM `dispatch_locks` WHERE `order_id` = ?";
+
+/**
+ * Take the planning lock for an order, or say who holds it.
+ *
+ * Two coordinators can be woken for the same order — a retried trigger and the original — and both would otherwise
+ * write a wave, producing two sets of offers for wave 1 and a rider asked twice. `dispatch_locks` is unique on
+ * `order_id`, so the claim is one statement: insert, or take the lock **only if the existing one has expired**. The
+ * `IF` in the `ON DUPLICATE KEY UPDATE` is the whole mechanism — without it a stale lock from a crashed planner would
+ * block the order until somebody deleted the row by hand.
+ *
+ * Returns `{taken: true, lock}` or `{taken: false, holder}` so the caller can say who is planning rather than
+ * answering "busy".
+ */
+export async function claimDispatchLock(
+  db: Db,
+  input: { readonly id: Uint8Array; readonly orderId: Uint8Array; readonly holder: string; readonly nowMs: number; readonly ttlMs: number },
+): Promise<{ readonly taken: true; readonly lock: DispatchLock } | { readonly taken: false; readonly holder: string }> {
+  const expiresAtMs = input.nowMs + input.ttlMs;
+  const expiresAt = sqlDatetime(new Date(expiresAtMs));
+  const now = sqlDatetime(new Date(input.nowMs));
+  await db.execute(CLAIM_LOCK, [
+    input.id,
+    input.orderId,
+    input.holder,
+    expiresAt,
+    now,
+    now,
+    now,
+  ]);
+  const row = await db.first<{ holder: unknown; expires_at: unknown }>(SELECT_LOCK, [input.orderId]);
+  const holder = String(row?.holder ?? "");
+  if (holder !== input.holder) return { taken: false, holder };
+  return { taken: true, lock: { orderId: input.orderId, holder, expiresAtMs } };
+}
+
+/** Release a lock this planner holds. The `holder` predicate is what stops one planner releasing another's. */
+export async function releaseDispatchLock(db: Db, orderId: Uint8Array, holder: string): Promise<number> {
+  const result = await db.execute(
+    "UPDATE `dispatch_locks` SET `expires_at` = ? WHERE `order_id` = ? AND `holder` = ?",
+    [sqlDatetime(new Date(0)), orderId, holder],
+  );
+  return result.affectedRows;
+}
+
+const SELECT_WAVE_STATE = `SELECT MAX(\`wave\`) AS \`last\`,
+    SUM(CASE WHEN \`response\` IS NULL AND \`expires_at\` > ? THEN 1 ELSE 0 END) AS \`live\`
+  FROM \`order_offers\` WHERE \`order_id\` = ?`;
+
+/**
+ * The next wave number for an order, and whether one of its waves is still live.
+ *
+ * A live wave is unanswered offers inside their TTL: writing wave 2 while wave 1's phones are still ringing tells
+ * eight riders the order is gone when it is not, and doubles the alarm traffic for one order.
+ */
+export async function waveStateForOrder(
+  db: Db,
+  orderId: Uint8Array,
+  nowMs: number,
+): Promise<{ readonly lastWave: number; readonly liveOffers: number }> {
+  const row = await db.first<{ last: unknown; live: unknown }>(SELECT_WAVE_STATE, [
+    sqlDatetime(new Date(nowMs)),
+    orderId,
+  ]);
+  return { lastWave: Number(row?.last ?? 0), liveOffers: Number(row?.live ?? 0) };
 }
