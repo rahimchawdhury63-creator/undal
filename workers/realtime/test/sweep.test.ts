@@ -26,7 +26,17 @@ interface Recorder {
   readonly failures: unknown[];
 }
 
-function deps(options: { sweep?: boolean; swept?: { riders: number; positions: number }; fail?: boolean; presenceFails?: boolean } = {}): Recorder & Parameters<typeof runZoneAlarm>[0] {
+function deps(
+  options: {
+    sweep?: boolean;
+    swept?: { riders: number; positions: number };
+    fail?: boolean;
+    presenceFails?: boolean;
+    wave?: boolean;
+    waveResult?: { expired: number; advanced: number };
+    waveFails?: boolean;
+  } = {},
+): Recorder & Parameters<typeof runZoneAlarm>[0] {
   const recorder: Recorder = { order: [], cutoffs: [], reported: [], failures: [] };
   return {
     ...recorder,
@@ -50,6 +60,14 @@ function deps(options: { sweep?: boolean; swept?: { riders: number; positions: n
     reportError(error) {
       recorder.failures.push(error);
     },
+    wave:
+      options.wave === false
+        ? null
+        : async () => {
+            recorder.order.push("wave");
+            if (options.waveFails === true) throw new Error("core unavailable");
+            return options.waveResult ?? { expired: 0, advanced: 0 };
+          },
   };
 }
 
@@ -57,7 +75,7 @@ describe("the fifth erasure trigger", () => {
   test("presence publishes before the sweep reads, so the sweep cannot report what the room just explained", async () => {
     const recorder = deps();
     await runZoneAlarm(recorder, 1_000_000);
-    assert.deepEqual(recorder.order, ["presence", "sweep"]);
+    assert.deepEqual(recorder.order, ["presence", "sweep", "wave"]);
   });
 
   test("the cutoff is a grace minute behind now, not now", async () => {
@@ -84,13 +102,13 @@ describe("the fifth erasure trigger", () => {
     const recorder = deps({ fail: true });
     await runZoneAlarm(recorder, 1_000_000);
     assert.equal(recorder.failures.length, 1);
-    assert.equal(recorder.order.join(","), "presence,sweep", "the tick still ran to the end");
+    assert.equal(recorder.order.join(","), "presence,sweep,wave", "the tick still ran to the end");
   });
 
   test("a deployment with no live-position database sweeps nothing and says nothing", async () => {
     const recorder = deps({ sweep: false });
     await runZoneAlarm(recorder, 1_000_000);
-    assert.deepEqual(recorder.order, ["presence"]);
+    assert.deepEqual(recorder.order, ["presence", "wave"]);
     assert.deepEqual(recorder.reported, []);
     assert.deepEqual(recorder.failures, []);
   });
@@ -98,5 +116,39 @@ describe("the fifth erasure trigger", () => {
   test("a presence failure is the caller's problem, not something a deletion may hide", async () => {
     const recorder = deps({ presenceFails: true });
     await assert.rejects(() => runZoneAlarm(recorder, 1_000_000), /presence unavailable/u);
+  });
+});
+
+describe("the dispatch tick inside the alarm (D130)", () => {
+  test("it runs after the sweep, because an erased rider cannot be rung", async () => {
+    const recorder = deps();
+    await runZoneAlarm(recorder, 1_000_000);
+    assert.deepEqual(recorder.order, ["presence", "sweep", "wave"]);
+  });
+
+  test("it still runs when the deployment has no live-position database", async () => {
+    const recorder = deps({ sweep: false });
+    await runZoneAlarm(recorder, 1_000_000);
+    assert.deepEqual(recorder.order, ["presence", "wave"], "offers expire whether or not we can see anybody");
+  });
+
+  test("a sweep failure does not stop the wave tick", async () => {
+    const recorder = deps({ fail: true, waveResult: { expired: 2, advanced: 1 } });
+    await runZoneAlarm(recorder, 1_000_000);
+    assert.equal(recorder.failures.length, 1);
+    assert.equal(recorder.order.at(-1), "wave");
+  });
+
+  test("a wave failure is recorded and not rethrown: the next tick tries again", async () => {
+    const recorder = deps({ waveFails: true });
+    await runZoneAlarm(recorder, 1_000_000);
+    assert.equal(recorder.failures.length, 1);
+    assert.equal(recorder.order.at(-1), "wave");
+  });
+
+  test("no configured core means no tick, and the alarm is what it was", async () => {
+    const recorder = deps({ wave: false });
+    await runZoneAlarm(recorder, 1_000_000);
+    assert.deepEqual(recorder.order, ["presence", "sweep"]);
   });
 });

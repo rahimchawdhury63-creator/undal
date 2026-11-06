@@ -47,6 +47,14 @@ export interface ZoneAlarmDeps {
   report(swept: Swept, cutoffMs: number): void;
   /** How a sweep that failed is reported. A failure is not a throw (see above). */
   reportError(error: unknown): void;
+  /**
+   * The dispatch tick, or `null` when this deployment does not coordinate waves (D130).
+   *
+   * It runs last, after the sweep: an offer that expired this tick belongs to a rider whose row may be about to be
+   * erased, and advancing a wave towards a phone that has just died would ring nobody. Absent, the alarm is exactly
+   * what it was before this hook existed.
+   */
+  wave: (() => Promise<{ readonly expired: number; readonly advanced: number }>) | null;
 }
 
 /**
@@ -57,11 +65,35 @@ export interface ZoneAlarmDeps {
  */
 export async function runZoneAlarm(deps: ZoneAlarmDeps, nowMs: number): Promise<void> {
   await deps.presence(nowMs);
-  if (deps.sweep === null) return;
+  if (deps.sweep === null) {
+    // No live-position database is not a reason to skip the wave tick: offers expire whether or not this deployment
+    // can see where anybody is.
+    await tickDispatch(deps);
+    return;
+  }
   const cutoffMs = nowMs - SWEEP_GRACE_MS;
   try {
     const swept = await deps.sweep(cutoffMs);
     if (swept.riders > 0) deps.report(swept, cutoffMs);
+  } catch (error) {
+    deps.reportError(error);
+  }
+  await tickDispatch(deps);
+}
+
+/**
+ * The dispatch half of the tick: change what has expired, then ask for the next wave.
+ *
+ * A failure here is reported and forgotten — the alarm runs again in seconds, and a wave that could not be advanced
+ * this tick is one the next tick will try, with the offers still expired and the orders still searching.
+ */
+async function tickDispatch(deps: ZoneAlarmDeps): Promise<void> {
+  if (deps.wave === null) return;
+  try {
+    const result = await deps.wave();
+    if (result.expired > 0) {
+      console.warn(`dispatch: expired ${String(result.expired)} offer(s), advanced ${String(result.advanced)} order(s)`);
+    }
   } catch (error) {
     deps.reportError(error);
   }

@@ -434,7 +434,11 @@ async function expireDueOffers(ctx: Ctx): Promise<Response> {
     // ledger nobody reads. The `order_offers` rows are the record, and the audit chain stays about people.
     console.warn(`offers: expired ${String(swept.expired)} offer(s) in wave(s) ${swept.waves.join(",")}`);
   }
-  return successResponse({ expired: swept.expired, waves: swept.waves, atMs: nowMs }, ctx.locale, ctx.requestId);
+  return successResponse(
+    { expired: swept.expired, waves: swept.waves, orders: swept.orders, atMs: nowMs },
+    ctx.locale,
+    ctx.requestId,
+  );
 }
 
 /**

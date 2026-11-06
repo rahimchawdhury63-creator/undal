@@ -2785,3 +2785,45 @@ boundary.
 *Open:* the caller. Realtime's zone alarm is the natural home — it already runs while riders are connected and already
 calls core for the auto-cancel ladder — and `POST /internal/offers/expire` (D116) is what tells it that a wave has
 timed out. Wiring those two together is the last piece of the dispatch loop.
+
+## D130 — The loop closes: something finally asks for the next wave
+
+Every piece of dispatch existed and nothing called it. The caller had to be realtime, because it is the only thing in
+the system that runs while riders are connected, and the shape of the call is what decides whether a stale wave costs
+an order or a minute.
+
+**Two calls, and the first one had to change.** `POST /internal/offers/expire` used to answer counts and waves; it now
+also answers the **order codes** it left without a live offer, read *before* the update that erases the evidence. That
+change is D116's route learning the question its caller actually has — *whose wave expired?* — and without it realtime
+would have had to scan offers itself, which is core's data. `POST /internal/dispatch/advance` is then one call per
+order that needs one, and a tick with nothing expired is a single round trip.
+
+**It runs last in the alarm, and that ordering is not cosmetic.** Presence first (an absence published this tick erases
+its own rider), then the D1 sweep, then dispatch. Advancing a wave towards a rider whose `rider_current` row is being
+erased is a wave that rings nobody — the candidate is gone by the time core's feed runs, so the order gets a wave of
+nobody and the tick after it repeats. After the sweep the board is honest.
+
+**It runs even with no live-position database.** A deployment without D1 can still have offers: `sweep === null` used to
+end the tick, and now it skips to the dispatch step. Offers expire on the wall clock, not on a database being present.
+
+**A failed tick leaves the state alone.** Core refusing (500), the transport dying, or a call exceeding its 1 500 ms
+budget all produce `{expired: 0, advanced: 0}` and a log line, never a partial advance recorded as success. The next
+alarm is seconds away and the offers are still expired and the orders still searching, so the retry is free; claiming
+success for a wave nobody wrote is the one outcome that would strand an order until a human noticed.
+
+**A `null` wave is an answer.** `{wave: null, reason: "NO_ELIGIBLE_CANDIDATES"}` or `"LADDER_EXHAUSTED"` means the tick
+did the right thing and there is nothing to count. Treating it as a failure would retry five times on an order that
+`11 §11` says should now be escalated or refunded.
+
+**Absent configuration is absent behaviour.** No `CORE_BASE_URL` and no `INTERNAL_TOKEN` builds no client, and the
+alarm is exactly what it was before this rung — the rule every core client in this Worker already follows.
+
+Tests: six in `core-wave.test.ts` — a quiet tick as one round trip, each emptied order advanced by code, a `null` wave
+not counted as an advance, a 500 leaving the state untouched, a dead transport likewise, and the sweep's empty body —
+plus five in `sweep.test.ts` for the ordering: presence → sweep → wave, the wave tick with no D1 store, a sweep failure
+that does not stop it, a wave failure that is recorded rather than thrown, and no client meaning no tick.
+
+*Open:* the dispatch loop is closed for a single zone's alarm, but the alarm belongs to a Durable Object that exists
+only while its zone has traffic — an order in a quiet zone still needs a driver. The honest fix is either a scheduled
+sweeper over `RIDER_SEARCH` orders or moving the tick to the vendor room, which already wakes for a placed order; both
+are deployment questions rather than dispatch ones, and this rung states them rather than guessing.

@@ -202,6 +202,14 @@ rider who fails any one of them is not ranked at all.
 > caller's business, and a sixth wave is not one of the options. `POST /internal/dispatch/advance` is the same handler
 > under the name the driver calls by.
 
+> **And something finally calls it (D130).** Realtime's zone alarm is the only thing running while riders are
+> connected, so the tick ends there: expire what has timed out, then advance **each order the sweep emptied** — the
+> `orders` array is why D116's sweep answers with codes and not only counts. It runs last, after the presence sweep,
+> because an offer belonging to a rider whose row is about to be erased is not worth ringing; it runs even when there
+> is no live-position database, because offers expire whether or not anybody can be seen; and its failure is logged
+> and forgotten, because the next tick retries with the same state. A `null` wave — nobody eligible, or the ladder
+> exhausted — is an answer, not an advance.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep

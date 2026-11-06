@@ -88,6 +88,8 @@ function dbFor(
     liveOffers?: readonly Record<string, unknown>[];
     expired?: number;
     expiringWaves?: readonly Record<string, unknown>[];
+    /** The orders the sweep left without a live offer, as the `code` rows it reads (D130). */
+    expiringOrders?: readonly Record<string, unknown>[];
   } = {},
 ): ReturnType<typeof stubDb> {
   const order = options.order === undefined ? ORDER_ROW : options.order;
@@ -103,6 +105,7 @@ function dbFor(
     { match: /UPDATE `order_offers` SET `response` = \?/u, affectedRows: 1 },
     { match: /INSERT INTO `order_assignments`/u, affectedRows: 1 },
     { match: /UPDATE `rider_shifts` SET `orders_rejected`/u, affectedRows: 1 },
+    { match: /DISTINCT `o`.`code`/u, rows: options.expiringOrders === undefined ? [] : [...options.expiringOrders] },
     { match: /DISTINCT `wave` FROM `order_offers`/u, rows: options.expiringWaves === undefined ? [] : [...options.expiringWaves] },
     { match: /UPDATE `order_offers` SET `response` = 'EXPIRED'/u, affectedRows: options.expired ?? 0 },
     { match: /JOIN `orders` ord ON/u, rows: options.liveOffers === undefined ? [] : [...options.liveOffers] },
@@ -467,5 +470,39 @@ describe("POST /internal/offers/expire", () => {
     );
     assert.equal(response.status, 401);
     assert.deepEqual(db.calls, []);
+  });
+});
+
+describe("the sweep names the orders it left without a wave (D130)", () => {
+  test("the codes travel back, so a caller can ask for each one's next wave", async () => {
+    const db = dbFor({ expired: 2, expiringWaves: [{ wave: 1 }], expiringOrders: [{ code: "UND-7K2M9QX4" }] });
+    const response = await route("/internal/offers/expire").run(internalCtx(db), {
+      params: {},
+      body: {},
+      reason: null,
+    });
+    const parsed = (await response.json()) as { data: unknown };
+    const data = (parsed as { data: { orders?: string[]; expired?: number } }).data;
+    assert.equal(data.expired, 2);
+    assert.deepEqual(data.orders, ["UND-7K2M9QX4"]);
+  });
+
+  test("the codes are read before the update erases the evidence", async () => {
+    const db = dbFor({ expired: 1, expiringWaves: [{ wave: 1 }], expiringOrders: [{ code: "UND-7K2M9QX4" }] });
+    await route("/internal/offers/expire").run(internalCtx(db), { params: {}, body: {}, reason: null });
+    const codeIndex = db.calls.findIndex((call) => /DISTINCT `o`.`code`/u.test(call.sql));
+    const updateIndex = db.calls.findIndex((call) => /UPDATE `order_offers` SET/u.test(call.sql));
+    assert.ok(codeIndex >= 0 && updateIndex > codeIndex);
+  });
+
+  test("a quiet sweep reports no orders rather than an empty string", async () => {
+    const db = dbFor({ expired: 0, expiringWaves: [], expiringOrders: [] });
+    const response = await route("/internal/offers/expire").run(internalCtx(db), {
+      params: {},
+      body: {},
+      reason: null,
+    });
+    const data = ((await response.json()) as { data: { orders?: string[] } }).data;
+    assert.deepEqual(data.orders, []);
   });
 });

@@ -164,6 +164,14 @@ export interface ExpiredOffers {
   readonly expired: number;
   /** The waves those offers belonged to, so a caller can tell a whole wave timing out from one rider being slow. */
   readonly waves: readonly number[];
+  /**
+   * The orders left without a live offer by this sweep, by code (D130).
+   *
+   * A sweep that reported only counts would leave the caller unable to ask the next question — *whose wave expired?* —
+   * and the answer is what dispatch advances. Codes rather than ids because the advance route is addressed by code
+   * (`08 §6`), and a caller holding ids would have to look them up again.
+   */
+  readonly orders: readonly string[];
 }
 
 /**
@@ -184,9 +192,19 @@ export async function expireOffers(db: Db, nowMs: number): Promise<ExpiredOffers
     "SELECT DISTINCT `wave` FROM `order_offers` WHERE `response` IS NULL AND `expires_at` <= ?",
     [now],
   );
+  // Read before the update, because the update is what erases the evidence of which orders needed a next wave.
+  const due = await db.query<{ code: string }>(
+    "SELECT DISTINCT `o`.`code` AS `code` FROM `order_offers` `f` JOIN `orders` `o` ON `o`.`id` = `f`.`order_id` " +
+      "WHERE `f`.`response` IS NULL AND `f`.`expires_at` <= ?",
+    [now],
+  );
   const result = await db.execute(
     "UPDATE `order_offers` SET `response` = 'EXPIRED', `responded_at` = ? WHERE `response` IS NULL AND `expires_at` <= ?",
     [now, now],
   );
-  return { expired: result.affectedRows, waves: waves.map((row) => Number(row.wave)) };
+  return {
+    expired: result.affectedRows,
+    waves: waves.map((row) => Number(row.wave)),
+    orders: due.map((row) => String(row.code)),
+  };
 }
