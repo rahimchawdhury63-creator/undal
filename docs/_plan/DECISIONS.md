@@ -3461,3 +3461,33 @@ the already-decided and lost-race conflicts, and the rider's read surfacing both
 
 *Open:* escalate, and approve-a-different-amount. `§6.2` also says `PAYMENT_NOT_RECEIVED` should open a support call
 rather than sit as a silent refusal; the code is storable today, and the call is not.
+
+## D145 — The reviewer's queue, and why oldest-first is a rule
+
+D143 and D144 gave a reviewer two buttons. A button needs a list, and there was none: a settlement could be decided only
+by somebody who already knew its id, which is a lookup rather than a queue. `GET /v1/finance/cash/settlements` is the
+list `25 §6` draws, behind `finance.cash.list_outstanding`.
+
+**Oldest first is the fairness rule, not a display preference.** `25 §8`'s two-hour auto-lift means a claim that reaches
+the top of the clock is released without review. Newest-first — the ordering a `created_at DESC` gives for free — shows
+the reviewer the claims with the most slack and lets the urgent ones age out of sight. The queue is therefore
+`ORDER BY created_at ASC`, and the test asserts the direction rather than the contents.
+
+**The decision is made from the list.** Each row carries the two automated flags from `§6`'s table and both evidence URLs,
+because a reviewer who has to open each claim to see the screenshot is a reviewer who approves from the number alone. The
+flags stay *flags*: `nameMatches: false` is a reason to look, not a verdict the route has already reached.
+
+**`slaBreached` is computed, not stored.** It is `autoLiftDue` — the same two-hour rule D142 enforces at the door — read
+here to colour the row. One function in the domain, two readers, so the queue and the gate can never disagree about who is
+late.
+
+**The ceiling is 100, and the limit is clamped rather than refused.** `25 §10` sets zero SLA breaches as the target, so a
+queue of a hundred is already an operational failure; the number exists to bound the query, not to let a reviewer page
+through a backlog. `limit=900` answers with a hundred rows and says so in the summary rather than returning an error for a
+request whose intent was clear.
+
+Tests: three in `test/cash-review.test.ts` — the row with its evidence and flags plus the SQL's ordering, a two-row queue
+with one breach and the summary arithmetic, and the empty day with the clamp.
+
+*Open:* the queue has no filters (zone, rider, method), no cursor, and no pagination beyond the ceiling — all three are
+answered by "there should never be more than a handful", which is a claim the monitoring in `§10` has to keep true.

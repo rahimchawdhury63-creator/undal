@@ -263,3 +263,54 @@ export async function rejectSettlement(
   );
   return result.affectedRows > 0;
 }
+
+/** One row of the reviewer's queue: the claim, the evidence, and who made it. */
+export interface QueueRow {
+  readonly id: string;
+  readonly riderId: string;
+  readonly riderName: string | null;
+  readonly riderCode: string | null;
+  readonly amountPaisa: number;
+  readonly method: string;
+  readonly trxId: string | null;
+  readonly submittedAt: string;
+  readonly numberMatches: boolean | null;
+  readonly nameMatches: boolean | null;
+  readonly screenshotUrl: string | null;
+  readonly selfieUrl: string | null;
+}
+
+/**
+ * The claims waiting for a human, oldest first.
+ *
+ * Oldest first because the queue's ordering *is* its fairness rule: `25 §8` auto-lifts a claim after two hours, so the
+ * top of this list is the claim closest to being released without review. Newest-first — the natural ORDER BY a
+ * developer writes — would show the reviewer the claims with the most slack and let the urgent ones age out of sight.
+ *
+ * The evidence columns come along because the reviewer's decision is about them (`§6`): a number that matches and a
+ * screenshot that shows the transaction are what separates an approval from a refusal, and a queue that made the
+ * reviewer fetch each row separately would be a queue nobody works through.
+ */
+export async function pendingSettlements(db: Db, limit: number): Promise<QueueRow[]> {
+  const rows = await db.query<Record<string, unknown>>(
+    "SELECT s.`id`, s.`rider_id`, r.`full_name`, r.`code`, s.`amount_paisa`, s.`method`, s.`trx_id`, s.`created_at`, " +
+      "s.`number_matches`, s.`name_matches`, s.`screenshot_url`, s.`selfie_url` " +
+      "FROM `rider_cash_settlements` s JOIN `riders` r ON r.`id` = s.`rider_id` " +
+      "WHERE s.`status` = 'PENDING' ORDER BY s.`created_at` ASC LIMIT ?",
+    [limit],
+  );
+  return rows.map((raw) => ({
+    id: raw["id"] instanceof Uint8Array ? toHexId(raw["id"]) : "",
+    riderId: raw["rider_id"] instanceof Uint8Array ? toHexId(raw["rider_id"]) : "",
+    riderName: typeof raw["full_name"] === "string" ? raw["full_name"] : null,
+    riderCode: typeof raw["code"] === "string" ? raw["code"] : null,
+    amountPaisa: Number(raw["amount_paisa"] ?? 0),
+    method: String(raw["method"] ?? ""),
+    trxId: typeof raw["trx_id"] === "string" ? raw["trx_id"] : null,
+    submittedAt: String(raw["created_at"] ?? ""),
+    numberMatches: raw["number_matches"] === null ? null : Boolean(raw["number_matches"]),
+    nameMatches: raw["name_matches"] === null ? null : Boolean(raw["name_matches"]),
+    screenshotUrl: typeof raw["screenshot_url"] === "string" ? raw["screenshot_url"] : null,
+    selfieUrl: typeof raw["selfie_url"] === "string" ? raw["selfie_url"] : null,
+  }));
+}

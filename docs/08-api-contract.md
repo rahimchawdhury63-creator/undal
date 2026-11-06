@@ -493,6 +493,7 @@ completely transparent about how position is earned, and that transparency is it
 | `GET` | `/v1/rider/invoices/{id}/pdf` | Signed URL |
 | `GET` | `/v1/rider/cash` | Cash in hand, settlement status, deadline. Implemented (D140) |
 | `POST` | `/v1/rider/cash/settle` | Submit a settlement (see [`25`](25-rider-cash-settlement.md)). Implemented (D141) |
+| `GET` | `/v1/finance/cash/settlements` | The reviewer's queue: pending claims, oldest first, with evidence. Implemented (D145) |
 | `POST` | `/v1/finance/cash/settlements/{id}/approve` | Reviewer's decision on a settlement (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D143) |
 | `POST` | `/v1/finance/cash/settlements/{id}/reject` | Refuse a settlement, reason from the register (see [`25 §6.2`](25-rider-cash-settlement.md)). Implemented (D144) |
 | `GET` | `/v1/rider/heatmap` | Demand surface for positioning |

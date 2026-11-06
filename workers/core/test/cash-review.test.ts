@@ -75,6 +75,8 @@ interface Options {
   /** The sum the database reports for the entry that was just written. */
   readonly ledgerTotal?: number;
   readonly auditTail?: unknown[];
+  /** The queue the list route finds, oldest first. */
+  readonly queue?: readonly Record<string, unknown>[];
 }
 
 function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
@@ -88,6 +90,7 @@ function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
     { match: /outstanding_paisa` FROM `rider_cash_balances`/u, rows: [{ outstanding_paisa: options.remaining ?? 0 }] },
     { match: /FROM `riders` WHERE `id` = \? LIMIT 1/u, rows: options.shiftState === null ? [] : [{ shift_state: options.shiftState ?? "CASH_LOCKED" }] },
     { match: /UPDATE `riders` SET `shift_state`/u, affectedRows: 1 },
+    { match: /FROM `rider_cash_settlements` s JOIN `riders` r/u, rows: [...(options.queue ?? [])] },
     { match: /INSERT IGNORE INTO `ledger_accounts`/u, affectedRows: 1 },
     { match: /SELECT COUNT\(\*\) AS entries FROM `ledger_entries`/u, rows: [{ entries: 12 }] },
     { match: /INSERT INTO `ledger_entries`/u, affectedRows: 1 },
@@ -347,5 +350,74 @@ describe("refusing a settlement (D144)", () => {
       false,
       "no verdict is recorded for a decision this reviewer did not make",
     );
+  });
+});
+
+const minutesAgo = (minutes: number): string =>
+  new Date(Date.now() - minutes * 60_000).toISOString().replace("T", " ").replace("Z", "000");
+
+function queueRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: bytes(SETTLEMENT_HEX),
+    rider_id: bytes(RIDER_HEX),
+    full_name: "Karim Rahman",
+    code: "RDR-4K2M",
+    amount_paisa: 214_000,
+    method: "BKASH",
+    trx_id: "9H5K2M8P1Q",
+    created_at: minutesAgo(4),
+    number_matches: 1,
+    name_matches: 0,
+    screenshot_url: "https://res.cloudinary.com/undal/proof.jpg",
+    selfie_url: "https://res.cloudinary.com/undal/selfie.jpg",
+    ...overrides,
+  };
+}
+
+describe("the reviewer's queue (D145)", () => {
+  test("the list is what a reviewer decides from: evidence, flags, and how long it has waited", async () => {
+    const db = dbFor({ queue: [queueRow()] });
+    const answer = await run(db, null, "/v1/finance/cash/settlements");
+    assert.equal(answer.status, 200);
+    const data = answer.body["data"] as Record<string, any>;
+    const first = data["settlements"][0];
+    assert.equal(first.rider.name, "Karim Rahman");
+    assert.equal(first.numberMatches, true);
+    assert.equal(first.nameMatches, false, "a flag, not a wall: the reviewer decides");
+    assert.equal(first.screenshotUrl, "https://res.cloudinary.com/undal/proof.jpg");
+    assert.equal(typeof first.reviewDueBy, "string");
+    assert.ok(first.ageMinutes >= 4 && first.ageMinutes < 6);
+
+    const statement = db.calls.find((call) => call.sql.includes("JOIN `riders`"));
+    assert.match(String(statement?.sql), /ORDER BY s\.`created_at` ASC/u, "oldest first is the fairness rule");
+    assert.match(String(statement?.sql), /status` = 'PENDING'/u);
+  });
+
+  test("the oldest claim is the one nearest the door, and the summary says so", async () => {
+    const db = dbFor({
+      queue: [queueRow({ created_at: minutesAgo(150) }), queueRow({ created_at: minutesAgo(9) })],
+    });
+    const answer = await run(db, null, "/v1/finance/cash/settlements");
+    const data = answer.body["data"] as Record<string, any>;
+    assert.equal(data["settlements"][0]["slaBreached"], true, "past two hours the door opens without the reviewer");
+    assert.equal(data["settlements"][1]["slaBreached"], false);
+    assert.equal(data["summary"]["pending"], 2);
+    assert.equal(data["summary"]["breaches"], 1);
+    assert.ok(data["summary"]["oldestMinutes"] >= 150);
+  });
+
+  test("an empty queue is a good day, not an error, and the limit is capped", async () => {
+    const db = dbFor({ queue: [] });
+    const response = await route("/v1/finance/cash/settlements").run(
+      { ...ctxFor(db, "/v1/finance/cash/settlements?limit=900"), url: new URL("https://api.undal.test/v1/finance/cash/settlements?limit=900") } as Ctx,
+      { params: {}, body: null, reason: null },
+    );
+    const parsed = (await response.json()) as { data: { settlements: unknown[]; summary: Record<string, unknown> } };
+    assert.equal(response.status, 200);
+    assert.deepEqual(parsed.data.settlements, []);
+    assert.equal(parsed.data.summary["pending"], 0);
+    assert.equal(parsed.data.summary["oldestMinutes"], null);
+    assert.equal(parsed.data.summary["limit"], 100, "a queue longer than a hundred is an incident, not a page");
+    assert.deepEqual(db.calls[0]?.params, [100]);
   });
 });

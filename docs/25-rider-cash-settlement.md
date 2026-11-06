@@ -273,6 +273,12 @@ not on living their life.
   └───────────────────────────────────────────────────────────────────┘
 ```
 
+> **The list is a route now (D145).** `GET /v1/finance/cash/settlements` returns the pending claims **oldest first**,
+> each with the two automated flags and both evidence URLs, plus the three numbers the header shows: how many are waiting,
+> how old the oldest is, and how many are past the two-hour deadline they will be released at anyway. Oldest first is not
+> a display preference — it is the fairness rule, because the top of the list is the claim closest to auto-lifting
+> unreviewed. The ceiling is 100 rows: a queue longer than that is an incident, not a page to scroll.
+
 The review screen puts everything side by side: the selfie, the bKash screenshot (zoomable), the
 typed TrxID, the amount expected versus claimed, the rider's recent settlement history, and the
 orders that generated the cash.
