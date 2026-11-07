@@ -494,7 +494,7 @@ completely transparent about how position is earned, and that transparency is it
 | `GET` | `/v1/rider/cash` | Cash in hand, settlement status, deadline. Implemented (D140) |
 | `POST` | `/v1/rider/cash/settle` | Submit a settlement, full or `partial: true` (see [`25`](25-rider-cash-settlement.md)). Implemented (D141, partial D151) |
 | `GET` | `/v1/rider/cash/breakdown` | The deliveries behind `cash_in_hand`, with the arithmetic that proves it (see [`25 §8`](25-rider-cash-settlement.md)). Implemented (D150) |
-| `POST` | `/v1/rider/cash/declare` | Declare an emergency (24 h lift) or a robbery (lift with no expiry) (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D148–D149); `DISPUTE` answers `501` |
+| `POST` | `/v1/rider/cash/declare` | Declare an emergency (24 h lift), a robbery or a dispute (case, lift with no expiry) (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D148–D149, D153) |
 | `POST` | `/v1/finance/cash/settlements/{id}/escalate` | Release the rider, keep the debt, hand the claim to a senior reviewer (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D146) |
 | `GET` | `/v1/finance/cash/settlements` | The reviewer's queue: pending claims, oldest first, with evidence. Implemented (D145) |
 | `POST` | `/v1/finance/cash/settlements/{id}/approve` | Reviewer's decision on a settlement, full or partial amount (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D143, partial D147) |

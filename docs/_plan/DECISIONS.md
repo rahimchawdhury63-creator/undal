@@ -3757,3 +3757,36 @@ a number, and the join is in the same query), and the snapshot in `test/dispatch
 ৳12 500 from today and owing ৳114 000 has ৳126 500 in hand and the same ৳350 000 ceiling).
 
 *Open:* `25 §7`'s remaining button is `DISPUTE`, and the delivery breakdown it needs already exists (D150).
+
+## D153 — A dispute freezes the number it disputes
+
+`25 §7`'s third button: "A dispute is opened with the order list shown line by line; the block is lifted while the
+dispute is open; the amount stays outstanding." D150 built the list and D149 built the case shape — a declaration with no
+expiry that routes to a human — so this rung is the button, and one thing that neither of those had: the arithmetic.
+
+**The declaration is the robbery's shape with a different sentence.** Lifted with no expiry, always routed, `WARNING`
+severity, and a note required — "I disagree" with nothing beside it is not a claim a reviewer can answer. No new status,
+no new table, one more kind in a check constraint that already listed it.
+
+**The snapshot is the point.** The breakdown is live: a rider who disputes ৳2 140 on Tuesday and delivers four more cash
+orders on Wednesday has a list that now adds up to something else. A reviewer opening the dispute on Thursday would be
+reading yesterday's objection against today's numbers and concluding, reasonably, that the rider was wrong. So migration
+`025` adds `snapshot_lines_paisa` and `snapshot_difference_paisa`, filled from `cashLinesTotal` and the balance at the
+moment of the declaration, and the response hands the rider the same figure the reviewer will see. A dispute about a
+figure has to be about *a* figure.
+
+**`differencePaisa` is the bug report.** A dispute raised when the deliveries and the balance agree is a rider saying the
+deliveries are wrong; one raised when they disagree is the platform's own arithmetic visible on the rider's screen —
+`§8`'s "a bug produces a wrong `cash_in_hand`" — and the snapshot records which of the two this was. The audit row carries
+the same two numbers, so the chain does not depend on the row surviving a cleanup.
+
+**Approving a dispute is not a decision this build can make.** The reviewer can reject a claim (D144) or approve one
+(D143), but neither is "the rider was right and the balance was wrong": that needs an adjustment entry against
+`RIDER_CASH`, which is `finance.cash.adjust` and a step-up key, and it is not built. The dispute therefore lifts the block
+and opens a case, and the case has no ending yet — written here rather than implied by a `200`.
+
+Tests: three in `test/cash-declare.test.ts` — the expiry-less lift with its stored snapshot and its audit row, the
+mandatory sentence, and an emergency recording no arithmetic at all (because it is not a claim about a number).
+
+*Open:* the adjustment that resolves a dispute in the rider's favour, and the police-report upload beside a robbery.
+`§7` is now four for four on the rider's side and has no reviewer-side endings.

@@ -377,7 +377,7 @@ accounting disagreement.
 | --- | --- |
 | **Robbed / lost** | Immediate escalation to a human, the block is **lifted**, a case is opened, and a police-report upload is offered. The amount stays outstanding as a debt, handled case by case. Nobody is locked out of their livelihood over a theft at 11 pm |
 | **Emergency** | The block is lifted for 24 hours with a single tap. Logged. Limited to once per 30 days. A second use in the window routes to a human instead of being refused |
-| **Disagree** | A dispute is opened with the order list shown line by line; the block is lifted while the dispute is open; the amount stays outstanding |
+| **Disagree** | A dispute is opened with the order list shown line by line; the block is lifted while the dispute is open; the amount stays outstanding. **Implemented (D153)** — the list is `GET /rider/cash/breakdown` and the arithmetic is snapshotted |
 | **Partial** | The rider settles what they can; the remainder stays in `RIDER_CASH`; the rider can go online with a reduced cash limit equal to their remaining headroom. **Implemented (D151–D152)** |
 
 Every one of these paths lifts the block. The block exists to collect money from people who have
@@ -395,7 +395,7 @@ it and are about to go home — not to punish people who do not.
 > headroom, which is exactly what the sentence above promises — a rider who still owes ৳1 140 is offered work against
 > ৳2 360 of room, and one filter 8 refusal later they are told why.
 
-> **Two of the four buttons are built (D148–D149), and the two others are not.** `POST /v1/rider/cash/declare` with
+> **All four buttons are built (D148–D153).** `POST /v1/rider/cash/declare` with
 > `{kind:"EMERGENCY", note?}` writes a `rider_cash_declarations` row with `lifted_until = now + 24 h` and **lifts the
 > block for a day**; the debt is untouched, and the rider's next request opens the door the same way an escalation does.
 > A second use inside thirty days still lifts — `§7` says it "routes to a human instead of being refused" — and marks the
@@ -403,9 +403,14 @@ it and are about to go home — not to punish people who do not.
 > `kind:"ROBBED"` is the same route with the opposite expiry (D149): the lift has **no end** (`lifted_until` null, which
 > the read treats as "lifted" rather than "not lifted"), it always routes to a human, its audit row is `CRITICAL`, and it
 > requires a sentence — somebody will ring the rider back, and "robbed" alone says nothing about when or where.
-> `kind:"DISPUTE"` answers `501 NOT_IMPLEMENTED`: a disputed amount needs the order-by-order list `§7` describes, and
-> that is a different rung. A rider who owes nothing gets `409` rather than a lift, because there is nothing to be unable
-> to settle.
+> `kind:"DISPUTE"` is the third (D153): it lifts with no expiry, routes to a human, and **freezes the arithmetic it
+> disputes** — `025` stores `snapshot_lines_paisa` and `snapshot_difference_paisa`, taken from the breakdown `§8`
+> describes (D150), because the delivery list is live and a reviewer opening the dispute a day later must not read
+> yesterday's objection against today's numbers. The response hands the rider the same figure the reviewer will see. A
+> rider who owes nothing gets `409` rather than a lift, because there is nothing to be unable to settle.
+>
+> The fourth button is not a declaration at all: "I'll settle part of it now" is `POST /rider/cash/settle` with
+> `partial: true` (D151), and the reduced ceiling it promises is D152.
 >
 > Still open on this path: the **police-report upload** `§7` offers beside a robbery, and the case record a human would
 > own. The declaration is the case's first row — `routed_to_review` is how a reviewer finds it — and the rest of that

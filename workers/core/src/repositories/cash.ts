@@ -435,6 +435,14 @@ export interface DeclarationWrite {
   /** The instant the lift ends, `null` for a lift with no expiry. */
   readonly liftedUntilMs: number | null;
   readonly routedToReview: boolean;
+  /**
+   * What the platform said the rider owed, frozen at the moment they disputed it (`25 §7`, D153).
+   *
+   * Both `null` on an emergency or a robbery: those declarations are not about a number, and a zero would read like one
+   * that was checked.
+   */
+  readonly snapshotLinesPaisa?: number | null;
+  readonly snapshotDifferencePaisa?: number | null;
 }
 
 /** Record a declaration and return its id. */
@@ -442,7 +450,7 @@ export async function writeDeclaration(db: Db, write: DeclarationWrite, nowMs: n
   const id = newId(nowMs);
   await db.execute(
     "INSERT INTO `rider_cash_declarations` (`id`, `rider_id`, `kind`, `note`, `lifted_until`, `routed_to_review`, " +
-      "`created_at`) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "`snapshot_lines_paisa`, `snapshot_difference_paisa`, `created_at`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     [
       id,
       write.riderId,
@@ -450,6 +458,8 @@ export async function writeDeclaration(db: Db, write: DeclarationWrite, nowMs: n
       write.note,
       write.liftedUntilMs === null ? null : sqlDatetime(new Date(write.liftedUntilMs)),
       write.routedToReview ? 1 : 0,
+      write.snapshotLinesPaisa === undefined ? null : write.snapshotLinesPaisa,
+      write.snapshotDifferencePaisa === undefined ? null : write.snapshotDifferencePaisa,
       sqlDatetime(new Date(nowMs)),
     ],
   );

@@ -2460,6 +2460,14 @@
         {
           "name": "created_at",
           "type": "DATETIME(6)"
+        },
+        {
+          "name": "snapshot_lines_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "snapshot_difference_paisa",
+          "type": "BIGINT"
         }
       ],
       "generated": [],

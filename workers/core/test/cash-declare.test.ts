@@ -45,6 +45,8 @@ interface Options {
   readonly outstanding?: number;
   /** When the rider last declared an emergency, as `created_at` text, or absent. */
   readonly lastEmergencyAt?: string | null;
+  /** What the delivery breakdown totals, for a dispute's snapshot (D153). */
+  readonly linesTotal?: number;
 }
 
 function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
@@ -61,6 +63,7 @@ function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
           ? []
           : [{ id: bytes(RIDER_HEX), kind: "EMERGENCY", note: null, lifted_until: null, routed_to_review: 0, created_at: options.lastEmergencyAt }],
     },
+    { match: /SUM\(o\.`cash_collected_paisa`\) AS `total`/u, rows: [{ total: options.linesTotal ?? 0 }] },
     { match: /INSERT INTO `rider_cash_declarations`/u, affectedRows: 1 },
     { match: /FROM `audit_log`/u, rows: [] },
     { match: /INSERT INTO `audit_log`/u, affectedRows: 1 },
@@ -148,14 +151,10 @@ describe("declaring an emergency (D148)", () => {
   });
 
   test("the two buttons without machinery say so, and a rider who owes nothing is told that instead", async () => {
-    const dispute = await declare(dbFor({ outstanding: 214_000 }), { kind: "DISPUTE" });
-    assert.equal(dispute.status, 501, "a disputed amount needs the order list that produced it");
-    assert.equal(((await dispute.json()) as { error: { code: string } }).error.code, "NOT_IMPLEMENTED");
-
     const invented = await declare(dbFor({ outstanding: 214_000 }), { kind: "SICK" });
     assert.equal(invented.status, 422);
     const details = ((await invented.json()) as { error: { details: unknown } }).error.details;
-    assert.deepEqual(details, { field: "kind", allowed: ["EMERGENCY", "ROBBED"] });
+    assert.deepEqual(details, { field: "kind", allowed: ["EMERGENCY", "ROBBED", "DISPUTE"] });
 
     const clear = await declare(dbFor({ outstanding: 0 }), { kind: "EMERGENCY" });
     assert.equal(clear.status, 409, "there is nothing to be unable to settle");
@@ -197,5 +196,42 @@ describe("declaring an emergency (D148)", () => {
     const data = ((await response.json()) as { data: Record<string, any> }).data;
     assert.equal(data.declaration.liftedUntil, null);
     assert.equal(data.declaration.routedToReview, true);
+  });
+
+  test("a dispute lifts with no expiry and freezes the arithmetic it disputes (D153)", async () => {
+    const db = dbFor({ outstanding: 214_000, linesTotal: 84_000 });
+    const response = await declare(db, { kind: "DISPUTE", note: "I only collected eight thousand, not twenty-one" });
+    assert.equal(response.status, 200);
+    const data = ((await response.json()) as { data: Record<string, any> }).data;
+    assert.equal(data.released, true, "the block is lifted while the dispute is open");
+    assert.equal(data.stillOwedPaisa, 214_000, "and the amount stays outstanding");
+    assert.equal(data.declaration.liftedUntil, null, "a dispute is a case, not a window");
+    assert.equal(data.declaration.routedToReview, true);
+    assert.equal(data.disputed.linesPaisa, 84_000);
+    assert.equal(data.disputed.differencePaisa, 130_000, "the gap the rider is reporting, frozen at the moment of the report");
+
+    const insert = db.calls.find((call) => call.sql.includes("INSERT INTO `rider_cash_declarations`"));
+    assert.equal(insert?.params[2], "DISPUTE");
+    assert.equal(insert?.params[6], 84_000, "the snapshot is stored, because the delivery list moves on");
+    assert.equal(insert?.params[7], 130_000);
+
+    const auditRow = db.calls.find((call) => call.sql.includes("INSERT INTO `audit_log`"));
+    const after = JSON.parse(String(auditRow?.params[14])) as Record<string, unknown>;
+    assert.equal(after["differencePaisa"], 130_000, "the chain carries the number the rider disagreed with");
+    assert.equal(auditRow?.params[16], "WARNING");
+  });
+
+  test("a disagreement with no sentence is not a disagreement", async () => {
+    const bare = await declare(dbFor({ outstanding: 214_000 }), { kind: "DISPUTE" });
+    assert.equal(bare.status, 422);
+    assert.deepEqual(((await bare.json()) as { error: { details: unknown } }).error.details, { fields: ["note"] });
+  });
+
+  test("an emergency and a robbery record no arithmetic, because they are not about a number", async () => {
+    const db = dbFor({ outstanding: 214_000, linesTotal: 84_000 });
+    await declare(db, { kind: "EMERGENCY" });
+    const insert = db.calls.find((call) => call.sql.includes("INSERT INTO `rider_cash_declarations`"));
+    assert.equal(insert?.params[6], null, "an emergency is not a claim about the figure");
+    assert.equal(insert?.params[7], null);
   });
 });

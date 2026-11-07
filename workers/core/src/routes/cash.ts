@@ -385,8 +385,10 @@ async function cashBreakdown(ctx: Ctx): Promise<Response> {
  * Declare why the rider cannot settle: `POST /v1/rider/cash/declare` (`25 §7`, D148).
  *
  * The section opens with a screen and four buttons, and closes with the rule they exist for: *"The block exists to
- * collect money from people who have it and are about to go home — not to punish people who do not."* Two of the four
- * are built here: **I have an emergency** (D148) and **I was robbed or lost the money** (D149).
+ * collect money from people who have it and are about to go home — not to punish people who do not."* Three of the four
+ * are built here: **I have an emergency** (D148), **I was robbed or lost the money** (D149) and **I disagree with this
+ * amount** (D153). The fourth — "I'll settle part of it now" — is not a declaration at all: it is a settlement for less
+ * than the balance, `POST /v1/rider/cash/settle` with `partial: true` (D151).
  *
  * The two differ in exactly one field, and it is the field that matters. An emergency is a window — 24 hours, then the
  * block returns, because the money is still owed and the rider expects to have it. A robbery is a *case* — the lift has
@@ -404,9 +406,10 @@ async function cashBreakdown(ctx: Ctx): Promise<Response> {
  * block. So the declaration is written either way, `routed_to_review` marks the second, and the audit row goes from
  * `NOTICE` to `WARNING` so the morning's reviewer list has it at the top.
  *
- * **One button is still not built, and it says so.** "I disagree" needs the order-by-order breakdown `§7` describes —
- * a rider disputing a number has to see the deliveries that produced it. It answers `NOT_IMPLEMENTED` rather than
- * pretending: an app that shows a button and gets a 422 will show an error, and one that gets a 501 can hide it.
+ * **A dispute freezes the arithmetic it disputes.** The delivery list a rider argues with is live, so a reviewer
+ * opening the dispute a day later would be reading yesterday's objection against today's numbers. The declaration
+ * therefore stores the breakdown's totals as they stood (`025`), and the response hands the rider the same figure the
+ * reviewer will see.
  */
 async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
   const rider = await riderFor(ctx);
@@ -416,25 +419,23 @@ async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
   const kind = fields["kind"];
   if (!isDeclarationKind(kind)) {
     return failureResponse(
-      { code: "VALIDATION_ENUM", details: { field: "kind", allowed: ["EMERGENCY", "ROBBED"] } },
+      { code: "VALIDATION_ENUM", details: { field: "kind", allowed: ["EMERGENCY", "ROBBED", "DISPUTE"] } },
       ctx.locale,
       ctx.requestId,
     );
   }
-  if (kind === "DISPUTE") {
-    // `§7`'s third button needs the order-by-order breakdown a rider disputes line by line, which means reading a
-    // shift's deliveries back to them. The table has a column for it and no route yet.
-    return failureResponse({ code: "NOT_IMPLEMENTED" }, ctx.locale, ctx.requestId);
-  }
+
+
 
   const noteRaw = fields["note"] ?? null;
   if (noteRaw !== null && (typeof noteRaw !== "string" || noteRaw.trim().length > 280)) {
     return failureResponse({ code: "VALIDATION_REQUIRED", details: { fields: ["note"] } }, ctx.locale, ctx.requestId);
   }
   const note = noteRaw === null ? null : (noteRaw as string).trim();
-  if (kind === "ROBBED" && (note === null || note.length === 0)) {
-    // A theft claim with no words is not a claim: somebody has to ring this rider back, and "robbed" alone tells them
-    // nothing about when, where, or which police station was told (D149).
+  if (kind !== "EMERGENCY" && (note === null || note.length === 0)) {
+    // A theft or a dispute with no words is not a claim. For a robbery somebody has to ring this rider back, and
+    // "robbed" alone says nothing about when or where (D149); for a dispute the sentence is the disagreement, and a
+    // reviewer cannot answer "I disagree" with nothing beside it (D153).
     return failureResponse({ code: "VALIDATION_REQUIRED", details: { fields: ["note"] } }, ctx.locale, ctx.requestId);
   }
 
@@ -452,11 +453,30 @@ async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
   // always routes to a human: `§7` says the amount is "handled case by case", and a case by case decision cannot be a
   // timer that puts somebody back behind the block at midnight (D149).
   const robbed = kind === "ROBBED";
-  const repeated = robbed || repeatedEmergency(previousMs, nowMs);
-  const liftedUntilMs = robbed ? null : nowMs + EMERGENCY_LIFT_MS;
+  const disputed = kind === "DISPUTE";
+  // Both a robbery and a dispute are cases: no expiry, and always routed. The difference is what the reviewer reads —
+  // "I was robbed" is a story and "your arithmetic is wrong" is a number, so a dispute also freezes the arithmetic the
+  // rider was looking at (D153), because by the time a human opens it the delivery list has moved on.
+  const caseOpened = robbed || disputed;
+  const repeated = caseOpened || repeatedEmergency(previousMs, nowMs);
+  const liftedUntilMs = caseOpened ? null : nowMs + EMERGENCY_LIFT_MS;
+
+  let disputedArithmetic: { linesPaisa: number; differencePaisa: number } | null = null;
+  if (disputed) {
+    const linesPaisa = await cashLinesTotal(ctx.db, rider.id);
+    disputedArithmetic = { linesPaisa, differencePaisa: outstanding - linesPaisa };
+  }
   const id = await writeDeclaration(
     ctx.db,
-    { riderId: rider.id, kind, note, liftedUntilMs, routedToReview: repeated },
+    {
+      riderId: rider.id,
+      kind,
+      note,
+      liftedUntilMs,
+      routedToReview: repeated,
+      snapshotLinesPaisa: disputedArithmetic === null ? null : disputedArithmetic.linesPaisa,
+      snapshotDifferencePaisa: disputedArithmetic === null ? null : disputedArithmetic.differencePaisa,
+    },
     nowMs,
   );
 
@@ -474,7 +494,16 @@ async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
       resourceId: toHexId(id),
       subjectId: toHexId(rider.id),
       before: { shiftState: rider.shiftState, outstandingPaisa: outstanding },
-      after: { kind, note, liftedUntil: liftedUntilMs === null ? null : new Date(liftedUntilMs).toISOString(), routedToReview: repeated },
+      after: {
+        kind,
+        note,
+        liftedUntil: liftedUntilMs === null ? null : new Date(liftedUntilMs).toISOString(),
+        routedToReview: repeated,
+        // What the platform claimed at the moment it was disputed, so the chain and the reviewer agree about the figure.
+        ...(disputedArithmetic === null
+          ? {}
+          : { linesPaisa: disputedArithmetic.linesPaisa, differencePaisa: disputedArithmetic.differencePaisa }),
+      },
       // A rider's own declaration is not an admin reason, and the register is a list of admin reasons. The `after` block
       // carries everything a reviewer needs, and putting a word from that list here would attribute it to the rider.
       reason: null,
@@ -493,6 +522,8 @@ async function declareCash(ctx: Ctx, body: unknown): Promise<Response> {
         liftedUntil: liftedUntilMs === null ? null : new Date(liftedUntilMs).toISOString(),
         routedToReview: repeated,
       },
+      // The arithmetic as it stood when the rider objected: `differencePaisa` non-zero is the bug they are reporting.
+      disputed: disputedArithmetic,
       released: true,
       outstandingPaisa: outstanding,
       // Said explicitly: the debt is untouched. `§7` lifts the block; it does not forgive the money.
