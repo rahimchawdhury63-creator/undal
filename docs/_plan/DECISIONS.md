@@ -3823,3 +3823,56 @@ Tests: two in a new `test/cash-declaration-queue.test.ts` — the dispute row wi
 *Open:* nothing on this list can be *closed*. A robbery has no case object and no police-report upload; a dispute cannot
 be resolved in the rider's favour without an adjustment entry against `RIDER_CASH` (`finance.cash.adjust`, a step-up
 key). The queue is where those endings will be attached.
+
+---
+
+## D155 — A debt the platform was wrong about, and the one route that ends it
+
+D154 built the list of open cases and admitted the gap in the same breath: nothing on it could be *closed*. A reviewer
+reading a robbery report could look at the balance, agree the platform was wrong, and have no way to act — the only
+adjustment key was `finance.cash.adjust`, which moves money *between* two ledgers, and `24 §6` had already named a
+different row for this: "shortfall written off". `POST /v1/finance/cash/riders/{id}/write-off` is that row as a route.
+
+**The order is the whole design.** Balance first, ledger second, case third, audit last — and each step can fail in a way
+the next one repairs. The balance update is guarded (`collected_paisa >= ?`), so two reviewers pressing the button at
+once cannot drive a debt negative; the ledger entry is posted through `postEntry` like every other movement, so the
+`RIDER_CASH` column of the books still sums to what riders owe; and if the entry fails the balance is refunded, because
+this system runs on TiDB autocommit (D95) and there is no rollback to lean on. An adjustment whose two halves disagree
+is the one failure nobody could reconstruct from the ledger later, so it is the failure the code spends its lines on.
+
+**`CASH_WRITE_OFF`, not `CASH_REFUND`.** The posting is `RIDER_CASH −amount` against `PLATFORM:EXPENSE_COMPENSATION
++amount`. It is an expense, not a refund: no money arrived and none left, the platform simply stopped claiming it. Naming
+it a refund would make the finance reports show cash leaving a bank account that was never touched, and `24 §6` counts
+these as a cost of doing business — which is the honest description of a delivery whose arithmetic was wrong.
+
+**Refusals chosen over clamps.** An amount above the outstanding balance is `MONEY_REFUND_EXCEEDS_PAID` rather than being
+trimmed to fit. Trimming is the friendly-looking behaviour and the wrong one: the reviewer typed a figure, the platform
+did something else, and the entry that posted is now a number nobody chose. A case that is already resolved — or one
+that never existed — is `CASH_ALREADY_SETTLED` (`409`), so a double submit is refused by the same rule that refuses a
+stale screen. Neither needs a new error code, which is why the register did not grow.
+
+**`finance.cash.write_off`, with step-up.** The key already existed (`rbac/keys/finance.ts`, `STEP_UP_KEYS`), so this
+route added no permission and broke no count assertion. It is the right one because a write-off *spends the platform's
+money* — the definition the step-up list uses — whereas `finance.cash.adjust` moves an amount from one ledger to another
+and nets to zero across the books. A reviewer who can forgive a debt is a different grant from one who can reclassify
+it, and the same person may hold only the second.
+
+**The declaration, closed rather than deleted.** `026` adds `resolved_at`, `resolved_by` and `resolution_note`; the route
+sets them when the body names a `declarationId`, and the declaration survives. A robbery report is a historical fact
+about a night, and a queue that dropped resolved rows would lose the only record of why the money went away — the audit
+row holds the actor and the reason, the declaration holds the story. `resolved_at` is also what D154's list will filter
+on when it grows a "handled" tab, so the column earns its keep before the screen exists.
+
+**`released` in the response.** When the write-off takes the outstanding balance to zero from `CASH_LOCKED`, the rider's
+next request opens the door — the same conditional release an approved settlement triggers (D143). Saying so in the
+response is cheaper than making the client re-read `GET /v1/rider/cash` to find out whether the rider can go online, and
+`§7`'s "handled case by case" ends with exactly that sentence.
+
+Tests: seven in `test/cash-write-off.test.ts` — the happy path with balance, entry and audit; the declaration stamping;
+an over-amount refusal; a closed case; the refund when the ledger fails; a malformed id and a reason outside the
+register; and the case where the write-off clears the balance and reports `released`. The declaration repository
+(`repositories/declarations.ts`) was split out of `repositories/cash.ts` on the way — two hundred lines of case
+lifecycle do not belong in the file that reads settlements, and the split took the line-budget warning with it.
+
+*Open:* nothing reads a resolution back yet — a `GET` for one case is the next rung — and a robbery still has no
+police-report upload and no case object beyond the declaration row.

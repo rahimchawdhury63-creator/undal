@@ -2468,6 +2468,18 @@
         {
           "name": "snapshot_difference_paisa",
           "type": "BIGINT"
+        },
+        {
+          "name": "resolved_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "resolved_by",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "resolution_note",
+          "type": "VARCHAR(280)"
         }
       ],
       "generated": [],

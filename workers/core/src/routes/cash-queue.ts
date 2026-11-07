@@ -6,7 +6,8 @@
 import { successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { parseDatetime } from "../db/time.ts";
-import { pendingSettlements, reviewDeclarations } from "../repositories/cash.ts";
+import { pendingSettlements } from "../repositories/cash.ts";
+import { reviewDeclarations } from "../repositories/declarations.ts";
 import { AUTO_LIFT_MS, autoLiftDue } from "../domain/rider/cash.ts";
 
 /**

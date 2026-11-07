@@ -30,6 +30,7 @@ import { SHIFT_ROUTES } from "./routes/shift.ts";
 import { CASH_ROUTES } from "./routes/cash.ts";
 import { CASH_REVIEW_ROUTES } from "./routes/cash-review.ts";
 import { CASH_QUEUE_ROUTES } from "./routes/cash-queue.ts";
+import { CASH_WRITE_OFF_ROUTES } from "./routes/cash-write-off.ts";
 import { DISPATCH_ROUTES } from "./routes/dispatch.ts";
 import { OFFER_ROUTES } from "./routes/offers.ts";
 import { PUSH_RETRY_ROUTES } from "./routes/push-retry.ts";
@@ -61,6 +62,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   ...CASH_ROUTES,
   ...CASH_REVIEW_ROUTES,
   ...CASH_QUEUE_ROUTES,
+  ...CASH_WRITE_OFF_ROUTES,
   ...OFFER_ROUTES,
   ...DISPATCH_ROUTES,
   ...PUSH_RETRY_ROUTES,

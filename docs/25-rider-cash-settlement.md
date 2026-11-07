@@ -419,9 +419,23 @@ it and are about to go home — not to punish people who do not.
 > balance **now**, and, for a dispute, the arithmetic as it stood when they objected. The two figures are shown side by
 > side on purpose: a queue that showed only one would let a fixed bug look unfixed, or the reverse.
 >
-> Still open on this path: the **police-report upload** `§7` offers beside a robbery, and the case record a human would
-> own. The declaration is the case's first row — `routed_to_review` is how a reviewer finds it — and the rest of that
-> object does not exist yet.
+> **And now a case can be closed (D155).** `POST /v1/finance/cash/riders/{id}/write-off` takes an amount, a reason from
+> the register and an optional `declarationId`, and does the one thing a reviewer could not do before: it makes the debt
+> smaller without anybody paying. The balance drops by `collected_paisa`, an adjustment entry posts `CASH_WRITE_OFF`
+> against the rider and the platform's compensation expense, the declaration is stamped `resolved_at`/`resolved_by`/
+> `resolution_note`, and the whole decision lands in the audit log as `CRITICAL`. The step-up key is
+> `finance.cash.write_off`, not `finance.cash.adjust`, because `24 §6` already names a written-off shortfall and a
+> reviewer pressing this button is spending the platform's money, not moving a rider's.
+>
+> **It is guarded, not clamped.** A write-off larger than what is owed is refused (`MONEY_REFUND_EXCEEDS_PAID`) rather
+> than silently trimmed, and a case that is already closed or gone is `CASH_ALREADY_SETTLED`. If the ledger entry fails
+> the balance is put back, because there are no transactions here (D95), and a debt that vanished without a matching
+> entry would be the one mistake nobody could reconstruct later. When the write-off clears the last of it, the response
+> says `released: true` and the rider may go online — which is what "handled case by case" was promising all along.
+>
+> Still open on this path: the **police-report upload** `§7` offers beside a robbery, and a route that *reads* a case's
+> resolution back to whoever asks. The declaration is the case's first row — `routed_to_review` is how a reviewer finds
+> it and D155 is how it ends — and the rest of that object does not exist yet.
 
 ---
 

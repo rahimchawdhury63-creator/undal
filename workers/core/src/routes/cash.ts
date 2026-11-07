@@ -17,19 +17,17 @@ import {
   type RiderRow,
 } from "../repositories/riders.ts";
 import {
-  activeLiftUntil,
   cashLines,
   cashLinesTotal,
-  lastDeclaration,
   lastShiftId,
   latestSettlement,
   payoutIdentity,
   pendingSettlement,
-  writeDeclaration,
   settlementByTrx,
   writeSettlement,
   type SettlementRow,
 } from "../repositories/cash.ts";
+import { activeLiftUntil, lastDeclaration, writeDeclaration } from "../repositories/declarations.ts";
 import {
   AUTO_LIFT_MS,
   autoLiftDue,

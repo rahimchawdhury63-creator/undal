@@ -497,6 +497,7 @@ completely transparent about how position is earned, and that transparency is it
 | `POST` | `/v1/rider/cash/declare` | Declare an emergency (24 h lift), a robbery or a dispute (case, lift with no expiry) (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D148–D149, D153) |
 | `POST` | `/v1/finance/cash/settlements/{id}/escalate` | Release the rider, keep the debt, hand the claim to a senior reviewer (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D146) |
 | `GET` | `/v1/finance/cash/declarations` | The declarations awaiting a human: robberies and disputes, newest first (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D154) |
+| `POST` | `/v1/finance/cash/riders/{id}/write-off` | Forgive outstanding cash: an adjustment entry against `RIDER_CASH`, optionally closing the declaration it settles (see [`25 §7`](25-rider-cash-settlement.md)). Step-up. Implemented (D155) |
 | `GET` | `/v1/finance/cash/settlements` | The reviewer's queue: pending claims, oldest first, with evidence. Implemented (D145) |
 | `POST` | `/v1/finance/cash/settlements/{id}/approve` | Reviewer's decision on a settlement, full or partial amount (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D143, partial D147) |
 | `POST` | `/v1/finance/cash/settlements/{id}/reject` | Refuse a settlement, reason from the register (see [`25 §6.2`](25-rider-cash-settlement.md)). Implemented (D144) |

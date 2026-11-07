@@ -23,7 +23,8 @@ import {
   setShiftState,
   zoneIsAssigned,
 } from "../repositories/riders.ts";
-import { activeLiftUntil, latestSettlement, pendingSettlement } from "../repositories/cash.ts";
+import { latestSettlement, pendingSettlement } from "../repositories/cash.ts";
+import { activeLiftUntil } from "../repositories/declarations.ts";
 import { liftStateOf, submittedAtMs } from "./cash.ts";
 
 /**

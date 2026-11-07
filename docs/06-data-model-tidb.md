@@ -244,6 +244,9 @@ actually checked" is not a state the platform can be in.
 > `rider_cash_declarations` joined Riders with `25 §7`'s four buttons (D148): a rider who was robbed or has an emergency
 > needs to be heard before they are unblocked, and "limited to once per 30 days" is a query over declarations rather than
 > a column that can only remember the last one.
+> Migration `026` gave it an ending (D155): `resolved_at`, `resolved_by` and `resolution_note`, so a case written off or
+> otherwise settled can say who decided and why, and the reviewer's list can filter on `resolved_at IS NULL` instead of
+> guessing from a balance that happens to be zero.
 > `coordination_state` joined Operations with the free coordination backend (D90): the wave plan, the
 > zone counter and the presence row need a key, a value and an expiry, and D89's arithmetic rules out
 > Workers KV for them. Its rows are written by core on realtime's behalf for the same single-writer
