@@ -3967,3 +3967,59 @@ stays at 116 tables / 704 columns.
 
 *Open:* the declarations queue has no `?sort=` (a reviewer cannot yet ask for "oldest first"); the settlement queue
 (D145) still has neither filters nor a cursor, and now has a working pattern to copy.
+
+---
+
+## D158 — The queue behind the queue, and a comparator that had to be turned round
+
+D145 built the settlement queue and gave it one state: `PENDING`. That was the right default and the wrong only option.
+"Did anybody decide the settlement this rider is ringing about?" had no route, so Monday's settled claim was answered by
+reading the table, and "what has been waiting too long?" was answered by reading a page and counting. D157 taught the
+declarations queue to take a query string; this rung does the same for the settlement queue, with one difference that
+matters more than the parameters.
+
+**The keyset comparator flips.** Both queues are `(created_at, id)` keysets, and for months only one direction existed.
+The declarations queue sorts newest first, so its next page is *less than* the cursor. This queue sorts **oldest first**
+— D145's fairness rule, the top of the list is the claim closest to the door — so the next page is *greater than* the
+cursor. Copying the `<` from the file next door would have paged backwards through the most urgent claims: not an error,
+not an empty page, just a reviewer working through yesterday while today's deadline passed. The comparisons therefore
+live in `lib/cursor.ts` as an encoding only, and each queue writes its own operator with a comment saying which way it
+runs — because the operator is the part that encodes the sort, and hiding it behind a shared helper is how this bug
+would have been born.
+
+**`breach=true` is pushed into the statement, not applied to the page.** The row flag `slaBreached` is computed from
+D142's two-hour rule at read time, and a filter that ran *after* the `LIMIT` would return a page of ten claims of which
+some are late — not a page of the late ones. So the route turns the flag into `created_at <= now − 2 h`, using the same
+`AUTO_LIFT_MS` constant the gate and the flag use, which keeps the three in agreement by construction rather than by
+review.
+
+**The summary stopped pretending.** `pending` counted the length of a list that is now sometimes decided, so it is
+computed from the rows' `status`, and `total` sits beside it. A header that says "0 pending" above ten decided claims is
+correct now, and was a lie one commit earlier.
+
+**Decided rows carry what decided them.** `status`, `confirmedAt`, `rejectionReason` and `approvedPaisa` join the row —
+the last of these because a part-approval (D147) released less than the claim, and a history without it cannot answer
+"how much did we actually take?" Support's version of that question is the reason this half exists at all.
+
+**Filters are bound, and validated before the database.** `method` is checked against `005`'s `CHECK` list held as one
+constant, `partial` and `breach` accept only `true`/`false`, `state` only its three words, `riderId` only a UUID.
+Each refusal names its parameter. A typo that produces an empty queue is how a reviewer concludes there is no work.
+
+**One bug the tests caught, and it is worth naming.** `state=all` with no other filter produced `WHERE  ORDER BY` — an
+empty predicate written out. Two of the three states are predicates and the third is the absence of one, and the first
+draft assembled the string unconditionally. The statement now omits `WHERE` entirely when the list is empty, and a test
+asserts it, because the failure mode is a `500` on the audit screen rather than on the queue everybody uses daily.
+
+**Migration `028`.** `005`'s `idx_cash_settlement_rider` is `(rider_id, status, created_at DESC)` — built for support's
+question, unusable for this one, whose first column is `status`. `idx_cash_settlement_queue (status, created_at, id)`
+follows the statement; `method`, `is_partial` and `rider_id` stay out, as filters applied occasionally should not be
+paid for by every write.
+
+Tests: five in a new `test/cash-settlement-queue.test.ts` — the pending default with its order and a short page's null
+cursor, the decided half with reason and released amount, the four filters (with `breach`'s threshold checked against
+the two-hour constant), a full page's cursor resuming *upward*, and six refused query strings that touch no rows.
+`workers/core` goes to 784.
+
+*Open:* neither queue takes `?sort=`; the three decision routes (`approve`, `reject`, `escalate`) have no read of their
+own verdict beyond this list; `POST /v1/orders/{id}/dispute` and the robbery police-report upload are still the two
+holes `25 §7` names.

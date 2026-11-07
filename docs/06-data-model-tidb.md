@@ -250,6 +250,9 @@ actually checked" is not a state the platform can be in.
 > Migration `027` added `idx_cash_declaration_queue (resolved_at, routed_to_review, created_at DESC)` for the statement
 > that filter made (D157): the column order follows the query, and `kind` is deliberately outside the index because a
 > filter applied occasionally should not be paid for by every write.
+> Migration `028` did the same for the settlement queue (D158): `idx_cash_settlement_queue (status, created_at, id)`.
+> `005`'s `idx_cash_settlement_rider` is rider-first because support asks by rider; the reviewer does not know the
+> rider, so the queue's statement had no usable prefix — every page was a scan and a sort of a table that only grows.
 > `coordination_state` joined Operations with the free coordination backend (D90): the wave plan, the
 > zone counter and the presence row need a key, a value and an expiry, and D89's arithmetic rules out
 > Workers KV for them. Its rows are written by core on realtime's behalf for the same single-writer

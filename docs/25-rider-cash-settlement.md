@@ -433,6 +433,15 @@ it and are about to go home — not to punish people who do not.
 > entry would be the one mistake nobody could reconstruct later. When the write-off clears the last of it, the response
 > says `released: true` and the rider may go online — which is what "handled case by case" was promising all along.
 >
+> **The settlement queue answers the same four questions now (D158).** `GET /v1/finance/cash/settlements` was
+> `PENDING` only, so "did anybody decide the settlement this rider is ringing about?" had no route; `?state=decided`
+> lists the `CONFIRMED` and `REJECTED` half with the reason, the amount actually released and when, and `?state=all`
+> spans both. `?method=` narrows to one rail, `?partial=` to the part-payments of `§7`, `?riderId=` to one rider, and
+> `?breach=true` to the claims already past D142's two-hour deadline — the supervisor's question at nine, which used to
+> be answered by reading a page and counting. Paging is keyset like D157's, but **upward**: this queue is oldest first,
+> so the next page is greater than the cursor. Migration `028` adds the index the statement reads, because `005`'s
+> index is rider-first and every page of this queue was a scan plus a sort.
+>
 > **And the list is a query, not a dump (D157).** `GET /v1/finance/cash/declarations` now asks three questions and
 > answers them with an index: `?state=` picks the half — `open` (the default, `resolved_at IS NULL`, which is the fix
 > that matters, because D155's write-off was leaving decided cases on the morning's list), `resolved` for the history, or

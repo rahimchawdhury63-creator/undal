@@ -312,27 +312,92 @@ export interface QueueRow {
   /** Set when a reviewer escalated the claim: still pending, but no longer making the rider wait (D146). */
   readonly escalatedAt: string | null;
   readonly escalationNote: string | null;
+  /** `PENDING`, `CONFIRMED` or `REJECTED` — only interesting on the decided half of the queue (D158). */
+  readonly status: string;
+  readonly confirmedAt: string | null;
+  readonly rejectionReason: string | null;
+  /** What a partial approval actually released (`25 §6.1`, D147). */
+  readonly approvedPaisa: number | null;
+}
+
+/** Which half of the queue to read. `all` spans both, for the audit screen and a rider's history. */
+export type SettlementState = "pending" | "decided" | "all";
+
+/** Where a page starts, as the last row of the page before it. */
+export interface SettlementCursor {
+  readonly createdAt: string;
+  readonly id: Uint8Array;
+}
+
+/** What the queue accepts, after the route has validated it (`25 §8`, D158). */
+export interface SettlementFilter {
+  readonly state: SettlementState;
+  /** One of `BKASH`, `NAGAD`, `CASH_TO_OPS`, or `null` for all three. */
+  readonly method: string | null;
+  readonly riderId: Uint8Array | null;
+  /** `true` for part-payments only, `false` for full ones, `null` for both. */
+  readonly partial: boolean | null;
+  /** When set, only claims submitted at or before this instant: the ones past D142's release deadline. */
+  readonly breachingBefore: string | null;
+  readonly cursor: SettlementCursor | null;
+  readonly limit: number;
 }
 
 /**
- * The claims waiting for a human, oldest first.
+ * The claims a reviewer has to decide, oldest first (`25 §6.1`, D145 — filtered and paged in D158).
  *
  * Oldest first because the queue's ordering *is* its fairness rule: `25 §8` auto-lifts a claim after two hours, so the
  * top of this list is the claim closest to being released without review. Newest-first — the natural ORDER BY a
  * developer writes — would show the reviewer the claims with the most slack and let the urgent ones age out of sight.
  *
+ * **`state` answers the question `§6`'s screen cannot.** The queue only ever showed `PENDING`, so "did anybody decide
+ * this?" was a question with no route — a rider ringing support about a settlement from Monday was answered by reading
+ * the table. `decided` is the other half (`CONFIRMED` and `REJECTED`), and `all` is both.
+ *
+ * **Keyset, in the direction the order runs.** The cursor resumes *after* the last row seen, which for this queue is a
+ * `created_at`/`id` pair that is **greater** than the cursor's — the comparison flips with the sort, and a copy of the
+ * declarations queue's `<` would silently page backwards through the most urgent claims. `id` is the tiebreak for two
+ * claims submitted in the same microsecond.
+ *
  * The evidence columns come along because the reviewer's decision is about them (`§6`): a number that matches and a
  * screenshot that shows the transaction are what separates an approval from a refusal, and a queue that made the
  * reviewer fetch each row separately would be a queue nobody works through.
  */
-export async function pendingSettlements(db: Db, limit: number): Promise<QueueRow[]> {
+export async function settlementsForReview(db: Db, filter: SettlementFilter): Promise<QueueRow[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (filter.state === "pending") where.push("s.`status` = 'PENDING'");
+  if (filter.state === "decided") where.push("s.`status` <> 'PENDING'");
+  if (filter.method !== null) {
+    where.push("s.`method` = ?");
+    params.push(filter.method);
+  }
+  if (filter.riderId !== null) {
+    where.push("s.`rider_id` = ?");
+    params.push(filter.riderId);
+  }
+  if (filter.partial !== null) {
+    where.push("s.`is_partial` = ?");
+    params.push(filter.partial ? 1 : 0);
+  }
+  if (filter.breachingBefore !== null) {
+    where.push("s.`created_at` <= ?");
+    params.push(filter.breachingBefore);
+  }
+  if (filter.cursor !== null) {
+    where.push("(s.`created_at` > ? OR (s.`created_at` = ? AND s.`id` > ?))");
+    params.push(filter.cursor.createdAt, filter.cursor.createdAt, filter.cursor.id);
+  }
+  params.push(filter.limit);
   const rows = await db.query<Record<string, unknown>>(
     "SELECT s.`id`, s.`rider_id`, r.`full_name`, r.`code`, s.`amount_paisa`, s.`method`, s.`trx_id`, s.`created_at`, " +
       "s.`number_matches`, s.`name_matches`, s.`screenshot_url`, s.`selfie_url`, s.`is_partial`, s.`escalated_at`, " +
-      "s.`escalation_note` " +
+      "s.`escalation_note`, s.`status`, s.`confirmed_at`, s.`rejection_reason`, s.`approved_paisa` " +
       "FROM `rider_cash_settlements` s JOIN `riders` r ON r.`id` = s.`rider_id` " +
-      "WHERE s.`status` = 'PENDING' ORDER BY s.`created_at` ASC LIMIT ?",
-    [limit],
+      // `state=all` with no other filter has no predicate at all: `WHERE` is assembled, not emitted empty.
+      (where.length === 0 ? "" : `WHERE ${where.join(" AND ")} `) +
+      "ORDER BY s.`created_at` ASC, s.`id` ASC LIMIT ?",
+    params,
   );
   return rows.map((raw) => ({
     id: raw["id"] instanceof Uint8Array ? toHexId(raw["id"]) : "",
@@ -350,6 +415,11 @@ export async function pendingSettlements(db: Db, limit: number): Promise<QueueRo
     isPartial: Number(raw["is_partial"] ?? 0) === 1,
     escalatedAt: typeof raw["escalated_at"] === "string" ? raw["escalated_at"] : null,
     escalationNote: typeof raw["escalation_note"] === "string" ? raw["escalation_note"] : null,
+    status: String(raw["status"] ?? "PENDING"),
+    confirmedAt: typeof raw["confirmed_at"] === "string" ? raw["confirmed_at"] : null,
+    rejectionReason: typeof raw["rejection_reason"] === "string" ? raw["rejection_reason"] : null,
+    approvedPaisa:
+      raw["approved_paisa"] === null || raw["approved_paisa"] === undefined ? null : Number(raw["approved_paisa"]),
   }));
 }
 

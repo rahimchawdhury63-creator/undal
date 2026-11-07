@@ -6,9 +6,9 @@
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
-import { parseDatetime } from "../db/time.ts";
-import { toHexId } from "../lib/ids.ts";
-import { pendingSettlements } from "../repositories/cash.ts";
+import { parseDatetime, sqlDatetime } from "../db/time.ts";
+import { decodeCursor, encodeCursor } from "../lib/cursor.ts";
+import { settlementsForReview, type SettlementFilter, type SettlementState } from "../repositories/cash.ts";
 import { reviewDeclarations, type DeclarationFilter, type DeclarationState } from "../repositories/declarations.ts";
 import { AUTO_LIFT_MS, autoLiftDue, isDeclarationKind } from "../domain/rider/cash.ts";
 
@@ -23,8 +23,11 @@ import { AUTO_LIFT_MS, autoLiftDue, isDeclarationKind } from "../domain/rider/ca
 /** The queue's ceiling. A pending list longer than this is an incident, not a page to scroll. */
 const QUEUE_LIMIT_MAX = 100;
 
+/** The rails a settlement can arrive on — `005`'s `CHECK` constraint, which is the only place this list may come from. */
+const SETTLEMENT_METHODS: readonly string[] = ["BKASH", "NAGAD", "CASH_TO_OPS"];
+
 /** One claim as the reviewer's list shows it. */
-function queueEntry(row: Awaited<ReturnType<typeof pendingSettlements>>[number], nowMs: number): Record<string, unknown> {
+function queueEntry(row: Awaited<ReturnType<typeof settlementsForReview>>[number], nowMs: number): Record<string, unknown> {
   const submitted = parseDatetime(row.submittedAt);
   const ageMs = submitted === null ? null : nowMs - submitted.getTime();
   return {
@@ -49,11 +52,17 @@ function queueEntry(row: Awaited<ReturnType<typeof pendingSettlements>>[number],
     nameMatches: row.nameMatches,
     screenshotUrl: row.screenshotUrl,
     selfieUrl: row.selfieUrl,
+    // The decided half of the queue (D158). `status` is always present; the rest is null while a claim is pending, and
+    // a reviewer reading a closed case needs all four to say what happened without a second request.
+    status: row.status,
+    confirmedAt: row.confirmedAt,
+    rejectionReason: row.rejectionReason,
+    approvedPaisa: row.approvedPaisa,
   };
 }
 
 /**
- * The reviewer's queue: `GET /v1/finance/cash/settlements` (D145).
+ * The reviewer's queue: `GET /v1/finance/cash/settlements` (D145 — filtered and paged in D158).
  *
  * `25 §6` draws a screen that opens with "7 pending · SLA 30 min" and a list ordered by how long each claim has waited.
  * Without a route behind it, D143's approve and D144's reject were buttons on a screen with no list: a reviewer could
@@ -64,59 +73,87 @@ function queueEntry(row: Awaited<ReturnType<typeof pendingSettlements>>[number],
  * made from the list rather than by fetching each claim. `slaBreached` is the same two-hour rule D142 enforces at the
  * door, computed here rather than stored, so the queue and the gate can never disagree about who is late.
  *
+ * **`?state=` is the question the screen could not ask (D158).** Only `PENDING` was ever listed, so "what happened to
+ * the settlement this rider is ringing about?" had no route; `decided` lists the `CONFIRMED` and `REJECTED` half, and
+ * each row then carries the reason and the amount actually released. `?method=` narrows to one rail, `?partial=` to the
+ * part-payments of `§7`, `?riderId=` to one rider, and `?breach=true` to the claims already past D142's deadline — the
+ * filter a supervisor wants at 21:00, when the question is not "what is waiting" but "what has been waiting too long".
+ *
+ * **Paged by keyset in the direction the order runs.** The cursor resumes after a `(created_at, id)` pair, so the next
+ * page is *greater* than the cursor — the comparison flips with the sort, which is why the declarations queue's `<`
+ * could not simply be copied (D157).
+ *
  * The summary is what the header shows, and it is deliberately three numbers rather than a dashboard: how many are
  * waiting, how old the oldest is, and how many are past the deadline they will be released at anyway.
  */
 async function settlementQueue(ctx: Ctx): Promise<Response> {
-  const requested = Number(ctx.url.searchParams.get("limit") ?? 50);
+  const params = ctx.url.searchParams;
+  const requested = Number(params.get("limit") ?? 50);
   const limit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), QUEUE_LIMIT_MAX) : 50;
+
+  const rawState = params.get("state") ?? "pending";
+  if (rawState !== "pending" && rawState !== "decided" && rawState !== "all") return refusal(ctx, { field: "state" });
+  const state = rawState as SettlementState;
+
+  const rawMethod = params.get("method");
+  if (rawMethod !== null && !SETTLEMENT_METHODS.includes(rawMethod.toUpperCase())) {
+    return refusal(ctx, { field: "method" });
+  }
+  const method = rawMethod === null ? null : rawMethod.toUpperCase();
+
+  const rawPartial = params.get("partial");
+  if (rawPartial !== null && rawPartial !== "true" && rawPartial !== "false") {
+    return refusal(ctx, { field: "partial" });
+  }
+  const partial = rawPartial === null ? null : rawPartial === "true";
+
+  const rawBreach = params.get("breach");
+  if (rawBreach !== null && rawBreach !== "true" && rawBreach !== "false") {
+    return refusal(ctx, { field: "breach" });
+  }
+
+  const rawRider = params.get("riderId");
+  let riderId: Uint8Array | null = null;
+  if (rawRider !== null) {
+    try {
+      riderId = uuidBytes(rawRider);
+    } catch {
+      return failureResponse({ code: "VALIDATION_ID_MALFORMED", field: "riderId" }, ctx.locale, ctx.requestId);
+    }
+  }
+
+  const rawCursor = params.get("cursor");
+  const cursor = rawCursor === null ? null : decodeCursor(rawCursor);
+  if (rawCursor !== null && cursor === null) return refusal(ctx, { field: "cursor" });
+
   const nowMs = Date.now();
-  const rows = await pendingSettlements(ctx.db, limit);
+  // `breach=true` is the same arithmetic the row's flag does, pushed into the statement so the page is entirely late
+  // claims rather than a page that happens to contain some.
+  const breachingBefore = rawBreach === "true" ? sqlDatetime(new Date(nowMs - AUTO_LIFT_MS)) : null;
+  const filter: SettlementFilter = { state, method, riderId, partial, breachingBefore, cursor, limit };
+  const rows = await settlementsForReview(ctx.db, filter);
   const entries = rows.map((row) => queueEntry(row, nowMs));
   const ages = entries.map((entry) => entry["ageMinutes"]).filter((age): age is number => typeof age === "number");
+  const last = rows[rows.length - 1];
   return successResponse(
     {
       settlements: entries,
       summary: {
-        pending: entries.length,
+        // Of this page: `pending` on the default view, but the same slot on `decided` would be a lie, so it is named
+        // after what it counts rather than after what it usually contains.
+        total: entries.length,
+        pending: entries.filter((entry) => entry["status"] === "PENDING").length,
         oldestMinutes: ages.length === 0 ? null : Math.max(...ages),
         breaches: entries.filter((entry) => entry["slaBreached"] === true).length,
         limit,
+        state,
+        method,
       },
+      nextCursor: rows.length === limit && last !== undefined ? encodeCursor(last.submittedAt, last.id) : null,
     },
     ctx.locale,
     ctx.requestId,
   );
-}
-
-/**
- * Decode a cursor: `created_at|id`, base64url.
- *
- * The cursor is the last row a reviewer has already seen, so the next page starts *after* it. Opaque on purpose: a
- * client that parsed it would depend on the sort key, and the sort key is ours to change (D157).
- */
-function decodeCursor(raw: string): { createdAt: string; id: Uint8Array } | null {
-  let decoded: string;
-  try {
-    decoded = atob(raw);
-  } catch {
-    return null;
-  }
-  const split = decoded.lastIndexOf("|");
-  if (split <= 0) return null;
-  const createdAt = decoded.slice(0, split);
-  const hex = decoded.slice(split + 1);
-  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/u.test(createdAt)) return null;
-  try {
-    return { createdAt, id: uuidBytes(hex) };
-  } catch {
-    return null;
-  }
-}
-
-/** The cursor for a page's last row: the exact pair the next statement compares against. */
-function encodeCursor(row: { createdAt: string; id: string }): string {
-  return btoa(`${row.createdAt}|${row.id}`);
 }
 
 /** One refusal the query string can earn: which parameter, and how to fix it. */
@@ -188,7 +225,7 @@ async function declarationQueue(ctx: Ctx): Promise<Response> {
         state,
         kind,
       },
-      nextCursor: rows.length === limit && last !== undefined ? encodeCursor(last) : null,
+      nextCursor: rows.length === limit && last !== undefined ? encodeCursor(last.createdAt, last.id) : null,
     },
     ctx.locale,
     ctx.requestId,

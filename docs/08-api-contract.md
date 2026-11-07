@@ -499,7 +499,7 @@ completely transparent about how position is earned, and that transparency is it
 | `GET` | `/v1/finance/cash/declarations` | The cases awaiting a human: `?kind=`, `?state=open\|resolved\|all`, `?riderId=`, `?cursor=`, `?limit=`, newest first, keyset-paged (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D154, filtered and paged D157) |
 | `POST` | `/v1/finance/cash/riders/{id}/write-off` | Forgive outstanding cash: an adjustment entry against `RIDER_CASH`, optionally closing the declaration it settles (see [`25 §7`](25-rider-cash-settlement.md)). Step-up. Implemented (D155) |
 | `GET` | `/v1/finance/cash/declarations/{id}` | One case whole: the rider, what was claimed then and now, and how it ended (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D156) |
-| `GET` | `/v1/finance/cash/settlements` | The reviewer's queue: pending claims, oldest first, with evidence. Implemented (D145) |
+| `GET` | `/v1/finance/cash/settlements` | The reviewer's queue: pending claims by default, oldest first, with evidence — `?state=pending\|decided\|all`, `?method=`, `?partial=`, `?riderId=`, `?breach=true`, `?cursor=`, `?limit=` (see [`25 §8`](25-rider-cash-settlement.md)). Implemented (D145, filtered and paged D158) |
 | `POST` | `/v1/finance/cash/settlements/{id}/approve` | Reviewer's decision on a settlement, full or partial amount (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D143, partial D147) |
 | `POST` | `/v1/finance/cash/settlements/{id}/reject` | Refuse a settlement, reason from the register (see [`25 §6.2`](25-rider-cash-settlement.md)). Implemented (D144) |
 | `GET` | `/v1/rider/heatmap` | Demand surface for positioning |
