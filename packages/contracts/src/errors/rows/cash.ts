@@ -9,8 +9,8 @@
 import type { ErrorRow } from "../types.ts";
 
 /**
- * 9 definitions. One row is one code: `[code, status, en, bn, retryable, details]`.
- * The tuple is short on purpose — six fields across 9 codes in an object literal would
+ * 10 definitions. One row is one code: `[code, status, en, bn, retryable, details]`.
+ * The tuple is short on purpose — six fields across 10 codes in an object literal would
  * push this file past the 700-line cap and bury the copy that translators edit.
  */
 export const CASH_ROWS = [
@@ -23,4 +23,5 @@ export const CASH_ROWS = [
   ["CASH_OVERPAYMENT", 422, "You entered more than is owed.", "বাকির চেয়ে বেশি লিখেছেন।", false, "{ expected: number, received: number }"],
   ["CASH_UNDERPAYMENT", 422, "The collected cash is short.", "সংগৃহীত নগদ কম হয়েছে।", false, "{ expected: number, received: number, short_by: number }"],
   ["CASH_DEPOSIT_REQUIRED", 409, "Deposit collected cash before continuing.", "চালিয়ে যাওয়ার আগে সংগৃহীত নগদ জমা দিন।", false, "{ outstanding: number }"],
+  ["CASH_DECLARATION_NOT_FOUND", 404, "That cash case does not exist.", "এই নগদ মামলাটি নেই।", false, "{ declaration_id: string }"],
 ] as const satisfies readonly ErrorRow[];

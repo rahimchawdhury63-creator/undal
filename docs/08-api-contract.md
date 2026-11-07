@@ -498,6 +498,7 @@ completely transparent about how position is earned, and that transparency is it
 | `POST` | `/v1/finance/cash/settlements/{id}/escalate` | Release the rider, keep the debt, hand the claim to a senior reviewer (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D146) |
 | `GET` | `/v1/finance/cash/declarations` | The declarations awaiting a human: robberies and disputes, newest first (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D154) |
 | `POST` | `/v1/finance/cash/riders/{id}/write-off` | Forgive outstanding cash: an adjustment entry against `RIDER_CASH`, optionally closing the declaration it settles (see [`25 §7`](25-rider-cash-settlement.md)). Step-up. Implemented (D155) |
+| `GET` | `/v1/finance/cash/declarations/{id}` | One case whole: the rider, what was claimed then and now, and how it ended (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D156) |
 | `GET` | `/v1/finance/cash/settlements` | The reviewer's queue: pending claims, oldest first, with evidence. Implemented (D145) |
 | `POST` | `/v1/finance/cash/settlements/{id}/approve` | Reviewer's decision on a settlement, full or partial amount (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D143, partial D147) |
 | `POST` | `/v1/finance/cash/settlements/{id}/reject` | Refuse a settlement, reason from the register (see [`25 §6.2`](25-rider-cash-settlement.md)). Implemented (D144) |
@@ -635,9 +636,10 @@ Not internet-routable. Reachable only via service binding from Core and Realtime
 
 ## 11. Error code registry
 
-185 codes. The complete list lives in `packages/api-types/src/errors.ts` and is generated into both
-clients. The groups and representative members (the count is 185 rather than 184 because `SHIFT_ORDERS_ACTIVE`
-was added by D110: `25 §2` blocks ending a shift with deliveries live and the table had no code for it):
+186 codes. The complete list lives in `packages/api-types/src/errors.ts` and is generated into both
+clients. The groups and representative members (the count is 186 rather than 184 because `SHIFT_ORDERS_ACTIVE`
+was added by D110 — `25 §2` blocks ending a shift with deliveries live and the table had no code for it — and
+`CASH_DECLARATION_NOT_FOUND` by D156, for a case id that names nothing):
 
 | Prefix | Count | Examples |
 | --- | --- | --- |
@@ -650,7 +652,7 @@ was added by D110: `25 §2` blocks ending a shift with deliveries live and the t
 | `OFFER_` | 11 | `OFFER_EXPIRED` `OFFER_CLAIMED` `OFFER_REJECT_NOT_ALLOWED` `OFFER_REASON_REQUIRED` |
 | `QR_` | 6 | `QR_INVALID` `QR_WRONG_ORDER` `QR_EXPIRED` `QR_TOO_FAR` `QR_WRONG_RIDER` |
 | `SHIFT_` | 13 | `SHIFT_SELFIE_REQUIRED` `SHIFT_CASH_OVERDUE` `SHIFT_ALREADY_OPEN` `SHIFT_ZONE_INACTIVE` `SHIFT_ORDERS_ACTIVE` |
-| `CASH_` | 9 | `CASH_TRXID_DUPLICATE` `CASH_AMOUNT_MISMATCH` `CASH_SELFIE_REQUIRED` |
+| `CASH_` | 10 | `CASH_TRXID_DUPLICATE` `CASH_AMOUNT_MISMATCH` `CASH_SELFIE_REQUIRED` `CASH_DECLARATION_NOT_FOUND` |
 | `MONEY_` | 13 | `MONEY_INVOICE_UNBALANCED` `MONEY_PERIOD_CLOSED` `MONEY_ALREADY_PAID` |
 | `KYC_` | 10 | `KYC_DOCUMENT_REQUIRED` `KYC_ALREADY_SUBMITTED` `KYC_REJECTED` |
 | `MEDIA_` | 8 | `MEDIA_TOO_LARGE` `MEDIA_UNSUPPORTED_TYPE` `MEDIA_UPLOAD_FAILED` |

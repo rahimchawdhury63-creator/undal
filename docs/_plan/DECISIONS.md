@@ -3876,3 +3876,45 @@ lifecycle do not belong in the file that reads settlements, and the split took t
 
 *Open:* nothing reads a resolution back yet — a `GET` for one case is the next rung — and a robbery still has no
 police-report upload and no case object beyond the declaration row.
+
+---
+
+## D156 — Reading one case back, and the first error code since D110
+
+D154 listed the cases and D155 ended them, and neither returned a record: the queue carries the queue's columns, and a
+write-off hands back a receipt. A reviewer who opened a case from a link, or support reading one beside a rider on the
+phone, had to assemble the story from three responses. `GET /v1/finance/cash/declarations/{id}` is the story in one.
+
+**`open` is `resolved_at`, never the balance.** A case can end with a debt cleared (a write-off, D155) or with no money
+moving at all — a robbery where the platform decides to chase it through the police report instead. Both leave
+`outstanding_paisa` at whatever it was; only one is closed. Deriving the flag from the money would report the second as
+still open forever, and the reviewer who closed it would find it back on their list.
+
+**The phone number travels with the case.** `§7` sends a robbery straight to a human, and D149's copy says somebody
+will ring the rider back. A case record without a number is a record that stalls at the first step, so the
+read joins `users` for it. It is the only personal datum the queue does not already return, and it is returned to the
+same permission that sees the rider's debt and their sentence — an actor who can read one can read the other, and
+pretending otherwise would produce a screen with a blank field where the call-back should be.
+
+**No ledger entries inlined.** The write-off's postings are the finance trail (`24 §6`) and are readable through the
+ledger. A case record that joined them in would be a second copy of the books with its own correctness problem — the
+exact failure the posting code spent its lines preventing.
+
+**A new error code, and the count moves.** An id that names nothing needs a `404`, and reusing another noun's code
+(`MONEY_PAYOUT_NOT_FOUND`) would tell a client the wrong thing about what it asked for. `CASH_DECLARATION_NOT_FOUND`
+joins the registry at `{ declaration_id }`, taking the total from 185 to **186** and the `CASH_` group from 9 to 10 —
+the first addition since `SHIFT_ORDERS_ACTIVE` in D110, and the reason `08 §11`'s sentence now names two exceptions
+instead of one. The registry test asserts both numbers, so the contract and the specification cannot drift apart
+silently.
+
+**A malformed id never reaches the database.** `VALIDATION_ID_MALFORMED` is returned before any row is read, which keeps
+a bad request out of the query log and gives the client a different answer from "that case is gone" — a distinction that
+matters when the client is a link somebody pasted.
+
+Tests: three in `test/cash-declaration-case.test.ts` — a dispute read whole with both figures, the phone and the
+`LEFT JOIN` that names the decider; a closed robbery whose `open` is `false` while its snapshot is `null`; and the
+missing-id `404` beside a malformed id that touches no rows. `packages/contracts` goes to 186 codes, `workers/core` to
+775 tests.
+
+*Open:* a robbery still has no police-report upload and no case object beyond the declaration row; the queue still has no
+filters or cursor — D154's list is capped, not paginated.

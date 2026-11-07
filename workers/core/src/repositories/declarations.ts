@@ -193,3 +193,75 @@ export async function declarationById(db: Db, id: Uint8Array): Promise<Declarati
   );
   return row === null ? null : { ...declarationOf(row), resolvedAt: row["resolved_at"] === null ? null : String(row["resolved_at"]) };
 }
+
+/**
+ * One declaration read back in full, with the rider it belongs to and the decision that ended it (`25 §7`, D156).
+ *
+ * The queue answers "what needs attention"; this answers "what happened here" — for a reviewer opening a case from a
+ * link, for support reading it beside a rider on the phone, and for the audit that comes later. `open` is derived from
+ * `resolved_at` rather than from the balance, because a write-off that clears the debt and a case closed without one are
+ * two different endings and the balance cannot tell them apart.
+ *
+ * The rider's phone travels with the case because `§7` promises somebody will ring them back after a robbery; a case
+ * record that cannot produce a number is a record that stalls at the first step.
+ */
+export interface DeclarationCase {
+  readonly id: string;
+  readonly kind: string;
+  readonly note: string | null;
+  readonly createdAt: string;
+  /** When the lift ends, `null` for a lift with no expiry or none at all. */
+  readonly liftedUntil: string | null;
+  readonly routedToReview: boolean;
+  /** `false` once a human has finished with it, whatever they decided. */
+  readonly open: boolean;
+  readonly snapshotLinesPaisa: number | null;
+  readonly snapshotDifferencePaisa: number | null;
+  readonly riderId: string;
+  readonly riderName: string | null;
+  readonly riderCode: string | null;
+  readonly riderPhone: string | null;
+  /** What the platform claims the rider owes now, which is what a reviewer decides against. */
+  readonly outstandingPaisa: number;
+  readonly resolvedAt: string | null;
+  /** The admin who closed it, by display name — the id is in the audit row. */
+  readonly resolvedByName: string | null;
+  readonly resolutionNote: string | null;
+}
+
+/** One case by id, or `null` when the id names nothing. */
+export async function declarationCase(db: Db, id: Uint8Array): Promise<DeclarationCase | null> {
+  const raw = await db.first<Record<string, unknown>>(
+    "SELECT d.`id`, d.`rider_id`, r.`full_name`, r.`code`, u.`phone`, d.`kind`, d.`note`, d.`lifted_until`, " +
+      "d.`routed_to_review`, d.`snapshot_lines_paisa`, d.`snapshot_difference_paisa`, d.`created_at`, d.`resolved_at`, " +
+      "d.`resolution_note`, p.`display_name` AS resolved_by_name, b.`outstanding_paisa` " +
+      "FROM `rider_cash_declarations` d JOIN `riders` r ON r.`id` = d.`rider_id` " +
+      "JOIN `users` u ON u.`id` = r.`user_id` " +
+      "LEFT JOIN `user_profiles` p ON p.`user_id` = d.`resolved_by` " +
+      "LEFT JOIN `rider_cash_balances` b ON b.`rider_id` = d.`rider_id` " +
+      "WHERE d.`id` = ? LIMIT 1",
+    [id],
+  );
+  if (raw === null) return null;
+  const paisa = (value: unknown): number | null =>
+    value === null || value === undefined ? null : Number(value);
+  return {
+    id: raw["id"] instanceof Uint8Array ? toHexId(raw["id"]) : "",
+    kind: String(raw["kind"] ?? ""),
+    note: typeof raw["note"] === "string" ? raw["note"] : null,
+    createdAt: String(raw["created_at"] ?? ""),
+    liftedUntil: typeof raw["lifted_until"] === "string" ? raw["lifted_until"] : null,
+    routedToReview: Number(raw["routed_to_review"] ?? 0) === 1,
+    open: raw["resolved_at"] === null || raw["resolved_at"] === undefined,
+    snapshotLinesPaisa: paisa(raw["snapshot_lines_paisa"]),
+    snapshotDifferencePaisa: paisa(raw["snapshot_difference_paisa"]),
+    riderId: raw["rider_id"] instanceof Uint8Array ? toHexId(raw["rider_id"]) : "",
+    riderName: typeof raw["full_name"] === "string" ? raw["full_name"] : null,
+    riderCode: typeof raw["code"] === "string" ? raw["code"] : null,
+    riderPhone: typeof raw["phone"] === "string" ? raw["phone"] : null,
+    outstandingPaisa: Number(raw["outstanding_paisa"] ?? 0),
+    resolvedAt: typeof raw["resolved_at"] === "string" ? raw["resolved_at"] : null,
+    resolvedByName: typeof raw["resolved_by_name"] === "string" ? raw["resolved_by_name"] : null,
+    resolutionNote: typeof raw["resolution_note"] === "string" ? raw["resolution_note"] : null,
+  };
+}

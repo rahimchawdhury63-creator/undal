@@ -433,9 +433,17 @@ it and are about to go home — not to punish people who do not.
 > entry would be the one mistake nobody could reconstruct later. When the write-off clears the last of it, the response
 > says `released: true` and the rider may go online — which is what "handled case by case" was promising all along.
 >
-> Still open on this path: the **police-report upload** `§7` offers beside a robbery, and a route that *reads* a case's
-> resolution back to whoever asks. The declaration is the case's first row — `routed_to_review` is how a reviewer finds
-> it and D155 is how it ends — and the rest of that object does not exist yet.
+> **The record is readable (D156).** `GET /v1/finance/cash/declarations/{id}` returns one case whole: the rider (name,
+> code, phone — `§7` promises somebody rings them back after a robbery, and a record that cannot produce a number stalls
+> at the first step), what they said, the lift it granted, the arithmetic they disputed beside what the platform claims
+> **now**, and — once somebody has finished with it — who closed it, when, and in their own words. `open` is read from
+> `resolved_at` rather than from the balance, because a debt written off and a case closed without one are two different
+> endings and a zero cannot tell them apart. It declares the queue's permission, `finance.cash.list_outstanding`: a
+> reviewer who may read the list may read a row of it.
+>
+> Still open on this path: the **police-report upload** `§7` offers beside a robbery, and a case object a human owns
+> beyond the declaration row. The declaration is the case's first row — `routed_to_review` is how a reviewer finds it,
+> D155 is how it ends, D156 is how it is read back — and the rest of that object does not exist yet.
 
 ---
 
