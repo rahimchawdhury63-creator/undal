@@ -412,6 +412,13 @@ it and are about to go home — not to punish people who do not.
 > The fourth button is not a declaration at all: "I'll settle part of it now" is `POST /rider/cash/settle` with
 > `partial: true` (D151), and the reduced ceiling it promises is D152.
 >
+> **The other half of these buttons is a list (D154).** `GET /v1/finance/cash/declarations` returns the declarations
+> marked `routed_to_review` — every robbery and every dispute, plus a repeated emergency — **newest first**, because a
+> declaration has already lifted the block and nothing gets worse by waiting an hour, while a robbery reported ten
+> minutes ago is more urgent than one being handled since yesterday. Each row carries the rider, their sentence, the
+> balance **now**, and, for a dispute, the arithmetic as it stood when they objected. The two figures are shown side by
+> side on purpose: a queue that showed only one would let a fixed bug look unfixed, or the reverse.
+>
 > Still open on this path: the **police-report upload** `§7` offers beside a robbery, and the case record a human would
 > own. The declaration is the case's first row — `routed_to_review` is how a reviewer finds it — and the rest of that
 > object does not exist yet.

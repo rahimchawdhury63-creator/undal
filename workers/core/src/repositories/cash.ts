@@ -513,3 +513,55 @@ export async function cashLinesTotal(db: Db, riderId: Uint8Array): Promise<numbe
   );
   return Number(row?.total ?? 0);
 }
+
+/** One declaration a reviewer has to read, with the rider it belongs to. */
+export interface DeclarationQueueRow {
+  readonly id: string;
+  readonly riderId: string;
+  readonly riderName: string | null;
+  readonly riderCode: string | null;
+  readonly kind: string;
+  readonly note: string | null;
+  /** The balance at the moment of the declaration, which is what a dispute is about. */
+  readonly outstandingPaisa: number;
+  readonly snapshotLinesPaisa: number | null;
+  readonly snapshotDifferencePaisa: number | null;
+  readonly createdAt: string;
+}
+
+/**
+ * The declarations waiting for a human, newest first (`25 §7`, D154).
+ *
+ * Newest first, unlike the settlement queue's oldest-first, because the two queues answer different questions. A
+ * settlement's age is a countdown — past two hours the platform releases the rider anyway (D142) — so the oldest is the
+ * urgent one. A declaration has already lifted the block: nothing gets worse by waiting an hour, and a robbery reported
+ * ten minutes ago is more urgent than one reported yesterday and already being handled. The sort is
+ * `routed_to_review DESC, created_at DESC` through the index that was created for it.
+ *
+ * The rider's balance comes along because it is the other half of a dispute: the snapshot says what the platform claimed
+ * then, and this says what it claims now.
+ */
+export async function reviewDeclarations(db: Db, limit: number): Promise<DeclarationQueueRow[]> {
+  const rows = await db.query<Record<string, unknown>>(
+    "SELECT d.`id`, d.`rider_id`, r.`full_name`, r.`code`, d.`kind`, d.`note`, b.`outstanding_paisa`, " +
+      "d.`snapshot_lines_paisa`, d.`snapshot_difference_paisa`, d.`created_at` FROM `rider_cash_declarations` d " +
+      "JOIN `riders` r ON r.`id` = d.`rider_id` LEFT JOIN `rider_cash_balances` b ON b.`rider_id` = d.`rider_id` " +
+      "WHERE d.`routed_to_review` = 1 ORDER BY d.`created_at` DESC LIMIT ?",
+    [limit],
+  );
+  return rows.map((raw) => ({
+    id: raw["id"] instanceof Uint8Array ? toHexId(raw["id"]) : "",
+    riderId: raw["rider_id"] instanceof Uint8Array ? toHexId(raw["rider_id"]) : "",
+    riderName: typeof raw["full_name"] === "string" ? raw["full_name"] : null,
+    riderCode: typeof raw["code"] === "string" ? raw["code"] : null,
+    kind: String(raw["kind"] ?? ""),
+    note: typeof raw["note"] === "string" ? raw["note"] : null,
+    outstandingPaisa: Number(raw["outstanding_paisa"] ?? 0),
+    snapshotLinesPaisa: raw["snapshot_lines_paisa"] === null || raw["snapshot_lines_paisa"] === undefined ? null : Number(raw["snapshot_lines_paisa"]),
+    snapshotDifferencePaisa:
+      raw["snapshot_difference_paisa"] === null || raw["snapshot_difference_paisa"] === undefined
+        ? null
+        : Number(raw["snapshot_difference_paisa"]),
+    createdAt: String(raw["created_at"] ?? ""),
+  }));
+}

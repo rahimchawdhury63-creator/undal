@@ -3790,3 +3790,36 @@ mandatory sentence, and an emergency recording no arithmetic at all (because it 
 
 *Open:* the adjustment that resolves a dispute in the rider's favour, and the police-report upload beside a robbery.
 `§7` is now four for four on the rider's side and has no reviewer-side endings.
+
+## D154 — The other half of §7: a list of the cases it opens
+
+Every declaration lifts the block, so `§7` is complete from the rider's side as of D153 and complete from nobody else's:
+a robbery writes `routed_to_review = 1` and nothing reads it, which is the same failure D143–D145 spent four rungs
+removing from the settlement side. `GET /v1/finance/cash/declarations` is the list.
+
+**Newest first, unlike the settlement queue.** The two queues answer different questions. A pending settlement's age is a
+countdown — past two hours the platform releases the rider anyway (D142) — so the oldest is the urgent one. A declaration
+has *already* lifted the block: nothing gets worse by waiting an hour, and a robbery reported ten minutes ago is more
+urgent than one somebody has been handling since yesterday. The statement reads through
+`idx_cash_declaration_review`, the index migration `023` created for exactly this sort.
+
+**Both numbers, side by side.** A dispute row carries `snapshotDifferencePaisa` (what the platform claimed when the rider
+objected, D153) and `outstandingPaisa` (what it claims now, joined from `rider_cash_balances`). A queue showing only one
+would let a bug that has since been fixed look unfixed, or an unfixed one look fixed — and the decision a reviewer makes
+depends on which it is.
+
+**One permission, two lists.** The route declares `finance.cash.list_outstanding`, the same key as the settlement queue:
+both are one reviewer at one screen, and inventing a second read key would have split a single workflow across two grants
+with no rule to explain the split. The `ADMIN_WRITE` group is the limiter's only admin-facing bucket (`29 §4`) and both
+reads share it, which is the honest accounting of one person's requests.
+
+**The summary is three counts, not a dashboard.** Robberies, disputes and repeated emergencies, because those are the
+three kinds `§7` names and the number a reviewer needs is "how many, of which". Anything more is a chart nobody asked for
+on a list that should usually be empty.
+
+Tests: two in a new `test/cash-declaration-queue.test.ts` — the dispute row with both figures and the statement's
+`routed_to_review` predicate and ordering, and the three counts with an empty morning that is still a `200`.
+
+*Open:* nothing on this list can be *closed*. A robbery has no case object and no police-report upload; a dispute cannot
+be resolved in the rider's favour without an adjustment entry against `RIDER_CASH` (`finance.cash.adjust`, a step-up
+key). The queue is where those endings will be attached.

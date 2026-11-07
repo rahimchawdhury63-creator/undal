@@ -81,6 +81,8 @@ interface Options {
   readonly auditTail?: unknown[];
   /** The queue the list route finds, oldest first. */
   readonly queue?: readonly Record<string, unknown>[];
+  /** The declarations awaiting a human (D154). */
+  readonly declarations?: readonly Record<string, unknown>[];
 }
 
 function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
@@ -96,6 +98,7 @@ function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
     { match: /FROM `riders` WHERE `id` = \? LIMIT 1/u, rows: options.shiftState === null ? [] : [{ shift_state: options.shiftState ?? "CASH_LOCKED" }] },
     { match: /UPDATE `riders` SET `shift_state`/u, affectedRows: 1 },
     { match: /FROM `rider_cash_settlements` s JOIN `riders` r/u, rows: [...(options.queue ?? [])] },
+    { match: /FROM `rider_cash_declarations` d JOIN `riders` r/u, rows: [...(options.declarations ?? [])] },
     { match: /INSERT IGNORE INTO `ledger_accounts`/u, affectedRows: 1 },
     { match: /SELECT COUNT\(\*\) AS entries FROM `ledger_entries`/u, rows: [{ entries: 12 }] },
     { match: /INSERT INTO `ledger_entries`/u, affectedRows: 1 },

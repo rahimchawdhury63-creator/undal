@@ -6,7 +6,7 @@
 import { successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { parseDatetime } from "../db/time.ts";
-import { pendingSettlements } from "../repositories/cash.ts";
+import { pendingSettlements, reviewDeclarations } from "../repositories/cash.ts";
 import { AUTO_LIFT_MS, autoLiftDue } from "../domain/rider/cash.ts";
 
 /**
@@ -86,7 +86,39 @@ async function settlementQueue(ctx: Ctx): Promise<Response> {
   );
 }
 
-/** The reviewer's queue route (`08 §8`, D145). */
+/**
+ * The declarations a human owes an answer to: `GET /v1/finance/cash/declarations` (D154).
+ *
+ * `25 §7` lifts the block for every declaration, so a robbery and a dispute are both *already* handled as far as the
+ * rider is concerned — and until this route existed, nothing told the platform that a case had been opened. The rows are
+ * the three kinds the section names, newest first, each with the rider, their sentence, the balance now, and (for a
+ * dispute) the arithmetic as it stood when they objected.
+ *
+ * The two numbers on a dispute are shown side by side on purpose: `snapshotDifferencePaisa` is what the rider was looking
+ * at — the bug report — and `outstandingPaisa` is what the platform says today. A reviewer deciding anything needs both,
+ * and a queue that showed only one would let a fixed bug look like an unfixed one, or the reverse.
+ */
+async function declarationQueue(ctx: Ctx): Promise<Response> {
+  const requested = Number(ctx.url.searchParams.get("limit") ?? 50);
+  const limit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), QUEUE_LIMIT_MAX) : 50;
+  const rows = await reviewDeclarations(ctx.db, limit);
+  return successResponse(
+    {
+      declarations: rows,
+      summary: {
+        total: rows.length,
+        robberies: rows.filter((row) => row.kind === "ROBBED").length,
+        disputes: rows.filter((row) => row.kind === "DISPUTE").length,
+        emergencies: rows.filter((row) => row.kind === "EMERGENCY").length,
+        limit,
+      },
+    },
+    ctx.locale,
+    ctx.requestId,
+  );
+}
+
+/** The reviewer's queue routes (`08 §8`, D145–D154). */
 export const CASH_QUEUE_ROUTES: readonly RouteDefinition[] = [
   {
     method: "GET",
@@ -96,5 +128,13 @@ export const CASH_QUEUE_ROUTES: readonly RouteDefinition[] = [
     // with their decisions is the honest accounting, since both are one person at one screen.
     group: "ADMIN_WRITE",
     run: async (ctx) => settlementQueue(ctx),
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/cash/declarations",
+    // The same key as the settlement queue: one reviewer, one surface, two lists.
+    permission: "finance.cash.list_outstanding",
+    group: "ADMIN_WRITE",
+    run: async (ctx) => declarationQueue(ctx),
   },
 ];
