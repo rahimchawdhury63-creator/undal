@@ -3918,3 +3918,52 @@ missing-id `404` beside a malformed id that touches no rows. `packages/contracts
 
 *Open:* a robbery still has no police-report upload and no case object beyond the declaration row; the queue still has no
 filters or cursor — D154's list is capped, not paginated.
+
+---
+
+## D157 — The queue learns to ask, and the bug that taught it
+
+D154's list was every routed declaration, forever. D155 then gave a case an ending, and the two together produced the
+quiet failure this rung exists for: a reviewer wrote off a dispute, and the dispute stayed on the morning's list, waiting
+to be decided a second time. Nothing errored. The list simply stopped meaning "what needs attention" and started meaning
+"everything that ever happened". So `GET /v1/finance/cash/declarations` now takes `?state=`, `?kind=`, `?riderId=`,
+`?cursor=` and `?limit=`.
+
+**`open` is the default, and `resolved_at IS NULL` is the predicate.** A queue's default must be the small list. The
+history is one parameter away (`state=resolved`), and the audit screen that wants both asks for `state=all` and gets it
+with no state predicate at all. The filter is the same column D156 reads for its `open` flag and D155 writes when it
+closes a case — one column, three routes, one meaning.
+
+**Keyset, not offset.** The sort is `created_at DESC, id DESC`, so an `OFFSET` page is a page that shifts every time
+somebody declares something new — and this table is written in bursts at eleven at night, exactly when somebody is
+paging. The cursor is the last row's `(created_at, id)` pair, opaque (`btoa("created_at|id")`), and the statement asks
+for what sorts strictly after it. `id` is in the key because two declarations can share a microsecond and half this
+table's rows are minutes apart from another's.
+
+**`nextCursor` only on a full page.** A client's stop condition should be "no cursor", not "fewer rows than I asked
+for": the second is a rule the client has to remember, and the first is a fact the server knows. The cost is one extra
+request when the queue's length is an exact multiple of the page size, which is a page of nothing — cheaper than the
+alternative's bugs.
+
+**Filters are bound, never interpolated, and validated before the database.** `kind` must be one of the three buttons
+(`isDeclarationKind`), `state` one of the three words, `riderId` a UUID — each refusal names the parameter it is about
+(`422 VALIDATION_FAILED { field }`, or `VALIDATION_ID_MALFORMED` and its `field`) rather than answering `200` with a
+filtered-to-nothing list. A typo that looks like an empty queue is how a reviewer concludes there is no work.
+
+**`kind` is out of the index on purpose.** `027` adds `(resolved_at, routed_to_review, created_at DESC)` — the statement's
+own shape — but not four `kind`-prefixed copies. A filter a reviewer applies occasionally should not be paid for by every
+write to the table; the scan after the first two columns is over the open cases only, which is a small set by
+construction, since a queue that is not small is an incident.
+
+**The summary counts the page.** It always did; D157 makes that visible by returning `state` and `kind` beside the three
+kinds' counts. A total the route cannot compute without a second statement is a number a client cannot act on anyway —
+it is about to fetch the rest.
+
+Tests: four new in `test/cash-declaration-queue.test.ts` (six in the file) — the open default with its predicate and a
+short page's null cursor, the resolved half showing who closed it, `kind` and `riderId` bound as parameters, a full page
+handing back a cursor whose next request resumes strictly after that row, and three query strings plus a malformed rider
+id each refused before a row is read. `workers/core` goes to 779; migration `027` adds the index and `expected.json`
+stays at 116 tables / 704 columns.
+
+*Open:* the declarations queue has no `?sort=` (a reviewer cannot yet ask for "oldest first"); the settlement queue
+(D145) still has neither filters nor a cursor, and now has a working pattern to copy.

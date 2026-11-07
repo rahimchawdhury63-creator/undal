@@ -123,27 +123,80 @@ export interface DeclarationQueueRow {
   readonly snapshotLinesPaisa: number | null;
   readonly snapshotDifferencePaisa: number | null;
   readonly createdAt: string;
+  /** When a human finished with the case, `null` while it is open (`25 §7`, D155/D157). */
+  readonly resolvedAt: string | null;
+  /** Who finished it, by display name. */
+  readonly resolvedByName: string | null;
+}
+
+/** Which half of the queue to read. `all` spans both, which is what the audit screen wants. */
+export type DeclarationState = "open" | "resolved" | "all";
+
+/** Where a page starts, as the last row of the page before it. */
+export interface DeclarationCursor {
+  readonly createdAt: string;
+  readonly id: Uint8Array;
+}
+
+/** What the queue accepts, after the route has validated it (`25 §7`, D157). */
+export interface DeclarationFilter {
+  /** One `kind`, or `null` for all three. */
+  readonly kind: string | null;
+  readonly state: DeclarationState;
+  readonly riderId: Uint8Array | null;
+  readonly cursor: DeclarationCursor | null;
+  readonly limit: number;
 }
 
 /**
- * The declarations waiting for a human, newest first (`25 §7`, D154).
+ * The declarations a human owes an answer to, newest first (`25 §7`, D154, filtered and paged in D157).
  *
  * Newest first, unlike the settlement queue's oldest-first, because the two queues answer different questions. A
  * settlement's age is a countdown — past two hours the platform releases the rider anyway (D142) — so the oldest is the
  * urgent one. A declaration has already lifted the block: nothing gets worse by waiting an hour, and a robbery reported
- * ten minutes ago is more urgent than one reported yesterday and already being handled. The sort is
- * `routed_to_review DESC, created_at DESC` through the index that was created for it.
+ * ten minutes ago is more urgent than one reported yesterday and already being handled.
+ *
+ * **Open means `resolved_at IS NULL`, and that is the fix D157 is really about.** D154 listed every routed declaration
+ * forever, so a case written off under D155 stayed on the morning's list — the reviewer was asked to decide something
+ * they had just decided. `state` picks the half: `open` (the default, and the only one the screen needs), `resolved`,
+ * or `all`.
+ *
+ * **Keyset, not offset.** The cursor is the last row's `(created_at, id)` and the statement asks for what sorts after
+ * it, so a declaration arriving while somebody pages cannot push a row onto two pages or hide one between them — which
+ * an `OFFSET` does as soon as the list is sorted by a column that grows at the head. `id` is the tiebreak because two
+ * declarations can share a microsecond and half this table is written at 11 pm.
  *
  * The rider's balance comes along because it is the other half of a dispute: the snapshot says what the platform claimed
  * then, and this says what it claims now.
  */
-export async function reviewDeclarations(db: Db, limit: number): Promise<DeclarationQueueRow[]> {
+export async function reviewDeclarations(db: Db, filter: DeclarationFilter): Promise<DeclarationQueueRow[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  // Every row in the queue was routed to a human; a declaration nobody was routed is a lift, not a case (`§7`).
+  where.push("d.`routed_to_review` = 1");
+  if (filter.state === "open") where.push("d.`resolved_at` IS NULL");
+  if (filter.state === "resolved") where.push("d.`resolved_at` IS NOT NULL");
+  if (filter.kind !== null) {
+    where.push("d.`kind` = ?");
+    params.push(filter.kind);
+  }
+  if (filter.riderId !== null) {
+    where.push("d.`rider_id` = ?");
+    params.push(filter.riderId);
+  }
+  if (filter.cursor !== null) {
+    where.push("(d.`created_at` < ? OR (d.`created_at` = ? AND d.`id` < ?))");
+    params.push(filter.cursor.createdAt, filter.cursor.createdAt, filter.cursor.id);
+  }
+  params.push(filter.limit);
   const rows = await db.query<Record<string, unknown>>(
     "SELECT d.`id`, d.`rider_id`, r.`full_name`, r.`code`, d.`kind`, d.`note`, b.`outstanding_paisa`, " +
-      "d.`snapshot_lines_paisa`, d.`snapshot_difference_paisa`, d.`created_at` FROM `rider_cash_declarations` d " +
+      "d.`snapshot_lines_paisa`, d.`snapshot_difference_paisa`, d.`created_at`, d.`resolved_at`, " +
+      "p.`display_name` AS resolved_by_name FROM `rider_cash_declarations` d " +
       "JOIN `riders` r ON r.`id` = d.`rider_id` LEFT JOIN `rider_cash_balances` b ON b.`rider_id` = d.`rider_id` " +
-      "WHERE d.`routed_to_review` = 1 ORDER BY d.`created_at` DESC LIMIT ?",
-    [limit],
+      "LEFT JOIN `user_profiles` p ON p.`user_id` = d.`resolved_by` " +
+      `WHERE ${where.join(" AND ")} ORDER BY d.\`created_at\` DESC, d.\`id\` DESC LIMIT ?`,
+    params,
   );
   return rows.map((raw) => ({
     id: raw["id"] instanceof Uint8Array ? toHexId(raw["id"]) : "",
@@ -159,6 +212,8 @@ export async function reviewDeclarations(db: Db, limit: number): Promise<Declara
         ? null
         : Number(raw["snapshot_difference_paisa"]),
     createdAt: String(raw["created_at"] ?? ""),
+    resolvedAt: typeof raw["resolved_at"] === "string" ? raw["resolved_at"] : null,
+    resolvedByName: typeof raw["resolved_by_name"] === "string" ? raw["resolved_by_name"] : null,
   }));
 }
 

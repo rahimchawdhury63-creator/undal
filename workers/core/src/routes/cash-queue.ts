@@ -3,12 +3,14 @@
  * SPDX-License-Identifier: LicenseRef-PASVL-1.0
  */
 
-import { successResponse } from "../middleware/envelope.ts";
+import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
+import { uuidBytes } from "../middleware/auth.ts";
 import { parseDatetime } from "../db/time.ts";
+import { toHexId } from "../lib/ids.ts";
 import { pendingSettlements } from "../repositories/cash.ts";
-import { reviewDeclarations } from "../repositories/declarations.ts";
-import { AUTO_LIFT_MS, autoLiftDue } from "../domain/rider/cash.ts";
+import { reviewDeclarations, type DeclarationFilter, type DeclarationState } from "../repositories/declarations.ts";
+import { AUTO_LIFT_MS, autoLiftDue, isDeclarationKind } from "../domain/rider/cash.ts";
 
 /**
  * The reviewer's queue: the list the decisions in `cash-review.ts` are made from (D145–D146).
@@ -88,35 +90,114 @@ async function settlementQueue(ctx: Ctx): Promise<Response> {
 }
 
 /**
- * The declarations a human owes an answer to: `GET /v1/finance/cash/declarations` (D154).
+ * Decode a cursor: `created_at|id`, base64url.
+ *
+ * The cursor is the last row a reviewer has already seen, so the next page starts *after* it. Opaque on purpose: a
+ * client that parsed it would depend on the sort key, and the sort key is ours to change (D157).
+ */
+function decodeCursor(raw: string): { createdAt: string; id: Uint8Array } | null {
+  let decoded: string;
+  try {
+    decoded = atob(raw);
+  } catch {
+    return null;
+  }
+  const split = decoded.lastIndexOf("|");
+  if (split <= 0) return null;
+  const createdAt = decoded.slice(0, split);
+  const hex = decoded.slice(split + 1);
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/u.test(createdAt)) return null;
+  try {
+    return { createdAt, id: uuidBytes(hex) };
+  } catch {
+    return null;
+  }
+}
+
+/** The cursor for a page's last row: the exact pair the next statement compares against. */
+function encodeCursor(row: { createdAt: string; id: string }): string {
+  return btoa(`${row.createdAt}|${row.id}`);
+}
+
+/** One refusal the query string can earn: which parameter, and how to fix it. */
+type QueryRefusal = { readonly field: string };
+
+/**
+ * The declarations a human owes an answer to: `GET /v1/finance/cash/declarations` (D154, paged and filtered in D157).
  *
  * `25 §7` lifts the block for every declaration, so a robbery and a dispute are both *already* handled as far as the
  * rider is concerned — and until this route existed, nothing told the platform that a case had been opened. The rows are
  * the three kinds the section names, newest first, each with the rider, their sentence, the balance now, and (for a
  * dispute) the arithmetic as it stood when they objected.
  *
+ * **The list is the open cases, and it says so (D157).** D154 listed every routed declaration forever, so a case
+ * written off under D155 sat on the morning's list being re-decided. `state` picks a half — `open` by default,
+ * `resolved` for the history, `all` for the audit — and `kind` narrows to one of the three buttons. `riderId` answers
+ * the question support actually asks: "what has this rider declared".
+ *
+ * **Paged by keyset, not by offset.** `nextCursor` is returned only when the page was full, because an empty cursor on a
+ * short page is a client's cue to stop and a full page is the only case where another one might exist. A declaration
+ * arriving mid-paging cannot duplicate or skip a row, which is the failure `OFFSET` produces on any list sorted newest
+ * first.
+ *
  * The two numbers on a dispute are shown side by side on purpose: `snapshotDifferencePaisa` is what the rider was looking
  * at — the bug report — and `outstandingPaisa` is what the platform says today. A reviewer deciding anything needs both,
  * and a queue that showed only one would let a fixed bug look like an unfixed one, or the reverse.
  */
 async function declarationQueue(ctx: Ctx): Promise<Response> {
-  const requested = Number(ctx.url.searchParams.get("limit") ?? 50);
+  const params = ctx.url.searchParams;
+  const requested = Number(params.get("limit") ?? 50);
   const limit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), QUEUE_LIMIT_MAX) : 50;
-  const rows = await reviewDeclarations(ctx.db, limit);
+
+  const rawKind = params.get("kind");
+  if (rawKind !== null && !isDeclarationKind(rawKind.toUpperCase())) return refusal(ctx, { field: "kind" });
+  const kind = rawKind === null ? null : rawKind.toUpperCase();
+
+  const rawState = params.get("state") ?? "open";
+  if (rawState !== "open" && rawState !== "resolved" && rawState !== "all") return refusal(ctx, { field: "state" });
+  const state = rawState as DeclarationState;
+
+  const rawRider = params.get("riderId");
+  let riderId: Uint8Array | null = null;
+  if (rawRider !== null) {
+    try {
+      riderId = uuidBytes(rawRider);
+    } catch {
+      return failureResponse({ code: "VALIDATION_ID_MALFORMED", field: "riderId" }, ctx.locale, ctx.requestId);
+    }
+  }
+
+  const rawCursor = params.get("cursor");
+  const cursor = rawCursor === null ? null : decodeCursor(rawCursor);
+  if (rawCursor !== null && cursor === null) return refusal(ctx, { field: "cursor" });
+
+  const filter: DeclarationFilter = { kind, state, riderId, cursor, limit };
+  const rows = await reviewDeclarations(ctx.db, filter);
+  const last = rows[rows.length - 1];
   return successResponse(
     {
       declarations: rows,
       summary: {
+        // Counts are of this page, not of the queue: a summary that claimed otherwise would need a second statement
+        // per request to report a number the client cannot act on without fetching the rest anyway.
         total: rows.length,
         robberies: rows.filter((row) => row.kind === "ROBBED").length,
         disputes: rows.filter((row) => row.kind === "DISPUTE").length,
         emergencies: rows.filter((row) => row.kind === "EMERGENCY").length,
         limit,
+        state,
+        kind,
       },
+      nextCursor: rows.length === limit && last !== undefined ? encodeCursor(last) : null,
     },
     ctx.locale,
     ctx.requestId,
   );
+}
+
+/** A `422` that names the parameter the caller has to fix. */
+function refusal(ctx: Ctx, details: QueryRefusal): Response {
+  return failureResponse({ code: "VALIDATION_FAILED", details }, ctx.locale, ctx.requestId);
 }
 
 /** The reviewer's queue routes (`08 §8`, D145–D154). */

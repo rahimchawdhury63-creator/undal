@@ -433,6 +433,14 @@ it and are about to go home — not to punish people who do not.
 > entry would be the one mistake nobody could reconstruct later. When the write-off clears the last of it, the response
 > says `released: true` and the rider may go online — which is what "handled case by case" was promising all along.
 >
+> **And the list is a query, not a dump (D157).** `GET /v1/finance/cash/declarations` now asks three questions and
+> answers them with an index: `?state=` picks the half — `open` (the default, `resolved_at IS NULL`, which is the fix
+> that matters, because D155's write-off was leaving decided cases on the morning's list), `resolved` for the history, or
+> `all`; `?kind=` narrows to one of the three buttons; `?riderId=` answers what support actually asks. Paging is keyset,
+> not offset: `nextCursor` appears only when the page came back full, and resumes after that row's `(created_at, id)`,
+> so a robbery declared while somebody pages cannot be shown twice or skipped. `026`'s resolution columns are why the
+> filter is possible and migration `027` is the index that makes it cheap.
+>
 > **The record is readable (D156).** `GET /v1/finance/cash/declarations/{id}` returns one case whole: the rider (name,
 > code, phone — `§7` promises somebody rings them back after a robbery, and a record that cannot produce a number stalls
 > at the first step), what they said, the lift it granted, the arithmetic they disputed beside what the platform claims

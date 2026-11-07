@@ -67,10 +67,26 @@ const route = () => {
   return found;
 };
 
-const run = async (db: ReturnType<typeof stubDb>, query = ""): Promise<{ status: number; data: Record<string, any> }> => {
+const run = async (
+  db: ReturnType<typeof stubDb>,
+  query = "",
+): Promise<{
+  status: number;
+  data: Record<string, any>;
+  error: Record<string, any> | null;
+  sql: string;
+  params: readonly unknown[];
+}> => {
   const response = await route().run(ctxFor(db, query), { params: {}, body: null, reason: null });
-  const parsed = (await response.json()) as { data: Record<string, any> };
-  return { status: response.status, data: parsed.data };
+  const parsed = (await response.json()) as { data?: Record<string, any>; error?: Record<string, any> };
+  const call = db.calls[db.calls.length - 1];
+  return {
+    status: response.status,
+    data: parsed.data ?? {},
+    error: parsed.error ?? null,
+    sql: String(call?.sql ?? ""),
+    params: call?.params ?? [],
+  };
 };
 
 const minutesAgo = (minutes: number): string =>
@@ -88,6 +104,8 @@ function declarationRow(overrides: Record<string, unknown> = {}): Record<string,
     snapshot_lines_paisa: 84_000,
     snapshot_difference_paisa: 130_000,
     created_at: minutesAgo(20),
+    resolved_at: null,
+    resolved_by_name: null,
     ...overrides,
   };
 }
@@ -126,5 +144,83 @@ describe("the declarations waiting for a human (D154)", () => {
     const empty = await run(dbFor([]));
     assert.deepEqual(empty.data.declarations, []);
     assert.equal(empty.data.summary.total, 0);
+  });
+
+  test("the list is the open cases, and it says so (D157)", async () => {
+    const db = dbFor([declarationRow()]);
+    const answer = await run(db);
+    assert.equal(answer.status, 200);
+    assert.equal(answer.data.summary.state, "open");
+    assert.equal(answer.data.summary.kind, null);
+    assert.equal(answer.data.nextCursor, null, "a short page is the end of the list");
+    assert.match(answer.sql, /d\.`resolved_at` IS NULL/u, "a case D155 closed is not still waiting");
+    assert.match(answer.sql, /d\.`routed_to_review` = 1/u);
+
+    const resolved = await run(
+      dbFor([declarationRow({ resolved_at: "2026-11-07 09:05:00.000000", resolved_by_name: "Nusrat Jahan" })]),
+      "?state=resolved",
+    );
+    assert.equal(resolved.status, 200);
+    assert.equal(resolved.data.summary.state, "resolved");
+    assert.equal(resolved.data.declarations[0].resolvedAt, "2026-11-07 09:05:00.000000");
+    assert.equal(resolved.data.declarations[0].resolvedByName, "Nusrat Jahan");
+    assert.match(resolved.sql, /d\.`resolved_at` IS NOT NULL/u);
+
+    const everything = await run(dbFor([declarationRow()]), "?state=all");
+    assert.doesNotMatch(everything.sql, /resolved_at` IS/u, "`all` asks about neither half");
+  });
+
+  test("one button or one rider at a time (D157)", async () => {
+    const db = dbFor([declarationRow()]);
+    const answer = await run(db, "?kind=dispute");
+    assert.equal(answer.status, 200);
+    assert.equal(answer.data.summary.kind, "DISPUTE");
+    assert.match(answer.sql, /d\.`kind` = \?/u);
+    assert.ok(answer.params.includes("DISPUTE"), "the filter is bound, never interpolated");
+
+    const mine = dbFor([declarationRow()]);
+    const byRider = await run(mine, `?riderId=${RIDER_HEX}`);
+    assert.equal(byRider.status, 200);
+    assert.match(byRider.sql, /d\.`rider_id` = \?/u);
+    assert.ok(byRider.params.some((param) => param instanceof Uint8Array));
+  });
+
+  test("a full page hands back a cursor, and the cursor resumes after the last row (D157)", async () => {
+    const page = Array.from({ length: 3 }, (_, index) =>
+      declarationRow({ id: bytes(`0193f2a17c3e7890abcdef01234567d${index}`), created_at: minutesAgo(20 - index) }),
+    );
+    const first = await run(dbFor(page), "?limit=3");
+    const cursor = String(first.data.nextCursor);
+    assert.equal(first.status, 200);
+    assert.equal(typeof first.data.nextCursor, "string", "a full page might have more behind it");
+
+    const lastRow = page[2] ?? declarationRow();
+    const resumed = await run(dbFor([lastRow]), `?limit=3&cursor=${encodeURIComponent(cursor)}`);
+    assert.equal(resumed.status, 200);
+    assert.match(resumed.sql, /d\.`created_at` < \? OR \(d\.`created_at` = \? AND d\.`id` < \?\)/u, "keyset, not offset");
+    const cursorParams = resumed.params.filter((param) => typeof param === "string" && param.startsWith("20"));
+    assert.equal(cursorParams[0], lastRow.created_at, "the next page starts after the row the reviewer saw");
+    assert.ok(resumed.params.some((param) => param instanceof Uint8Array), "and after that row's id, twice in a microsecond");
+  });
+
+  test("a query string that cannot be honoured is named, not guessed (D157)", async () => {
+    const cases: readonly (readonly [string, string, string])[] = [
+      ["?kind=ROBBERY", "kind", "that is not one of the three buttons"],
+      ["?state=closed", "state", "open, resolved or all"],
+      ["?cursor=not-a-cursor", "cursor", "an opaque string, not a guess"],
+    ];
+    for (const [query, field, why] of cases) {
+      const db = dbFor([]);
+      const answer = await run(db, query);
+      assert.equal(answer.status, 422, why);
+      assert.equal(answer.error?.code, "VALIDATION_FAILED");
+      assert.equal(answer.error?.details?.field, field);
+      assert.equal(db.calls.length, 0, `${field} is judged before any row is read`);
+    }
+
+    const badRider = await run(dbFor([]), "?riderId=nope");
+    assert.equal(badRider.status, 422);
+    assert.equal(badRider.error?.code, "VALIDATION_ID_MALFORMED");
+    assert.equal(badRider.error?.field, "riderId");
   });
 });

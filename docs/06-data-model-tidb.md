@@ -247,6 +247,9 @@ actually checked" is not a state the platform can be in.
 > Migration `026` gave it an ending (D155): `resolved_at`, `resolved_by` and `resolution_note`, so a case written off or
 > otherwise settled can say who decided and why, and the reviewer's list can filter on `resolved_at IS NULL` instead of
 > guessing from a balance that happens to be zero.
+> Migration `027` added `idx_cash_declaration_queue (resolved_at, routed_to_review, created_at DESC)` for the statement
+> that filter made (D157): the column order follows the query, and `kind` is deliberately outside the index because a
+> filter applied occasionally should not be paid for by every write.
 > `coordination_state` joined Operations with the free coordination backend (D90): the wave plan, the
 > zone counter and the presence row need a key, a value and an expiry, and D89's arithmetic rules out
 > Workers KV for them. Its rows are written by core on realtime's behalf for the same single-writer
