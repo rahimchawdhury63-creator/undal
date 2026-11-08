@@ -62,17 +62,15 @@ export function isRetryable(kind: DbErrorKind): boolean {
 }
 
 /**
- * The `time_zone` pin, sent with the connection rather than after it.
+ * Add the legacy UTC query parameter to a DSN.
  *
- * The HTTP driver opens no session to hold a `SET`, so the pin has to travel in the
- * DSN; TiDB applies it to every statement the gateway proxies. Without it a
- * `CURRENT_TIMESTAMP(6)` default is written in whatever zone the server was
- * provisioned with, and every `DATETIME(6)` column silently stops being UTC — which
- * shows up as invoices an hour off, months later.
+ * The pinned serverless driver does not interpret URL query parameters. This preserves the
+ * existing DSN shape for compatibility, but does NOT set the database session timezone.
+ * Production requires the actual TiDB session/global timezone to be configured and verified.
  */
 export const TIME_ZONE_PARAM = "time_zone=%2B00%3A00";
 
-/** Add the UTC pin to a DSN that does not already carry one. */
+/** Preserve the legacy DSN parameter; this alone does not configure the session timezone. */
 export function pinTimeZone(url: string): string {
   if (/[?&]time_zone=/u.test(url)) return url;
   return `${url}${url.includes("?") ? "&" : "?"}${TIME_ZONE_PARAM}`;
@@ -86,24 +84,35 @@ export function pinTimeZone(url: string): string {
  * half-open gateway connection fails the next request in a way that looks random.
  */
 export function createDb(url: string): Db {
-  const connection: Connection = connect({ url: pinTimeZone(url) });
+  return dbFromConnection(connect({ url: pinTimeZone(url) }));
+}
 
+/** Adapt a TiDB connection; exported so tests exercise the real driver's result shapes. */
+export function dbFromConnection(connection: Pick<Connection, "execute">): Db {
   return {
     async query<T>(sql: string, params: readonly unknown[] = []): Promise<T[]> {
-      const rows = await connection.execute(sql, [...params]);
+      const rows = await connection.execute(sql, [...params], { fullResult: false });
+      if (!Array.isArray(rows)) throw new Error("TiDB read response did not include a row array");
       return rows as T[];
     },
     async first<T>(sql: string, params: readonly unknown[] = []): Promise<T | null> {
-      const rows = (await connection.execute(sql, [...params])) as T[];
+      const rows = await connection.execute(sql, [...params], { fullResult: false });
+      if (!Array.isArray(rows)) throw new Error("TiDB read response did not include a row array");
       return rows.length > 0 ? (rows[0] as T) : null;
     },
     async execute(sql: string, params: readonly unknown[] = []) {
-      const result = (await connection.execute(sql, [...params])) as {
-        rowsAffected?: number;
-        lastInsertId?: number;
-      };
-      const affected: { affectedRows: number; lastInsertId?: number } = { affectedRows: result.rowsAffected ?? 0 };
-      if (result.lastInsertId !== undefined) affected.lastInsertId = result.lastInsertId;
+      // The driver's default response is an array of rows even for a write. It has no
+      // rowsAffected property, so using it silently turns every successful conditional
+      // UPDATE into a reported zero-row conflict. Request metadata for writes only;
+      // reads above deliberately keep the driver's default array shape.
+      const result = await connection.execute(sql, [...params], { fullResult: true });
+      if (Array.isArray(result) || result.rowsAffected === null || !Number.isSafeInteger(result.rowsAffected) || result.rowsAffected < 0) {
+        // A malformed driver result is not evidence that no rows changed. Fail visibly
+        // rather than treating it as a normal no-op. The gateway can still fail after commit.
+        throw new Error("TiDB write response did not include a valid affected-row count");
+      }
+      const affected: { affectedRows: number; lastInsertId?: number } = { affectedRows: result.rowsAffected };
+      if (typeof result.lastInsertId === "number") affected.lastInsertId = result.lastInsertId;
       return affected;
     },
     async batch(statements): Promise<void> {

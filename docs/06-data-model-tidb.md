@@ -45,6 +45,7 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
    > in 2038 and silently rewrites values according to the session time zone. `DATETIME(6)` stores
    > exactly what is written, which makes correctness depend on every connection pinning
    > `time_zone = '+00:00'`. That pin is a connection-level invariant with its own test (§10).
+   > **D160 rollout warning:** the pinned serverless driver's URL parser does not apply the DSN query parameter, so the current client has not established this invariant. Configure and verify UTC before production; a URL-string test alone does not prove the session setting.
 
 4. **Soft delete only where it is needed.** `deleted_at DATETIME(6)` exists on vendors, menu items,
    and addresses, because those are referenced by historical orders. Everything else is hard
