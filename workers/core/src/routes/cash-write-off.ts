@@ -10,7 +10,7 @@ import { failureResponse, successResponse } from "../middleware/envelope.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
 import { cashCollectedPaisa, cashOutstandingPaisa, setShiftState, shiftStateOf } from "../repositories/riders.ts";
-import { writeOffBalance } from "../repositories/cash.ts";
+import { writeOffBalance, restoreWriteOffBalance } from "../repositories/cash.ts";
 import { declarationById, resolveDeclaration } from "../repositories/declarations.ts";
 import { PLATFORM_ACCOUNTS, riderCashAccount } from "../domain/ledger/accounts.ts";
 import { postEntry } from "../domain/ledger/post-entry.ts";
@@ -35,9 +35,9 @@ import { postEntry } from "../domain/ledger/post-entry.ts";
  * button.
  *
  * **It can close the case that caused it.** An optional `declarationId` names the dispute or robbery being resolved, and
- * the declaration is closed in the same request — `resolved_at IS NULL` in the predicate, so two reviewers with the same
- * case open cannot both write it off. The note goes on both rows: the declaration carries what the next reviewer reads,
- * and the audit row carries what happened.
+ * the declaration is closed in the same request. This sequence is not transactional: two concurrent requests can both
+ * adjust the balance before one loses the case-close race. Financial writes must remain disabled in production until
+ * the balance, ledger, case and audit can be committed atomically (D160/D162).
  */
 
 /** What a reviewer sends to write off a balance. */
@@ -97,10 +97,8 @@ function idBytes(raw: string): Uint8Array | null {
 /**
  * Write off a balance: `POST /v1/finance/cash/riders/{id}/write-off` (D155).
  *
- * Four refusals before anything is written: a body that is not a body, an amount that is not a positive integer, a reason
- * outside the register, and a declaration that is not this rider's or is already resolved. Then the order is the same as
- * approval's (D143) and for the same reason: the balance is written down first, the ledger entry second, and a failure in
- * the entry puts the balance back — a rider whose debt vanished without an entry is money the books never saw.
+ * Validate the request, the rider-scoped case and the outstanding balance before writing. The balance UPDATE repeats the
+ * outstanding check atomically; neither it nor the compensating write makes the multi-statement operation transactional.
  */
 async function writeOff(ctx: Ctx, rawRiderId: string, body: unknown): Promise<Response> {
   if (ctx.principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
@@ -123,11 +121,12 @@ async function writeOff(ctx: Ctx, rawRiderId: string, body: unknown): Promise<Re
   }
 
   const collected = await cashCollectedPaisa(ctx.db, riderBytes);
-  if (collected < parsed.amountPaisa) {
+  const owed = await cashOutstandingPaisa(ctx.db, riderBytes);
+  if (owed < parsed.amountPaisa) {
     // The reviewer's screen was stale, or a digit slipped: either way the balance cannot absorb this, and clamping would
     // turn a stated intention into whatever happened to be left.
     return failureResponse(
-      { code: "MONEY_REFUND_EXCEEDS_PAID", details: { paid: collected, requested: parsed.amountPaisa } },
+      { code: "MONEY_REFUND_EXCEEDS_PAID", details: { paid: owed, requested: parsed.amountPaisa } },
       ctx.locale,
       ctx.requestId,
     );
@@ -139,11 +138,17 @@ async function writeOff(ctx: Ctx, rawRiderId: string, body: unknown): Promise<Re
     if (declarationBytes === null) {
       return failureResponse({ code: "VALIDATION_ID_MALFORMED", details: { field: "declarationId" } }, ctx.locale, ctx.requestId);
     }
-    const declaration = await declarationById(ctx.db, declarationBytes);
-    if (declaration === null || declaration.resolvedAt !== null) {
-      // A case that is gone or already closed: the reviewer's list predates somebody else's decision.
+    const declaration = await declarationById(ctx.db, declarationBytes, riderBytes);
+    if (declaration === null) {
       return failureResponse(
-        { code: "CASH_ALREADY_SETTLED", details: { settled_at: declaration?.resolvedAt ?? new Date().toISOString() } },
+        { code: "CASH_DECLARATION_NOT_FOUND", details: { declaration_id: parsed.declarationId } },
+        ctx.locale,
+        ctx.requestId,
+      );
+    }
+    if (declaration.resolvedAt !== null) {
+      return failureResponse(
+        { code: "CASH_ALREADY_SETTLED", details: { settled_at: declaration.resolvedAt } },
         ctx.locale,
         ctx.requestId,
       );
@@ -154,6 +159,11 @@ async function writeOff(ctx: Ctx, rawRiderId: string, body: unknown): Promise<Re
   const nowMs = Date.now();
   const written = await writeOffBalance(ctx.db, riderBytes, parsed.amountPaisa, nowMs);
   if (!written) {
+    // The balance may have changed after the read. Never post a ledger entry on a failed guard.
+    const current = await cashOutstandingPaisa(ctx.db, riderBytes);
+    if (current < parsed.amountPaisa) {
+      return failureResponse({ code: "MONEY_REFUND_EXCEEDS_PAID", details: { paid: current, requested: parsed.amountPaisa } }, ctx.locale, ctx.requestId);
+    }
     return failureResponse({ code: "INTERNAL", details: { trace_id: ctx.requestId } }, ctx.locale, ctx.requestId);
   }
 
@@ -171,15 +181,16 @@ async function writeOff(ctx: Ctx, rawRiderId: string, body: unknown): Promise<Re
     });
     entryId = posted.entryId;
   } catch {
-    // The books could not be written, so nothing happened: put the balance back and let the reviewer try again.
-    await writeOffBalance(ctx.db, riderBytes, -parsed.amountPaisa, nowMs);
+    // Best-effort compensation only: an error may follow a committed ledger write, and restoration can fail.
+    // Reconciliation is required; this does not make the operation safe to retry (D160/D162).
+    await restoreWriteOffBalance(ctx.db, riderBytes, parsed.amountPaisa, nowMs);
     return failureResponse({ code: "INTERNAL", details: { trace_id: ctx.requestId } }, ctx.locale, ctx.requestId);
   }
 
   let caseClosed = false;
   if (parsed.declarationId !== null) {
     const declarationBytes = uuidBytes(parsed.declarationId);
-    caseClosed = await resolveDeclaration(ctx.db, declarationBytes, adminBytes, parsed.note, nowMs);
+    caseClosed = await resolveDeclaration(ctx.db, declarationBytes, riderBytes, adminBytes, parsed.note, nowMs);
   }
 
   const outstanding = await cashOutstandingPaisa(ctx.db, riderBytes);

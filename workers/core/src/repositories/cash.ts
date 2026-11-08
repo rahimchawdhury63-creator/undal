@@ -494,18 +494,23 @@ export async function cashLinesTotal(db: Db, riderId: Uint8Array): Promise<numbe
   return Number(row?.total ?? 0);
 }
 
-/**
- * Take money the platform was wrong to expect off a rider's balance (`25 §7`, D155).
- *
- * Guarded by `collected_paisa >= ?` rather than clamped: an adjustment larger than the balance is a mistake in the
- * reviewer's fingers or a stale screen, and a clamp would silently turn ৳3 000 of intent into whatever happened to be
- * left. `false` means the balance is smaller than the adjustment, and the route says so instead of guessing.
- */
+/** Reduce only outstanding cash; the predicate is evaluated at the moment the row is updated. */
 export async function writeOffBalance(db: Db, riderId: Uint8Array, amountPaisa: number, nowMs: number): Promise<boolean> {
+  if (!Number.isSafeInteger(amountPaisa) || amountPaisa <= 0) throw new RangeError("write-off must be positive integer paisa");
   const result = await db.execute(
     "UPDATE `rider_cash_balances` SET `collected_paisa` = `collected_paisa` - ?, `updated_at` = ? " +
-      "WHERE `rider_id` = ? AND `collected_paisa` >= ?",
+      "WHERE `rider_id` = ? AND `collected_paisa` - `deposited_paisa` >= ?",
     [amountPaisa, sqlDatetime(new Date(nowMs)), riderId, amountPaisa],
   );
-  return result.affectedRows > 0;
+  return result.affectedRows === 1;
+}
+
+/** Restore a previously applied write-off after a known ledger failure; this is not a transaction. */
+export async function restoreWriteOffBalance(db: Db, riderId: Uint8Array, amountPaisa: number, nowMs: number): Promise<boolean> {
+  if (!Number.isSafeInteger(amountPaisa) || amountPaisa <= 0) throw new RangeError("restore must be positive integer paisa");
+  const result = await db.execute(
+    "UPDATE `rider_cash_balances` SET `collected_paisa` = `collected_paisa` + ?, `updated_at` = ? WHERE `rider_id` = ?",
+    [amountPaisa, sqlDatetime(new Date(nowMs)), riderId],
+  );
+  return result.affectedRows === 1;
 }

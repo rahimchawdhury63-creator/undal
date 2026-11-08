@@ -427,11 +427,13 @@ it and are about to go home — not to punish people who do not.
 > `finance.cash.write_off`, not `finance.cash.adjust`, because `24 §6` already names a written-off shortfall and a
 > reviewer pressing this button is spending the platform's money, not moving a rider's.
 >
-> **It is guarded, not clamped.** A write-off larger than what is owed is refused (`MONEY_REFUND_EXCEEDS_PAID`) rather
-> than silently trimmed, and a case that is already closed or gone is `CASH_ALREADY_SETTLED`. If the ledger entry fails
-> the balance is put back, because there are no transactions here (D95), and a debt that vanished without a matching
-> entry would be the one mistake nobody could reconstruct later. When the write-off clears the last of it, the response
-> says `released: true` and the rider may go online — which is what "handled case by case" was promising all along.
+> **D162 safeguards and remaining blocker.** A write-off above outstanding cash (collected minus deposited) is refused;
+> the database update repeats the check against the current row. A declaration must belong to this rider: a missing or
+> other rider's case returns `CASH_DECLARATION_NOT_FOUND`, and an already resolved case returns `CASH_ALREADY_SETTLED`.
+> These checks do **not** make the multi-statement write-off atomic. Concurrent requests for one case can both adjust
+> money before one loses the case-close race; a ledger failure or lost response can also leave partial effects despite
+> best-effort compensation. Do not enable financial writes in production until transactionality, durable idempotency,
+> reconciliation and real TiDB staging tests address these risks (D160/D162).
 >
 > **The settlement queue answers the same four questions now (D158).** `GET /v1/finance/cash/settlements` was
 > `PENDING` only, so "did anybody decide the settlement this rider is ringing about?" had no route; `?state=decided`

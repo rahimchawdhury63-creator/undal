@@ -9,6 +9,7 @@ import { describe, test } from "node:test";
 import { stubDb } from "../src/db/client.ts";
 import { testEnv } from "./support.ts";
 import { CASH_WRITE_OFF_ROUTES } from "../src/routes/cash-write-off.ts";
+import { restoreWriteOffBalance, writeOffBalance } from "../src/repositories/cash.ts";
 import type { Ctx } from "../src/middleware/context.ts";
 import type { Principal } from "../src/rbac/guard.ts";
 
@@ -17,8 +18,8 @@ import type { Principal } from "../src/rbac/guard.ts";
  *
  * The route exists for the one decision `25 §7` had no answer for: a rider disputes a number, a reviewer agrees, and the
  * balance has to come down. What these tests defend is that the money moves through the ledger and nowhere else, that a
- * write-off cannot be larger than the balance it reduces, and that closing the case is guarded so two reviewers with the
- * same dispute open cannot both do it.
+ * write-off cannot be larger than the balance it reduces and the declaration is scoped to the rider. The write-off is
+ * not transactional and a guarded case close alone does not prevent duplicate concurrent financial adjustments.
  */
 
 const ADMIN_HEX = "0193f2a17c3e7890abcdef0123456731";
@@ -35,6 +36,9 @@ const bytes = (hex: string): Uint8Array => {
 interface Options {
   readonly collected?: number;
   readonly outstanding?: number;
+  readonly outstandingBefore?: number;
+  readonly outstandingAfterFailedUpdate?: number;
+  readonly declarationRider?: string;
   readonly shiftState?: string | null;
   /** The declaration a write-off names; `null` means no such row. */
   readonly declaration?: Record<string, unknown> | null;
@@ -45,7 +49,7 @@ interface Options {
 
 function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
   const declaration = options.declaration === undefined ? { resolved_at: null } : options.declaration;
-  return stubDb([
+  const db = stubDb([
     { match: /SELECT `collected_paisa` FROM `rider_cash_balances`/u, rows: [{ collected_paisa: options.collected ?? 214_000 }] },
     { match: /FROM `rider_cash_declarations` WHERE `id`/u, rows: declaration === null ? [] : [declaration] },
     { match: /UPDATE `rider_cash_balances` SET `collected_paisa`/u, affectedRows: options.balanceWritten === false ? 0 : 1 },
@@ -64,6 +68,26 @@ function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
     { match: /FROM `audit_log`/u, rows: [] },
     { match: /INSERT INTO `audit_log`/u, affectedRows: 1 },
   ]);
+  let outstandingReads = 0;
+  return {
+    ...db,
+    async first<T>(sql: string, params: readonly unknown[] = []): Promise<T | null> {
+      const row = await db.first<T>(sql, params);
+      if (sql.includes("outstanding_paisa` FROM `rider_cash_balances`")) {
+        outstandingReads += 1;
+        const value = outstandingReads === 1
+          ? options.outstandingBefore ?? options.collected ?? 214_000
+          : options.balanceWritten === false ? options.outstandingAfterFailedUpdate ?? options.outstandingBefore ?? options.collected ?? 214_000 : options.outstanding ?? 0;
+        return { outstanding_paisa: value } as T;
+      }
+      if (sql.includes("FROM `rider_cash_declarations` WHERE `id`")) {
+        const requested = params[1];
+        const owner = bytes(options.declarationRider ?? RIDER_HEX);
+        if (!(requested instanceof Uint8Array) || Buffer.compare(requested, owner) !== 0) return null;
+      }
+      return row;
+    },
+  };
 }
 
 const PRINCIPAL = {
@@ -151,7 +175,11 @@ describe("POST /v1/finance/cash/riders/{id}/write-off (D155)", () => {
     assert.equal(answer.body["data"]["caseClosed"], true);
 
     const close = db.calls.find((call) => call.sql.includes("SET `resolved_at`"));
-    assert.match(String(close?.sql), /resolved_at` IS NULL/u, "a case closes once: the predicate is the lock");
+    assert.match(String(close?.sql), /`rider_id` = \? AND `resolved_at` IS NULL/u);
+    assert.deepEqual(close?.params[4], bytes(RIDER_HEX));
+    const lookup = db.calls.find((call) => call.sql.includes("FROM `rider_cash_declarations` WHERE `id`"));
+    assert.match(String(lookup?.sql), /`id` = \? AND `rider_id` = \?/u);
+    assert.deepEqual(lookup?.params, [bytes(DECLARATION_HEX), bytes(RIDER_HEX)]);
     assert.equal(close?.params[2], "the rider was right: two orders double-counted");
   });
 
@@ -169,7 +197,52 @@ describe("POST /v1/finance/cash/riders/{id}/write-off (D155)", () => {
     assert.equal(answer.status, 422);
     assert.equal(answer.body["error"]["code"], "MONEY_REFUND_EXCEEDS_PAID");
     assert.deepEqual(answer.body["error"]["details"], { paid: 50_000, requested: 100_000 });
-    assert.equal(db.calls.length, 1, "one query, and no statement that could have moved money");
+    assert.ok(!sqls(db).some((sql) => sql.startsWith("UPDATE") || sql.startsWith("INSERT")), "no statement moves money");
+  });
+
+  test("a case belonging to another rider is indistinguishable from a missing case", async () => {
+    for (const options of [{ declarationRider: ADMIN_HEX }, { declaration: null }] as const) {
+      const db = dbFor(options);
+      const answer = await run(db, { ...BODY, declarationId: DECLARATION_HEX });
+      assert.equal(answer.status, 404);
+      assert.equal(answer.body["error"]["code"], "CASH_DECLARATION_NOT_FOUND");
+      assert.ok(!sqls(db).some((sql) => sql.startsWith("UPDATE") || sql.startsWith("INSERT")));
+    }
+  });
+
+  test("already-deposited cash cannot be written off even when collected is high", async () => {
+    const db = dbFor({ collected: 214_000, outstandingBefore: 14_000 });
+    const answer = await run(db, BODY);
+    assert.equal(answer.status, 422);
+    assert.deepEqual(answer.body["error"]["details"], { paid: 14_000, requested: 100_000 });
+    assert.ok(!sqls(db).some((sql) => sql.startsWith("UPDATE") || sql.startsWith("INSERT")));
+  });
+
+  test("the conditional update guards the live balance when it changes after the initial read", async () => {
+    const db = dbFor({ outstandingBefore: 214_000, balanceWritten: false, outstandingAfterFailedUpdate: 10_000 });
+    const answer = await run(db, BODY);
+    assert.equal(answer.status, 422);
+    assert.deepEqual(answer.body["error"]["details"], { paid: 10_000, requested: 100_000 });
+    const debit = db.calls.find((call) => call.sql.includes("SET `collected_paisa` = `collected_paisa` - ?"));
+    assert.match(String(debit?.sql), /`collected_paisa` - `deposited_paisa` >= \?/u);
+    assert.deepEqual(debit?.params.slice(2), [bytes(RIDER_HEX), 100_000]);
+    assert.ok(!sqls(db).some((sql) => sql.includes("ledger")));
+  });
+
+  test("a failed guarded update with a still-sufficient reread is an internal error, not a ledger posting", async () => {
+    const db = dbFor({ balanceWritten: false, outstandingAfterFailedUpdate: 214_000 });
+    const answer = await run(db);
+    assert.equal(answer.status, 500);
+    assert.ok(!sqls(db).some((sql) => sql.includes("ledger")));
+  });
+
+  test("balance repository rejects zero, negative and fractional amounts before SQL", async () => {
+    for (const amount of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      const db = dbFor();
+      await assert.rejects(() => writeOffBalance(db, bytes(RIDER_HEX), amount, 0), RangeError);
+      await assert.rejects(() => restoreWriteOffBalance(db, bytes(RIDER_HEX), amount, 0), RangeError);
+      assert.equal(db.calls.length, 0);
+    }
   });
 
   test("the body is judged before any row is read, and the reason comes from the register", async () => {
@@ -196,8 +269,9 @@ describe("POST /v1/finance/cash/riders/{id}/write-off (D155)", () => {
     const db = dbFor({ ledgerTotal: 7 });
     const answer = await run(db);
     assert.equal(answer.status, 500);
-    const writes = db.calls.filter((call) => call.sql.includes("SET `collected_paisa` = `collected_paisa` - ?"));
-    assert.equal(writes.length, 2, "the balance is reduced, then given back");
-    assert.equal(writes[1]?.params[0], -100_000);
+    const debit = db.calls.find((call) => call.sql.includes("SET `collected_paisa` = `collected_paisa` - ?"));
+    const restore = db.calls.find((call) => call.sql.includes("SET `collected_paisa` = `collected_paisa` + ?"));
+    assert.equal(debit?.params[0], 100_000);
+    assert.equal(restore?.params[0], 100_000);
   });
 });

@@ -221,36 +221,31 @@ export async function reviewDeclarations(db: Db, filter: DeclarationFilter): Pro
   }));
 }
 
-/**
- * Close a declaration, once.
- *
- * `resolved_at IS NULL` in the predicate is what makes a case close once: two reviewers with the same dispute open on
- * two screens cannot both write it off, and the loser is told the case is already resolved rather than posting a second
- * adjustment. The same guard makes a retry safe after a failure that never reached this statement.
- */
+/** Resolve an open declaration belonging to this rider. This statement alone does not make a write-off atomic. */
 export async function resolveDeclaration(
   db: Db,
   id: Uint8Array,
+  riderId: Uint8Array,
   resolvedBy: Uint8Array,
   note: string | null,
   nowMs: number,
 ): Promise<boolean> {
   const result = await db.execute(
     "UPDATE `rider_cash_declarations` SET `resolved_at` = ?, `resolved_by` = ?, `resolution_note` = ? " +
-      "WHERE `id` = ? AND `resolved_at` IS NULL",
-    [sqlDatetime(new Date(nowMs)), resolvedBy, note, id],
+      "WHERE `id` = ? AND `rider_id` = ? AND `resolved_at` IS NULL",
+    [sqlDatetime(new Date(nowMs)), resolvedBy, note, id, riderId],
   );
-  return result.affectedRows > 0;
+  return result.affectedRows === 1;
 }
 
-/** One declaration by id, for a write-off that names the case it closes. */
-export async function declarationById(db: Db, id: Uint8Array): Promise<DeclarationRow | null> {
+/** Read a declaration only when it belongs to the rider whose balance is being adjusted. */
+export async function declarationById(db: Db, id: Uint8Array, riderId: Uint8Array): Promise<DeclarationRow | null> {
   const row = await db.first<Record<string, unknown>>(
     "SELECT `id`, `kind`, `note`, `lifted_until`, `routed_to_review`, `created_at`, `resolved_at` FROM " +
-      "`rider_cash_declarations` WHERE `id` = ? LIMIT 1",
-    [id],
+      "`rider_cash_declarations` WHERE `id` = ? AND `rider_id` = ? LIMIT 1",
+    [id, riderId],
   );
-  return row === null ? null : { ...declarationOf(row), resolvedAt: row["resolved_at"] === null ? null : String(row["resolved_at"]) };
+  return row === null ? null : declarationOf(row);
 }
 
 /**
