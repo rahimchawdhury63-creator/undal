@@ -43,9 +43,12 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
    > TiDB has no triggers at all — and because this document already banned them, the schema loses
    > nothing. **`DATETIME(6)`, never `TIMESTAMP`.** MySQL's `TIMESTAMP` is a 32-bit epoch that ends
    > in 2038 and silently rewrites values according to the session time zone. `DATETIME(6)` stores
-   > exactly what is written, which makes correctness depend on every connection pinning
-   > `time_zone = '+00:00'`. That pin is a connection-level invariant with its own test (§10).
-   > **D160 rollout warning:** the pinned serverless driver's URL parser does not apply the DSN query parameter, so the current client has not established this invariant. Configure and verify UTC before production; a URL-string test alone does not prove the session setting.
+   > exactly what is written, which makes database-generated defaults depend on the session time zone.
+   > **D161:** The core worker explicitly sets `time_zone = '+00:00'` and reads it back on each
+   > request-local TiDB connection before application SQL. Setup fails closed if verification fails.
+   > The driver does not apply the DSN's query parameter. The session-token behavior is tested with
+   > a simulated gateway; run the opt-in live staging check before production. This does not alter
+   > timestamps already stored or configure external database clients.
 
 4. **Soft delete only where it is needed.** `deleted_at DATETIME(6)` exists on vendors, menu items,
    and addresses, because those are referenced by historical orders. Everything else is hard

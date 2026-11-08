@@ -20,7 +20,7 @@ export interface Db {
   first<T>(sql: string, params?: readonly unknown[]): Promise<T | null>;
   /** Affected rows of a write. */
   execute(sql: string, params?: readonly unknown[]): Promise<{ affectedRows: number; lastInsertId?: number }>;
-  /** A single-statement atomic operation, which the platform prefers to a transaction. */
+  /** Run statements in order; this is not a transaction and earlier statements can commit on failure. */
   batch(statements: readonly { sql: string; params?: readonly unknown[] }[]): Promise<void>;
 }
 
@@ -66,7 +66,7 @@ export function isRetryable(kind: DbErrorKind): boolean {
  *
  * The pinned serverless driver does not interpret URL query parameters. This preserves the
  * existing DSN shape for compatibility, but does NOT set the database session timezone.
- * Production requires the actual TiDB session/global timezone to be configured and verified.
+ * The session is set and checked explicitly by `dbFromConnection` before application SQL.
  */
 export const TIME_ZONE_PARAM = "time_zone=%2B00%3A00";
 
@@ -87,38 +87,71 @@ export function createDb(url: string): Db {
   return dbFromConnection(connect({ url: pinTimeZone(url) }));
 }
 
-/** Adapt a TiDB connection; exported so tests exercise the real driver's result shapes. */
+/** Adapt a request-local TiDB connection and establish UTC before any application SQL. */
 export function dbFromConnection(connection: Pick<Connection, "execute">): Db {
+  // The driver carries TiDB-Session between statements. Serialize use of the connection
+  // so concurrent callers cannot race the mutable session token or run before setup.
+  let tail: Promise<void> = Promise.resolve();
+  let ready: Promise<void> | undefined;
+  function ensureUtc(): Promise<void> {
+    ready ??= (async () => {
+      await connection.execute("SET time_zone = '+00:00'");
+      const rows = await connection.execute("SELECT @@session.time_zone AS time_zone", [], { fullResult: false });
+      if (!Array.isArray(rows) || rows.length !== 1 || (rows[0] as { time_zone?: unknown } | undefined)?.time_zone !== "+00:00") {
+        throw new Error("TiDB session timezone could not be verified as UTC");
+      }
+    })();
+    return ready;
+  }
+  function inSession<T>(work: () => Promise<T>): Promise<T> {
+    const operation = tail.then(async () => {
+      await ensureUtc();
+      return work();
+    });
+    // One failed business statement must not prevent a caller's compensating statement;
+    // a failed UTC setup, however, remains failed for this request-local connection.
+    tail = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
   return {
     async query<T>(sql: string, params: readonly unknown[] = []): Promise<T[]> {
-      const rows = await connection.execute(sql, [...params], { fullResult: false });
-      if (!Array.isArray(rows)) throw new Error("TiDB read response did not include a row array");
-      return rows as T[];
+      return inSession(async () => {
+        const rows = await connection.execute(sql, [...params], { fullResult: false });
+        if (!Array.isArray(rows)) throw new Error("TiDB read response did not include a row array");
+        return rows as T[];
+      });
     },
     async first<T>(sql: string, params: readonly unknown[] = []): Promise<T | null> {
-      const rows = await connection.execute(sql, [...params], { fullResult: false });
-      if (!Array.isArray(rows)) throw new Error("TiDB read response did not include a row array");
-      return rows.length > 0 ? (rows[0] as T) : null;
+      return inSession(async () => {
+        const rows = await connection.execute(sql, [...params], { fullResult: false });
+        if (!Array.isArray(rows)) throw new Error("TiDB read response did not include a row array");
+        return rows.length > 0 ? (rows[0] as T) : null;
+      });
     },
     async execute(sql: string, params: readonly unknown[] = []) {
-      // The driver's default response is an array of rows even for a write. It has no
-      // rowsAffected property, so using it silently turns every successful conditional
-      // UPDATE into a reported zero-row conflict. Request metadata for writes only;
-      // reads above deliberately keep the driver's default array shape.
-      const result = await connection.execute(sql, [...params], { fullResult: true });
-      if (Array.isArray(result) || result.rowsAffected === null || !Number.isSafeInteger(result.rowsAffected) || result.rowsAffected < 0) {
-        // A malformed driver result is not evidence that no rows changed. Fail visibly
-        // rather than treating it as a normal no-op. The gateway can still fail after commit.
-        throw new Error("TiDB write response did not include a valid affected-row count");
-      }
-      const affected: { affectedRows: number; lastInsertId?: number } = { affectedRows: result.rowsAffected };
-      if (typeof result.lastInsertId === "number") affected.lastInsertId = result.lastInsertId;
-      return affected;
+      return inSession(async () => {
+        // The driver's default response is an array of rows even for a write. It has no
+        // rowsAffected property, so using it silently turns every successful conditional
+        // UPDATE into a reported zero-row conflict. Request metadata for writes only;
+        // reads above deliberately keep the driver's default array shape.
+        const result = await connection.execute(sql, [...params], { fullResult: true });
+        if (Array.isArray(result) || result.rowsAffected === null || !Number.isSafeInteger(result.rowsAffected) || result.rowsAffected < 0) {
+          // A malformed driver result is not evidence that no rows changed. Fail visibly
+          // rather than treating it as a normal no-op. The gateway can still fail after commit.
+          throw new Error("TiDB write response did not include a valid affected-row count");
+        }
+        const affected: { affectedRows: number; lastInsertId?: number } = { affectedRows: result.rowsAffected };
+        if (typeof result.lastInsertId === "number") affected.lastInsertId = result.lastInsertId;
+        return affected;
+      });
     },
     async batch(statements): Promise<void> {
-      for (const statement of statements) {
-        await connection.execute(statement.sql, [...(statement.params ?? [])]);
-      }
+      if (statements.length === 0) return;
+      await inSession(async () => {
+        for (const statement of statements) {
+          await connection.execute(statement.sql, [...(statement.params ?? [])]);
+        }
+      });
     },
   };
 }

@@ -11,6 +11,12 @@ function driver(replies: Record<string, unknown>[]) {
     url: "mysql://test:secret@db.test/undal",
     fetch: async (_input, init) => {
       const request = JSON.parse(init?.body ?? "{}") as { query?: string };
+      if (request.query === "SET time_zone = '+00:00'") {
+        return new Response(JSON.stringify({ types: [], rows: [], rowsAffected: 0 }), { status: 200, headers: { "TiDB-Session": "test-session" } });
+      }
+      if (request.query === "SELECT @@session.time_zone AS time_zone") {
+        return new Response(JSON.stringify({ types: [{ name: "time_zone", type: "VARCHAR" }], rows: [["+00:00"]] }), { status: 200, headers: { "TiDB-Session": "test-session" } });
+      }
       queries.push(request.query ?? "");
       const body = replies.shift();
       if (body === undefined) throw new Error("unexpected driver request");
@@ -44,7 +50,7 @@ test("real TiDB driver keeps row arrays for reads and empty results remain null"
 });
 
 test("unexpected write response shape fails closed rather than claiming zero rows", async () => {
-  const db = dbFromConnection({ execute: async () => [] });
+  const db = dbFromConnection({ execute: async (sql) => sql.startsWith("SELECT @@session") ? [{ time_zone: "+00:00" }] : [] });
   await assert.rejects(() => db.execute("UPDATE cases SET owner = NULL"), /valid affected-row count/u);
 });
 
@@ -66,9 +72,13 @@ test("cash case claim sees the actual driver affected-row count and binds binary
 test("read shape remains stable when the driver's connection defaults to full results", async () => {
   const connection = connect({
     url: "mysql://test:secret@db.test/undal", fullResult: true,
-    fetch: async () => new Response(JSON.stringify({
-      types: [{ name: "name", type: "VARCHAR", nullable: false }], rows: [["A"]], rowsAffected: 0,
-    }), { status: 200, headers: { "TiDB-Session": "test-session" } }),
+    fetch: async (_url, init) => {
+      const sql = (JSON.parse(init?.body ?? "{}") as { query?: string }).query;
+      const body = sql === "SET time_zone = '+00:00'" ? { types: [], rows: [] } :
+        sql === "SELECT @@session.time_zone AS time_zone" ? { types: [{ name: "time_zone", type: "VARCHAR" }], rows: [["+00:00"]] } :
+          { types: [{ name: "name", type: "VARCHAR" }], rows: [["A"]] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "TiDB-Session": "test-session" } });
+    },
   });
   assert.deepEqual(await dbFromConnection(connection).query("SELECT name FROM riders"), [{ name: "A" }]);
 });
@@ -76,7 +86,12 @@ test("read shape remains stable when the driver's connection defaults to full re
 test("gateway errors propagate rather than becoming successful zero-row writes", async () => {
   const connection = connect({
     url: "mysql://test:secret@db.test/undal",
-    fetch: async () => new Response(JSON.stringify({ message: "service unavailable", code: "error" }), { status: 503 }),
+    fetch: async (_url, init) => {
+      const sql = (JSON.parse(init?.body ?? "{}") as { query?: string }).query;
+      if (sql === "SET time_zone = '+00:00'") return new Response(JSON.stringify({ types: [], rows: [] }), { status: 200, headers: { "TiDB-Session": "test-session" } });
+      if (sql === "SELECT @@session.time_zone AS time_zone") return new Response(JSON.stringify({ types: [{ name: "time_zone", type: "VARCHAR" }], rows: [["+00:00"]] }), { status: 200, headers: { "TiDB-Session": "test-session" } });
+      return new Response(JSON.stringify({ message: "service unavailable", code: "error" }), { status: 503 });
+    },
   });
   await assert.rejects(() => dbFromConnection(connection).execute("UPDATE cases SET owner = NULL"), /service unavailable/u);
 });
