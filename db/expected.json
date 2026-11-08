@@ -2480,6 +2480,14 @@
         {
           "name": "resolution_note",
           "type": "VARCHAR(280)"
+        },
+        {
+          "name": "owner_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "claimed_at",
+          "type": "DATETIME(6)"
         }
       ],
       "generated": [],

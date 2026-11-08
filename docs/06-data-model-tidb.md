@@ -1543,3 +1543,5 @@ Next: [`07-d1-live-tracking.md`](07-d1-live-tracking.md) — the ephemeral chann
 ---
 
 *Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.*
+
+Migration `029_cash_case_owner.sql` adds nullable `owner_id` and `claimed_at` to cash declarations; existing review cases remain unclaimed.

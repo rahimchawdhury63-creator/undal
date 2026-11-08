@@ -127,6 +127,8 @@ export interface DeclarationQueueRow {
   readonly resolvedAt: string | null;
   /** Who finished it, by display name. */
   readonly resolvedByName: string | null;
+  readonly ownerId: string | null;
+  readonly claimedAt: string | null;
 }
 
 /** Which half of the queue to read. `all` spans both, which is what the audit screen wants. */
@@ -191,7 +193,7 @@ export async function reviewDeclarations(db: Db, filter: DeclarationFilter): Pro
   params.push(filter.limit);
   const rows = await db.query<Record<string, unknown>>(
     "SELECT d.`id`, d.`rider_id`, r.`full_name`, r.`code`, d.`kind`, d.`note`, b.`outstanding_paisa`, " +
-      "d.`snapshot_lines_paisa`, d.`snapshot_difference_paisa`, d.`created_at`, d.`resolved_at`, " +
+      "d.`snapshot_lines_paisa`, d.`snapshot_difference_paisa`, d.`created_at`, d.`resolved_at`, d.`owner_id`, d.`claimed_at`, " +
       "p.`display_name` AS resolved_by_name FROM `rider_cash_declarations` d " +
       "JOIN `riders` r ON r.`id` = d.`rider_id` LEFT JOIN `rider_cash_balances` b ON b.`rider_id` = d.`rider_id` " +
       "LEFT JOIN `user_profiles` p ON p.`user_id` = d.`resolved_by` " +
@@ -214,6 +216,8 @@ export async function reviewDeclarations(db: Db, filter: DeclarationFilter): Pro
     createdAt: String(raw["created_at"] ?? ""),
     resolvedAt: typeof raw["resolved_at"] === "string" ? raw["resolved_at"] : null,
     resolvedByName: typeof raw["resolved_by_name"] === "string" ? raw["resolved_by_name"] : null,
+    ownerId: raw["owner_id"] instanceof Uint8Array ? toHexId(raw["owner_id"]) : null,
+    claimedAt: typeof raw["claimed_at"] === "string" ? raw["claimed_at"] : null,
   }));
 }
 
@@ -282,6 +286,8 @@ export interface DeclarationCase {
   /** The admin who closed it, by display name — the id is in the audit row. */
   readonly resolvedByName: string | null;
   readonly resolutionNote: string | null;
+  readonly ownerId: string | null;
+  readonly claimedAt: string | null;
 }
 
 /** One case by id, or `null` when the id names nothing. */
@@ -289,7 +295,7 @@ export async function declarationCase(db: Db, id: Uint8Array): Promise<Declarati
   const raw = await db.first<Record<string, unknown>>(
     "SELECT d.`id`, d.`rider_id`, r.`full_name`, r.`code`, u.`phone`, d.`kind`, d.`note`, d.`lifted_until`, " +
       "d.`routed_to_review`, d.`snapshot_lines_paisa`, d.`snapshot_difference_paisa`, d.`created_at`, d.`resolved_at`, " +
-      "d.`resolution_note`, p.`display_name` AS resolved_by_name, b.`outstanding_paisa` " +
+      "d.`resolution_note`, d.`owner_id`, d.`claimed_at`, p.`display_name` AS resolved_by_name, b.`outstanding_paisa` " +
       "FROM `rider_cash_declarations` d JOIN `riders` r ON r.`id` = d.`rider_id` " +
       "JOIN `users` u ON u.`id` = r.`user_id` " +
       "LEFT JOIN `user_profiles` p ON p.`user_id` = d.`resolved_by` " +
@@ -318,5 +324,27 @@ export async function declarationCase(db: Db, id: Uint8Array): Promise<Declarati
     resolvedAt: typeof raw["resolved_at"] === "string" ? raw["resolved_at"] : null,
     resolvedByName: typeof raw["resolved_by_name"] === "string" ? raw["resolved_by_name"] : null,
     resolutionNote: typeof raw["resolution_note"] === "string" ? raw["resolution_note"] : null,
+    ownerId: raw["owner_id"] instanceof Uint8Array ? toHexId(raw["owner_id"]) : null,
+    claimedAt: typeof raw["claimed_at"] === "string" ? raw["claimed_at"] : null,
   };
+}
+
+/** Claim an unassigned, open review case atomically. Concurrent reviewers cannot steal it. */
+export async function claimDeclaration(db: Db, id: Uint8Array, owner: Uint8Array, nowMs: number): Promise<boolean> {
+  const result = await db.execute(
+    "UPDATE `rider_cash_declarations` SET `owner_id` = ?, `claimed_at` = ? " +
+      "WHERE `id` = ? AND `owner_id` IS NULL AND `resolved_at` IS NULL AND `routed_to_review` = 1",
+    [owner, sqlDatetime(new Date(nowMs)), id],
+  );
+  return result.affectedRows === 1;
+}
+
+/** Only the current owner can release an open case. */
+export async function releaseDeclaration(db: Db, id: Uint8Array, owner: Uint8Array): Promise<boolean> {
+  const result = await db.execute(
+    "UPDATE `rider_cash_declarations` SET `owner_id` = NULL, `claimed_at` = NULL " +
+      "WHERE `id` = ? AND `owner_id` = ? AND `resolved_at` IS NULL AND `routed_to_review` = 1",
+    [id, owner],
+  );
+  return result.affectedRows === 1;
 }

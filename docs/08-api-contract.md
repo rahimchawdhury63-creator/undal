@@ -499,6 +499,8 @@ completely transparent about how position is earned, and that transparency is it
 | `GET` | `/v1/finance/cash/declarations` | The cases awaiting a human: `?kind=`, `?state=open\|resolved\|all`, `?riderId=`, `?cursor=`, `?limit=`, newest first, keyset-paged (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D154, filtered and paged D157) |
 | `POST` | `/v1/finance/cash/riders/{id}/write-off` | Forgive outstanding cash: an adjustment entry against `RIDER_CASH`, optionally closing the declaration it settles (see [`25 §7`](25-rider-cash-settlement.md)). Step-up. Implemented (D155) |
 | `GET` | `/v1/finance/cash/declarations/{id}` | One case whole: the rider, what was claimed then and now, and how it ended (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D156) |
+| `POST` | `/v1/finance/cash/declarations/{id}/claim` | Claim an unassigned open review case for the caller (D159); no body, permission `finance.cash.reject_settlement` |
+| `POST` | `/v1/finance/cash/declarations/{id}/release` | Release the caller's own open case (D159); no body, same permission |
 | `GET` | `/v1/finance/cash/settlements` | The reviewer's queue: pending claims by default, oldest first, with evidence — `?state=pending\|decided\|all`, `?method=`, `?partial=`, `?riderId=`, `?breach=true`, `?cursor=`, `?limit=` (see [`25 §8`](25-rider-cash-settlement.md)). Implemented (D145, filtered and paged D158) |
 | `POST` | `/v1/finance/cash/settlements/{id}/approve` | Reviewer's decision on a settlement, full or partial amount (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D143, partial D147) |
 | `POST` | `/v1/finance/cash/settlements/{id}/reject` | Refuse a settlement, reason from the register (see [`25 §6.2`](25-rider-cash-settlement.md)). Implemented (D144) |
@@ -636,10 +638,10 @@ Not internet-routable. Reachable only via service binding from Core and Realtime
 
 ## 11. Error code registry
 
-186 codes. The complete list lives in `packages/api-types/src/errors.ts` and is generated into both
-clients. The groups and representative members (the count is 186 rather than 184 because `SHIFT_ORDERS_ACTIVE`
+187 codes. The complete list lives in `packages/api-types/src/errors.ts` and is generated into both
+clients. The groups and representative members (the count is 187 rather than 184 because `SHIFT_ORDERS_ACTIVE`
 was added by D110 — `25 §2` blocks ending a shift with deliveries live and the table had no code for it — and
-`CASH_DECLARATION_NOT_FOUND` by D156, for a case id that names nothing):
+`CASH_DECLARATION_NOT_FOUND` by D156, for a case id that names nothing, and `CASH_CASE_UNAVAILABLE` by D159 for an unavailable claim or release):
 
 | Prefix | Count | Examples |
 | --- | --- | --- |
@@ -652,7 +654,7 @@ was added by D110 — `25 §2` blocks ending a shift with deliveries live and th
 | `OFFER_` | 11 | `OFFER_EXPIRED` `OFFER_CLAIMED` `OFFER_REJECT_NOT_ALLOWED` `OFFER_REASON_REQUIRED` |
 | `QR_` | 6 | `QR_INVALID` `QR_WRONG_ORDER` `QR_EXPIRED` `QR_TOO_FAR` `QR_WRONG_RIDER` |
 | `SHIFT_` | 13 | `SHIFT_SELFIE_REQUIRED` `SHIFT_CASH_OVERDUE` `SHIFT_ALREADY_OPEN` `SHIFT_ZONE_INACTIVE` `SHIFT_ORDERS_ACTIVE` |
-| `CASH_` | 10 | `CASH_TRXID_DUPLICATE` `CASH_AMOUNT_MISMATCH` `CASH_SELFIE_REQUIRED` `CASH_DECLARATION_NOT_FOUND` |
+| `CASH_` | 11 | `CASH_TRXID_DUPLICATE` `CASH_AMOUNT_MISMATCH` `CASH_SELFIE_REQUIRED` `CASH_DECLARATION_NOT_FOUND` |
 | `MONEY_` | 13 | `MONEY_INVOICE_UNBALANCED` `MONEY_PERIOD_CLOSED` `MONEY_ALREADY_PAID` |
 | `KYC_` | 10 | `KYC_DOCUMENT_REQUIRED` `KYC_ALREADY_SUBMITTED` `KYC_REJECTED` |
 | `MEDIA_` | 8 | `MEDIA_TOO_LARGE` `MEDIA_UNSUPPORTED_TYPE` `MEDIA_UPLOAD_FAILED` |

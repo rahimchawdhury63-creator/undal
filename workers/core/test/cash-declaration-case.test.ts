@@ -112,13 +112,15 @@ function caseRow(overrides: Record<string, unknown> = {}): Record<string, unknow
 
 describe("one cash case, read back (D156)", () => {
   test("a dispute arrives whole: the rider, both figures, and the lift it granted", async () => {
-    const answer = await run(dbFor([caseRow()]));
+    const answer = await run(dbFor([caseRow({ owner_id: bytes(ADMIN_HEX), claimed_at: AT })]));
     assert.equal(answer.status, 200);
 
     const data = answer.body;
     assert.equal(data.case.id, CASE_HEX);
     assert.equal(data.case.kind, "DISPUTE");
     assert.equal(data.case.note, "I only collected eight thousand");
+    assert.equal(data.case.ownerId, ADMIN_HEX);
+    assert.equal(data.case.claimedAt, AT);
     assert.equal(data.case.open, true, "nobody has finished with it");
     assert.equal(data.case.snapshot.differencePaisa, 130_000, "what the platform claimed when they objected");
     assert.equal(data.case.snapshot.linesPaisa, 84_000);

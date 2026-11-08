@@ -30,6 +30,7 @@ import { SHIFT_ROUTES } from "./routes/shift.ts";
 import { CASH_ROUTES } from "./routes/cash.ts";
 import { CASH_REVIEW_ROUTES } from "./routes/cash-review.ts";
 import { CASH_DECLARATION_ROUTES } from "./routes/cash-declaration.ts";
+import { CASH_CASE_OWNER_ROUTES } from "./routes/cash-case-owner.ts";
 import { CASH_QUEUE_ROUTES } from "./routes/cash-queue.ts";
 import { CASH_WRITE_OFF_ROUTES } from "./routes/cash-write-off.ts";
 import { DISPATCH_ROUTES } from "./routes/dispatch.ts";
@@ -64,6 +65,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   ...CASH_REVIEW_ROUTES,
   ...CASH_QUEUE_ROUTES,
   ...CASH_DECLARATION_ROUTES,
+  ...CASH_CASE_OWNER_ROUTES,
   ...CASH_WRITE_OFF_ROUTES,
   ...OFFER_ROUTES,
   ...DISPATCH_ROUTES,
@@ -223,7 +225,9 @@ export function createApp(routes: readonly RouteDefinition[] = ROUTES, dependenc
 
       const input: RouteInput = { params: match.params, body: body.value, reason };
       const replayable = match.route.write === true && match.route.method !== "GET";
-      const bodyHash = await bodyHashOf(body.value);
+      // These bodyless case actions must bind an idempotency key to the concrete case too.
+      // Keep existing routes' hashes unchanged so deployment cannot invalidate their active replay records.
+      const bodyHash = await bodyHashOf(idempotencyInput(match.route.path, body.value, input.params));
 
       if (replayable) {
         const idempotency = await beginIdempotency(ctx, match.route.path, bodyHash);
@@ -259,4 +263,11 @@ function withCommonHeaders(response: Response, requestId: string): Response {
   headers.set("X-Undal-Request-Id", requestId);
   if (!headers.has("cache-control")) headers.set("cache-control", "no-store");
   return new Response(response.body, { status: response.status, headers });
+}
+
+/** Bind the new bodyless case actions to their case without changing existing replay hashes. */
+export function idempotencyInput(path: string, body: unknown, params: Readonly<Record<string, string>>): unknown {
+  return path === "/v1/finance/cash/declarations/{id}/claim" || path === "/v1/finance/cash/declarations/{id}/release"
+    ? { body: body ?? null, params }
+    : body;
 }

@@ -19,7 +19,7 @@ const EXPECTED_COUNTS: Readonly<Record<string, number>> = {
   OFFER_: 11,
   QR_: 6,
   SHIFT_: 13,
-  CASH_: 10,
+  CASH_: 11,
   MONEY_: 13,
   KYC_: 10,
   MEDIA_: 8,
@@ -29,9 +29,9 @@ const EXPECTED_COUNTS: Readonly<Record<string, number>> = {
 
 const BENGALI = /[\u0980-\u09FF]/;
 
-describe("error registry — 186 codes, six fields each", () => {
+describe("error registry — 187 codes, six fields each", () => {
   test("registers exactly the number the specification promised", () => {
-    assert.equal(ERROR_COUNT, 186);
+    assert.equal(ERROR_COUNT, 187);
   });
 
   test("matches the per-prefix counts of 08 §11", () => {

@@ -4023,3 +4023,10 @@ the two-hour constant), a full page's cursor resuming *upward*, and six refused 
 *Open:* neither queue takes `?sort=`; the three decision routes (`approve`, `reject`, `escalate`) have no read of their
 own verdict beyond this list; `POST /v1/orders/{id}/dispute` and the robbery police-report upload are still the two
 holes `25 §7` names.
+
+
+### D159 — Claim a cash review case; do not pretend an external URL is a police-report upload
+
+- An open routed declaration can be claimed by the current reviewer or released by its owner, using conditional updates to prevent concurrent claims and releases by other reviewers. Ownership and claim time are visible on the queue and case read. Claiming does not make a financial decision or restrict who can resolve it.
+- Migration `029` adds nullable owner and claim-time fields. Existing cases are unclaimed. These actions use `finance.cash.reject_settlement` and write an audit record; like other writes, the state update and audit append are not transactional. No admin takeover or reassignment is implemented yet.
+- The police-report upload is deliberately still open: `26` describes a sensitive media pipeline, but no implementation or media assets table exists. Accepting arbitrary HTTPS URLs would not implement authenticated private upload, ownership checks, audited views or retention, and could expose sensitive evidence. Implement the secure pipeline before promising the upload.

@@ -60,6 +60,8 @@ async function readCase(ctx: Ctx, rawId: string): Promise<Response> {
         liftedUntil: found.liftedUntil,
         routedToReview: found.routedToReview,
         open: found.open,
+        ownerId: found.ownerId,
+        claimedAt: found.claimedAt,
         snapshot:
           found.snapshotDifferencePaisa === null && found.snapshotLinesPaisa === null
             ? null

@@ -4,7 +4,7 @@
  */
 
 /**
- * The error registry: 186 codes, assembled from sixteen group files.
+ * The error registry: 187 codes, assembled from sixteen group files.
  *
  * Assembled rather than authored in one place so each group can be read against the
  * specification table beside it, and so the compile-time check for "all six fields" is

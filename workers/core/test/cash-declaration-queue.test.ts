@@ -106,6 +106,8 @@ function declarationRow(overrides: Record<string, unknown> = {}): Record<string,
     created_at: minutesAgo(20),
     resolved_at: null,
     resolved_by_name: null,
+    owner_id: bytes(ADMIN_HEX),
+    claimed_at: "2026-11-06 21:40:00.000000",
     ...overrides,
   };
 }
@@ -117,6 +119,8 @@ describe("the declarations waiting for a human (D154)", () => {
   test("a dispute arrives with both numbers: what was claimed then, and what is claimed now", async () => {
     const db = dbFor([declarationRow()]);
     const answer = await run(db);
+    assert.equal(answer.data.declarations[0].ownerId, ADMIN_HEX);
+    assert.equal(answer.data.declarations[0].claimedAt, "2026-11-06 21:40:00.000000");
     assert.equal(answer.status, 200);
     const data = answer.data;
     assert.equal(data.declarations[0].kind, "DISPUTE");

@@ -458,9 +458,8 @@ it and are about to go home — not to punish people who do not.
 > endings and a zero cannot tell them apart. It declares the queue's permission, `finance.cash.list_outstanding`: a
 > reviewer who may read the list may read a row of it.
 >
-> Still open on this path: the **police-report upload** `§7` offers beside a robbery, and a case object a human owns
-> beyond the declaration row. The declaration is the case's first row — `routed_to_review` is how a reviewer finds it,
-> D155 is how it ends, D156 is how it is read back — and the rest of that object does not exist yet.
+> Still open on this path: the **police-report upload** `§7` offers beside a robbery. D159 adds voluntary reviewer
+> ownership to the declaration row; D155 closes it and D156 reads it back.
 
 ---
 
@@ -569,3 +568,8 @@ Next: [`26-media-pipeline.md`](26-media-pipeline.md).
 ---
 
 *Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.*
+
+
+> **Case ownership (D159).** Reviewers with `finance.cash.reject_settlement` may claim an unassigned, open, routed declaration with `POST /v1/finance/cash/declarations/{id}/claim`, or release their own with `/release`. Both take no body; an atomic conditional update refuses a competing claim, a release by another reviewer, or a closed/unrouted case with `CASH_CASE_UNAVAILABLE`. Queue and case reads expose `ownerId` and `claimedAt`. Ownership coordinates work; it does not restrict the separate write-off decision, change the balance, or automatically assign a reviewer. There is no administrator reassignment or recovery if the owner cannot release it yet.
+>
+> **Police reports remain unimplemented.** The sensitive upload pipeline described in `26` has no implementation or media asset table yet. An arbitrary HTTPS link is not a private, verified upload, so this route does not accept one. Private storage, validated upload, audited access and retention must be built before offering this feature.
