@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LicenseRef-PASVL-1.0
  */
 
-import { classifyError, isRetryable, type Db, type DbErrorKind } from "./client.ts";
+import { classifyError, type Db } from "./client.ts";
 
 /**
  * How a transaction is written here: a callback that gets a `Db`, retried on the
@@ -43,12 +43,28 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** A commit failed or its acknowledgement was lost; the database outcome is unknown. */
+export class TransactionCommitUnknownError extends Error {
+  constructor(cause: unknown) {
+    super("transaction commit outcome is unknown; reconcile before retrying", { cause });
+    this.name = "TransactionCommitUnknownError";
+  }
+}
+
+/** Rollback was not confirmed, so automatic retry cannot be assumed safe. */
+export class TransactionRollbackUnknownError extends Error {
+  readonly workError: unknown;
+  constructor(workError: unknown, cause: unknown) {
+    super("transaction rollback outcome is unknown; do not retry automatically", { cause });
+    this.name = "TransactionRollbackUnknownError";
+    this.workError = workError;
+  }
+}
+
 /**
- * Run `work` in a transaction, retrying deadlocks and lock timeouts.
- *
- * The callback may run more than once, so it must be free of side effects outside
- * the database — no pushes, no `waitUntil`. Effects are collected during the
- * transaction and dispatched after it commits, by the caller.
+ * Run database-only work in a transaction. Retry only a deadlock/lock timeout after a
+ * confirmed rollback. Never retry an ambiguous commit, connection error, or failed rollback.
+ * The callback can run more than once; external effects must occur only after commit.
  */
 export async function withTransaction<T>(
   runner: Transactional,
@@ -56,21 +72,32 @@ export async function withTransaction<T>(
   options: { attempts?: number; sleepFn?: (ms: number) => Promise<void>; random?: () => number } = {},
 ): Promise<T> {
   const attempts = options.attempts ?? MAX_ATTEMPTS;
+  if (!Number.isSafeInteger(attempts) || attempts < 1) throw new RangeError("attempts must be a positive integer");
   const sleepFn = options.sleepFn ?? sleep;
-  let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const tx = await runner.begin();
+    let result: T;
     try {
-      const value = await work(tx);
-      await tx.commit();
-      return value;
+      result = await work(tx);
     } catch (error) {
-      await tx.rollback().catch(() => undefined);
-      lastError = error;
-      const kind: DbErrorKind = classifyError(error);
-      if (!isRetryable(kind) || attempt === attempts - 1) throw error;
+      try {
+        await tx.rollback();
+      } catch (rollbackError) {
+        throw new TransactionRollbackUnknownError(error, rollbackError);
+      }
+      const kind = classifyError(error);
+      if ((kind !== "DEADLOCK" && kind !== "LOCK_TIMEOUT") || attempt === attempts - 1) throw error;
       await sleepFn(backoffDelay(attempt, options.random));
+      continue;
     }
+    try {
+      await tx.commit();
+    } catch (error) {
+      // It may have committed and lost its response. A rollback or replay is not proof
+      // of either outcome; a durable operation ID and reconciliation are required.
+      throw new TransactionCommitUnknownError(error);
+    }
+    return result;
   }
-  throw lastError;
+  throw new Error("unreachable transaction retry state");
 }

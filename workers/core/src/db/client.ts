@@ -4,6 +4,7 @@
  */
 
 import { connect, type Connection } from "@tidbcloud/serverless";
+import type { Transactional } from "./transaction.ts";
 
 /**
  * The database, as the rest of the Worker sees it.
@@ -31,9 +32,10 @@ export type DbErrorKind = "DEADLOCK" | "LOCK_TIMEOUT" | "DUPLICATE" | "CONSTRAIN
 const RETRYABLE: ReadonlySet<DbErrorKind> = new Set<DbErrorKind>(["DEADLOCK", "LOCK_TIMEOUT", "CONNECTION"]);
 
 interface DriverError {
-  readonly code?: string;
+  readonly code?: string | number;
   readonly errno?: number;
   readonly message?: string;
+  readonly details?: { readonly code?: string | number } | null;
 }
 
 /**
@@ -45,8 +47,9 @@ interface DriverError {
  * is a 409, not a retry.
  */
 export function classifyError(error: unknown): DbErrorKind {
-  const detail = error as DriverError;
-  const code = String(detail.code ?? "");
+  const detail: DriverError = typeof error === "object" && error !== null ? error as DriverError : {};
+  // The pinned driver's DatabaseError stores the gateway's code under `details`.
+  const code = String(detail.code ?? detail.errno ?? detail.details?.code ?? "");
   if (code === "1213" || code === "40001") return "DEADLOCK";
   if (code === "1205") return "LOCK_TIMEOUT";
   if (code === "1062" || code === "23000") return "DUPLICATE";
@@ -89,6 +92,11 @@ export function createDb(url: string): Db {
 
 /** Adapt a request-local TiDB connection and establish UTC before any application SQL. */
 export function dbFromConnection(connection: Pick<Connection, "execute">): Db {
+  return sessionFromConnection(connection).db;
+}
+
+/** A serialized session; transactions also need to await setup before they enter user work. */
+function sessionFromConnection(connection: Pick<Connection, "execute">): { db: Db; ready: () => Promise<void> } {
   // The driver carries TiDB-Session between statements. Serialize use of the connection
   // so concurrent callers cannot race the mutable session token or run before setup.
   let tail: Promise<void> = Promise.resolve();
@@ -113,7 +121,7 @@ export function dbFromConnection(connection: Pick<Connection, "execute">): Db {
     tail = operation.then(() => undefined, () => undefined);
     return operation;
   }
-  return {
+  const db: Db = {
     async query<T>(sql: string, params: readonly unknown[] = []): Promise<T[]> {
       return inSession(async () => {
         const rows = await connection.execute(sql, [...params], { fullResult: false });
@@ -152,6 +160,77 @@ export function dbFromConnection(connection: Pick<Connection, "execute">): Db {
           await connection.execute(statement.sql, [...(statement.params ?? [])]);
         }
       });
+    },
+  };
+  return { db, ready: () => inSession(async () => undefined) };
+}
+
+/** Create a transaction runner using a fresh TiDB connection per transaction. */
+export function createTransactionRunner(url: string): Transactional {
+  return transactionalFromConnection(connect({ url: pinTimeZone(url) }));
+}
+
+/** Adapt the driver's interactive transactions. No production cash route uses this yet. */
+export function transactionalFromConnection(connection: Pick<Connection, "begin">): Transactional {
+  return {
+    async begin() {
+      // begin() creates a new driver connection and session: the parent connection's
+      // timezone and queue do not carry over. Explicit isolation and UTC are per transaction.
+      const tx = await connection.begin({ isolation: "READ COMMITTED" });
+      const session = sessionFromConnection(tx);
+      try {
+        await session.ready();
+      } catch (error) {
+        // Setup happened after BEGIN. No application work has run, but release the session.
+        await tx.rollback().catch(() => undefined);
+        throw error;
+      }
+      let state: "open" | "finished" = "open";
+      const ensureOpen = (): void => {
+        if (state !== "open") throw new Error("TiDB transaction is already finished");
+      };
+      // Only ordinary DML belongs in the work callback. DDL and transaction control
+      // can commit implicitly; rejecting these is a guard against accidental misuse,
+      // not a SQL parser or a security boundary for untrusted SQL.
+      const ensureWorkStatement = (sql: string): void => {
+        if (!/^\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE)\b/iu.test(sql) || sql.includes(";")) {
+          throw new Error("unsupported statement inside TiDB transaction");
+        }
+      };
+      return {
+        async query<T>(sql: string, params: readonly unknown[] = []): Promise<T[]> {
+          ensureOpen();
+          ensureWorkStatement(sql);
+          return session.db.query<T>(sql, params);
+        },
+        async first<T>(sql: string, params: readonly unknown[] = []): Promise<T | null> {
+          ensureOpen();
+          ensureWorkStatement(sql);
+          return session.db.first<T>(sql, params);
+        },
+        async execute(sql: string, params: readonly unknown[] = []) {
+          ensureOpen();
+          ensureWorkStatement(sql);
+          return session.db.execute(sql, params);
+        },
+        async batch(statements: readonly { sql: string; params?: readonly unknown[] }[]): Promise<void> {
+          ensureOpen();
+          for (const statement of statements) ensureWorkStatement(statement.sql);
+          return session.db.batch(statements);
+        },
+        async commit(): Promise<void> {
+          ensureOpen();
+          // Mark terminal before sending COMMIT: a lost response leaves an unknown result,
+          // so this handle cannot be retried or reused as if the commit failed.
+          state = "finished";
+          await session.db.execute("COMMIT");
+        },
+        async rollback(): Promise<void> {
+          ensureOpen();
+          state = "finished";
+          await session.db.execute("ROLLBACK");
+        },
+      };
     },
   };
 }

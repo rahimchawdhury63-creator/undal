@@ -49,6 +49,8 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
    > The driver does not apply the DSN's query parameter. The session-token behavior is tested with
    > a simulated gateway; run the opt-in live staging check before production. This does not alter
    > timestamps already stored or configure external database clients.
+   > **D164:** An experimental transaction adapter now creates its own UTC-verified session, but is
+   > not yet used by cash routes or proven against live TiDB. `Db.batch` alone is not a transaction.
 
 4. **Soft delete only where it is needed.** `deleted_at DATETIME(6)` exists on vendors, menu items,
    and addresses, because those are referenced by historical orders. Everything else is hard
