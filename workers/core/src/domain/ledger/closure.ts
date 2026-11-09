@@ -31,9 +31,15 @@ export class LedgerImbalanceError extends Error {
 
 /** The signed total of a set. Zero is the only acceptable value. */
 export function sumPaisa(postings: readonly Posting[]): number {
-  let total = 0;
-  for (const posting of postings) total += posting.amountPaisa;
-  return total;
+  let total = 0n;
+  for (const posting of postings) {
+    if (!Number.isSafeInteger(posting.amountPaisa)) throw new RangeError("posting amount must be a safe integer");
+    total += BigInt(posting.amountPaisa);
+  }
+  if (total > BigInt(Number.MAX_SAFE_INTEGER) || total < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throw new RangeError("posting total exceeds safe integer range");
+  }
+  return Number(total);
 }
 
 /**

@@ -13,10 +13,10 @@ import type { AuditEntry, AuditEntryInput } from "./types.ts";
 /**
  * Append one row to the audit chain.
  *
- * The sequence number and the previous hash are read and the row written in a single
- * statement: `INSERT … SELECT` takes the tail of the chain and appends to it atomically,
- * so two concurrent writers cannot both claim sequence 41. Reading the tail first and
- * inserting second would need a lock, and TiDB's HTTP driver has no session to hold one.
+ * This reads the tail and then inserts the new row in a separate statement. Concurrent
+ * callers can observe the same tail; the unique sequence index may reject one writer.
+ * This is NOT an atomic audit append and cannot yet be used as proof that business state
+ * and audit committed together. See D163–D166 before enabling cash financial writes.
  *
  * Requires `INSERT` and `SELECT` grants on `audit_log` and nothing else — no `UPDATE`,
  * no `DELETE` — which is the structural half of immutability; the chain is the other.

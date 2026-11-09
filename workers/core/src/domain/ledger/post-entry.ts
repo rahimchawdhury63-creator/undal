@@ -12,21 +12,11 @@ import { ensureAccounts, uuidBytes } from "./repositories/accounts.ts";
 import type { EntryType, Posting, PostingSet } from "./types.ts";
 
 /**
- * Writing an entry: the only way money moves in this codebase.
- *
- * Three properties, in this order and for these reasons:
- *
- * 1. **Closure is asserted before anything is written.** A set that cannot close never
- *    reaches the database, so the failure is a programming error with a stack trace rather
- *    than a reconciliation task next month.
- * 2. **The postings are one multi-row INSERT.** TiDB auto-commits, and the HTTP driver's
- *    interactive transactions are documented as not concurrency-safe, so the number of
- *    statements that must all happen is kept at two — entry, then postings — rather than
- *    one per posting.
- * 3. **Closure is re-asserted from the rows that were actually written.** The sum comes
- *    back from SQL, not from the objects in memory, and an imbalance rolls the entry back
- *    by deleting it. This is the only check that proves what the database holds, and it is
- *    the check the nightly reconciliation repeats for the whole table.
+ * Legacy autocommit posting path. The in-memory closure check precedes the entry and
+ * multi-row postings writes; a later SQL sum check may attempt compensating deletes.
+ * These statements are NOT atomic: failures and ambiguous acknowledgements can leave
+ * partial state. The returned count-derived sequence is neither persisted nor safe as a
+ * unique ordering. Do not use this path as evidence of financial production readiness.
  */
 
 /** What a caller supplies to post an entry. */
@@ -55,9 +45,8 @@ async function nextEntrySeq(db: Db): Promise<number> {
 /**
  * Post an entry.
  *
- * The closure check after the write is not belt-and-braces: it is the assertion that the
- * rows in the table sum to zero, and the compensating delete is what makes "no entry can be
- * written that does not close, by any path" true even if a bug slips past the first check.
+ * The SQL sum check and compensating delete are best effort, not a transaction. They
+ * cannot establish atomicity or prove what happened after a lost acknowledgement.
  */
 export async function postEntry(db: Db, input: PostEntryInput): Promise<PostedEntry> {
   assertClosed(input.entryType, input.postings);

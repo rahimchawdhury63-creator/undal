@@ -5,6 +5,12 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 
 # 24 — Finance, Payouts and Invoices
 
+> **Implementation safety (D163–D166):** Existing financial posting and audit paths are not
+> atomic. Cash approval and write-off remain blocked in production. A transaction-only ledger
+> posting foundation exists but is not wired to routes or verified against real TiDB; it does
+> not by itself make balances, case closure, audit, replay, payouts or other money flows safe.
+> Reconcile existing data and complete isolated concurrency/failure testing before rollout.
+
 > The brief: *"auto generated 100% accurate invoices ... never fails and never mismatches ... no
 > cron ... manual admin review ... riders paid Friday, vendors Saturday ... branded graphic-rich
 > PDF under 1 MB on Cloudinary ... admin states VERIFIED then PAID."* This document specifies the
