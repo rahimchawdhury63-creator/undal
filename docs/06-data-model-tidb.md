@@ -233,10 +233,10 @@ actually checked" is not a state the platform can be in.
 | Catalogue | `menus`, `menu_sections`, `menu_items`, `item_variants`, `modifier_groups`, `modifiers`, `item_modifier_groups`, `item_availability`, `item_tags`, `tags`, `item_stats`, `item_media` | 12 |
 | Riders | `riders`, `rider_profiles`, `rider_documents`, `rider_vehicles`, `rider_shifts`, `rider_shift_selfies`, `rider_stats`, `rider_penalties`, `rider_suspensions`, `rider_cash_balances`, `rider_cash_settlements`, `rider_cash_declarations`, `rider_zone_assignments` | 13 |
 | Orders | `orders`, `order_items`, `order_item_modifiers`, `order_state_events`, `order_fees`, `order_discounts`, `order_assignments`, `order_offers`, `order_batches`, `order_batch_members`, `order_proofs`, `order_cancellations`, `order_ratings`, `order_disputes`, `order_dispute_messages` | 15 |
-| Money | `ledger_accounts`, `ledger_entries`, `ledger_postings`, `payout_periods`, `invoices`, `invoice_lines`, `invoice_documents`, `payout_transactions`, `platform_config`, `config_audit`, `tax_records`, `rounding_adjustments` | 12 |
+| Money | `ledger_accounts`, `ledger_entries`, `ledger_postings`, `payout_periods`, `invoices`, `invoice_lines`, `invoice_documents`, `payout_transactions`, `platform_config`, `config_audit`, `tax_records`, `rounding_adjustments`, `cash_financial_operations` | 13 |
 | Marketing | `promo_codes`, `promo_redemptions`, `campaigns`, `campaign_budgets`, `campaign_redemptions`, `referrals`, `loyalty_tiers`, `customer_loyalty`, `reminders`, `reminder_sends` | 10 |
 | Operations | `audit_log`, `audit_verifications`, `ops_errors`, `ops_metrics`, `ops_logs`, `effect_dead_letters`, `brain_traces`, `dispatch_locks`, `generation_locks`, `exceptions`, `support_tickets`, `support_messages`, `weather_observations`, `notification_log`, `fcm_dispatches`, `coordination_state` | 16 |
-| **Total** | | **114** |
+| **Total** | | **115** |
 
 > The rows above sum to 109, not the 99 this table used to claim: the per-group counts were
 > always right and the total was an arithmetic slip, recorded as D43 in `_plan/DECISIONS.md`.

@@ -1,6 +1,6 @@
 {
   "note": "Derived from db/migrations by scripts/db/expected.py \u2014 do not edit by hand.",
-  "table_count": 116,
+  "table_count": 117,
   "tables": {
     "_smoke": {
       "columns": [
@@ -236,6 +236,57 @@
       ],
       "inline_checks": 1,
       "source": "010_support.sql"
+    },
+    "cash_financial_operations": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "actor_user_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "action",
+          "type": "VARCHAR(32)"
+        },
+        {
+          "name": "key_hash",
+          "type": "BINARY(32)"
+        },
+        {
+          "name": "request_hash",
+          "type": "BINARY(32)"
+        },
+        {
+          "name": "target_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "ledger_entry_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "response_json",
+          "type": "JSON"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "completed_at",
+          "type": "DATETIME(6)"
+        }
+      ],
+      "generated": [],
+      "indexes": [
+        "uq_cash_financial_operation_key",
+        "idx_cash_financial_operation_target"
+      ],
+      "inline_checks": 0,
+      "source": "030_cash_financial_operations.sql"
     },
     "categories": {
       "columns": [
