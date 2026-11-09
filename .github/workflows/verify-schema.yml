@@ -26,7 +26,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Compare live schema to docs/schema/expected.json
+      - name: Install pinned database driver
+        run: python3 -m pip install --require-hashes --only-binary=:all: -r scripts/db/requirements.txt
+      - name: Compare live columns to db/expected.json
         env:
-          TIDB_MIGRATION_URL: ${{ secrets.TIDB_MIGRATION_URL }}
-        run: python3 scripts/db/verify_schema.py --expected docs/schema/expected.json
+          TIDB_READONLY_URL: ${{ secrets.TIDB_READONLY_URL }}
+        run: python3 scripts/db/verify_schema.py

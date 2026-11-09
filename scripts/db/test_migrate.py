@@ -46,6 +46,9 @@ class FakeCursor:
     def fetchall(self) -> list[tuple]:
         return self.rows
 
+    def fetchone(self) -> tuple:
+        return (0,)
+
 
 class FakeConnection:
     """Records statements; fails on demand so the resume path can be exercised."""
@@ -130,10 +133,6 @@ class MigrationRunnerTest(unittest.TestCase):
         self.assertIn("SET time_zone = '+00:00'", connection.executed)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class HousekeepingTest(unittest.TestCase):
     """The nightly jobs, against a scripted cursor: a chain that breaks is a failure."""
 
@@ -188,13 +187,75 @@ class HousekeepingTest(unittest.TestCase):
         report = housekeeping.orphans(connection)
         self.assertEqual(report, {"order_items": 3, "order_state_events": 3, "order_offers": 3})
 
-    def test_retention_commits_only_when_applying(self) -> None:
+    def test_retention_is_a_read_only_count_and_deletion_is_disabled(self) -> None:
         import housekeeping
 
         dry = FakeConnection()
         housekeeping.retention(dry, apply=False)
         self.assertEqual(dry.commits, 0)
+        self.assertTrue(all(statement.startswith("SELECT ") for statement in dry.executed))
+        with self.assertRaisesRegex(RuntimeError, "disabled"):
+            housekeeping.retention(dry, apply=True)
+        self.assertFalse(any(statement.startswith("DELETE ") for statement in dry.executed))
 
-        live = FakeConnection()
-        housekeeping.retention(live, apply=True)
-        self.assertGreaterEqual(live.commits, 1)
+
+class MigrationLedgerReadTest(unittest.TestCase):
+    def test_only_missing_ledger_is_treated_as_fresh(self) -> None:
+        class Cursor(FakeCursor):
+            def execute(self, statement: str, params: tuple | None = None) -> None:
+                raise RuntimeError(1146, "table does not exist")
+        connection = FakeConnection()
+        connection.cursor = lambda: Cursor(connection)  # type: ignore[method-assign]
+        self.assertEqual(migrate.read_ledger(connection), {})
+
+    def test_permissions_and_connection_errors_do_not_replay_all_migrations(self) -> None:
+        for error in (RuntimeError(1044, "access denied"), RuntimeError(2006, "server gone"), TimeoutError("network")):
+            class Cursor(FakeCursor):
+                def execute(self, statement: str, params: tuple | None = None) -> None:
+                    raise error
+            connection = FakeConnection()
+            connection.cursor = lambda: Cursor(connection)  # type: ignore[method-assign]
+            with self.assertRaises(type(error)):
+                migrate.read_ledger(connection)
+
+
+class MigrationConnectionTest(unittest.TestCase):
+    def test_uses_certificate_and_hostname_verifying_tls_context(self) -> None:
+        import ssl
+        import types
+        from unittest.mock import patch
+
+        captured: dict = {}
+        fake = types.SimpleNamespace(connect=lambda **kwargs: captured.update(kwargs) or object())
+        with patch.dict(sys.modules, {"pymysql": fake}):
+            migrate.connect("mysql://reader:secret@db.example:4000/undal")
+        context = captured["ssl"]
+        self.assertIsInstance(context, ssl.SSLContext)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
+        self.assertFalse(captured["autocommit"])
+
+
+class MigrationCliSafetyTest(unittest.TestCase):
+    def test_custom_ledger_is_rejected_instead_of_silently_ignored(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "unsupported migration ledger"):
+            migrate.main(["--dry-run", "--ledger", "other_ledger"])
+
+    def test_retention_cli_is_read_only_without_any_flag(self) -> None:
+        import contextlib
+        import io
+        import os
+        import housekeeping
+        from unittest.mock import patch
+
+        connection = FakeConnection()
+        with patch.dict(os.environ, {"TIDB_DATABASE_URL": "mysql://not-a-real-server"}), \
+             patch.object(migrate, "connect", return_value=connection), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(housekeeping.main(["retention"]), 0)
+        self.assertTrue(all(sql.startswith("SELECT ") for sql in connection.executed))
+        self.assertEqual(connection.commits, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

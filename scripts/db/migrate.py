@@ -5,11 +5,10 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 Apply forward-only migrations, one statement at a time, with a resumable ledger.
 
 TiDB auto-commits DDL, so there is no rollback: the only recovery from a failure
-halfway through a file is to fix the statement and re-run, which is why every
-statement is idempotent and why the ledger records *statement indices* rather
-than whole files. A file whose checksum changed after any of its statements were
-applied is refused outright — that is the difference between a migration system
-and a suggestion.
+halfway through a file requires inspecting what actually committed. The ledger
+records statement indices, but a crash after DDL commits and before the ledger row
+is recorded leaves an ambiguous gap; not every ALTER is idempotent. A file whose
+checksum changed after any of its statements were applied is refused outright.
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import ssl
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -111,8 +111,12 @@ def read_ledger(connection: Any) -> dict[str, dict[int, bytes]]:
     with connection.cursor() as cursor:
         try:
             cursor.execute(f"SELECT `version`, `statement_index`, `checksum` FROM `{LEDGER}`")
-        except Exception:  # noqa: BLE001 — the ledger is created by 000_smoke.sql
-            return applied
+        except Exception as error:
+            # Only a genuinely missing table is a fresh database. Permission, network,
+            # timeout and other errors must not silently replay every migration.
+            if error.args and error.args[0] == 1146:
+                return applied
+            raise
         for version, index, checksum in cursor.fetchall():
             applied.setdefault(str(version), {})[int(index)] = bytes(checksum)
     return applied
@@ -135,7 +139,9 @@ def connect(url: str) -> Any:
         database=(parsed.path or "/").lstrip("/") or None,
         autocommit=False,
         charset="utf8mb4",
-        ssl={"ca": None},
+        # An explicit default context verifies certificate chains and hostnames.
+        # PyMySQL's {"ca": None} disables both checks rather than using system CAs.
+        ssl=ssl.create_default_context(),
     )
 
 
@@ -147,6 +153,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--dry-run", action="store_true", default=os.environ.get("DRY_RUN") == "true")
     args = parser.parse_args(argv)
 
+    if args.ledger != LEDGER:
+        raise SystemExit(f"unsupported migration ledger: {args.ledger}; expected {LEDGER}")
     directory = Path(args.dir)
     applied_by = os.environ.get("GITHUB_SERVER_URL", "") + "/" + os.environ.get("GITHUB_RUN_ID", "local")
 

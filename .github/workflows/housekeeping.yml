@@ -8,11 +8,6 @@ name: housekeeping
 
 on:
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Report what would be deleted"
-        type: boolean
-        default: true
   schedule:
     - cron: "47 19 * * *"   # 01:47 Asia/Dhaka
 
@@ -35,13 +30,11 @@ jobs:
       - name: Orphan sweep
         env:
           TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
-          DRY_RUN: ${{ inputs.dry_run }}
         run: python3 scripts/db/housekeeping.py orphans --out .artifacts/housekeeping/orphans.json
-      - name: Retention
+      - name: Report retention candidates (deletion disabled)
         env:
           TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
-          DRY_RUN: ${{ inputs.dry_run }}
-        run: python3 scripts/db/housekeeping.py retention --out .artifacts/housekeeping/retention.json
+        run: python3 scripts/db/housekeeping.py retention --dry-run --out .artifacts/housekeeping/retention.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -5,10 +5,10 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 
 # 06 — Data Model (TiDB)
 
-> **Schema verification limitation (D167):** `scripts/db/expected.py` currently misses
-> unquoted column definitions, including every column in the three ledger tables. A passing
-> inventory/parity check does not prove the live database has those columns. Repair and test
-> the extractor before relying on its output for production verification.
+> **Schema verification limitation (D168):** The extractor now includes quoted and unquoted
+> columns and the verifier detects missing, unexpected and type-drifted columns. This has not
+> been verified against live TiDB and does not check keys, indexes, constraints, nullability,
+> defaults or generated expressions. Inventory parity is not full schema verification.
 
 > The system of record. 96 tables, serializable isolation, integer-paisa money, spatial types for
 > zones and proximity. Migrations are numbered SQL files applied by a GitHub Actions workflow — no
@@ -1334,7 +1334,7 @@ Rules:
    `TIDB_MIGRATION_URL` secret, reads `schema_migrations`, and applies what is missing **one
    statement at a time**, recording each as it succeeds.
 5. **Verified.** After applying, the workflow runs `scripts/db/verify_schema.py`, which compares the
-   live schema against `docs/schema/expected.json` (generated from this document) and fails on
+   live schema against `db/expected.json` (generated from migrations) and fails on
    drift.
 
 ```sql

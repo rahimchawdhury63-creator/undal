@@ -1,0 +1,38 @@
+<!--
+Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.
+SPDX-License-Identifier: LicenseRef-PASVL-1.0
+-->
+
+# Production readiness and known blockers
+
+**Status: not production-ready.** This is an evidence-based working register, not a claim that every possible defect has been found. Repository review and automated tests cannot establish production configuration, live data correctness, security, reliability, legal approval or Foodpanda-scale performance. No live environment was inspected or modified in D168. Reassess this register as implementation and independent testing proceed.
+
+## Confirmed blockers
+
+| Priority | Finding and evidence | Required work / status |
+| --- | --- | --- |
+| P0 | Cash approval and write-off span non-atomic balance, ledger, case and audit writes; KV replay is not durable financial deduplication. `workers/core/src/middleware/cash-financial-safety.ts` blocks the two paths in production. | Keep the gate closed. Integrate D164–D166 transaction/receipt foundations only after atomic audit, account provisioning, reconciliation and isolated TiDB concurrency, rollback and unknown-commit testing. Reconcile previously attempted writes. |
+| P0 | Legacy posting and other financial flows still use multiple autocommit statements and compensating writes (`workers/core/src/domain/ledger/post-entry.ts`); correcting the two cash routes alone will not make all money flows safe. | Inventory every financial mutation, design transactional/idempotent operations, verify invariants and reconcile balances/provider statements before enabling any flow. |
+| P0 | Audit append reads the chain tail and inserts separately (`workers/core/src/audit/write.ts`), so it is not atomic with business changes and concurrent appends can collide. The Python verifier omits IP while the TypeScript digest includes it; UUID representations and persisted values also need end-to-end verification. | Design a serialized transactional append, canonical persisted representation and migration/versioning strategy; verify real stored rows across both implementations and investigate existing chain data. Do not treat a passing fixture alone as proof. |
+| P0 | Customer, rider and partner Android apps and web/admin applications are absent: `android/settings.gradle.kts` includes only shared money, and there is no `web/` tree. | Build the actual applications, integration flows, accessibility, localization, security and release pipelines; existing workflow/specification files are not implementations. |
+| P0 | Secure sensitive-media pipeline and private police-report upload are not implemented (`docs/26-media-pipeline.md`, D159). | Implement authenticated private upload, ownership and access checks, malware/content controls, audited access and reviewed retention. Do not replace this with arbitrary external URLs. |
+| P0 | Migration DDL auto-commits before the runner records its ledger row (`scripts/db/migrate.py`). A crash between them can leave an applied statement unrecorded; not every `ALTER` is idempotent. | Create and test a staging recovery/runbook using schema inspection; require backups and operator review. D168 also stops permission/network errors from being mistaken for a missing ledger, but does not eliminate the DDL/ledger gap. |
+| P1 | Schema verification is only a partial table/column/type check. Indexes, keys, constraints, nullability, defaults, generated expressions, collations and database enforcement are not compared; `scripts/db/sqlsplit.py` is not a complete SQL parser. D168 fixes the missed unquoted columns and unexpected-column detection, but has not been tested against live TiDB. | Extend and independently test schema verification, including upgrade paths, real TiDB metadata/type forms and constraint/index behavior; do not infer full parity from a green inventory check. |
+| P1 | Ledger report aggregates can hide missing rows, duplicates, orphan postings and offsetting entry-level errors (`workers/core/src/domain/ledger/trial-balance.ts`). Historical ledger sequencing is unavailable. | Add entry-level and referential reconciliation, external provider reconciliation, reliable alarms and a reviewed historical snapshot design. Errors must not be treated as a clean report. |
+| P1 | Cash case claiming and audit writes are separate; ownership has no administrative recovery/takeover path (D159). | Define and implement safe recovery, authorization and atomic auditing; test concurrent reviewers. |
+| P1 | `housekeeping` previously executed retention deletes without requiring a safe explicit action, and its dry-run still issued DELETE statements. `exceptions` is among its retention tables. | D168 disables retention deletion and uses read-only candidate counts. Review legal/business retention rules, unresolved exceptions, backup and operator approval before any deletion is reintroduced. Housekeeping's Actions workflow still needs a configured pinned database driver and end-to-end validation; do not assume it is functioning. |
+| P1 | `migrate.connect` used a PyMySQL TLS configuration that disables certificate and hostname verification. | D168 supplies a system-trust verifying SSL context. Validate the actual TiDB endpoint and trust chain in isolated staging; assess historical exposure and rotate credentials if warranted. |
+| P1 | `README.md` and some specs/workflows describe intended capabilities rather than completed implementations. E2E workflow references Playwright and web applications absent from this checkout. | Treat workflow/specification claims as unverified until executables, credentials, environments and real end-to-end tests are supplied. |
+
+## Required evidence before launch
+
+- A fresh isolated TiDB migration and upgrade from a representative snapshot; verify schema and data, rollback/recovery procedures, least-privilege accounts, TLS and concurrent failure cases. No live TiDB result is available here.
+- Security review and penetration testing: authentication, session rotation, RBAC and tenant/zone isolation, sensitive media, secrets, dependency and supply-chain controls, abuse/rate limiting, privacy and retention. Document and address findings.
+- Real end-to-end customer, partner, rider, finance and admin journeys with controlled external providers and non-production credentials; mobile device/OS/background-delivery testing; accessibility and Bangla/English review.
+- Performance, load and failure testing with measurable targets for order placement, dispatch, notifications, location, database and third-party rate limits; graceful degradation, capacity and cost planning. A local benchmark is not a production SLO.
+- Operable monitoring and on-call alerts, incident response, tested backups and restores, disaster recovery, reconciliation, audit access controls, staged rollouts and rollback plans. Verify actual production configuration, not just templates.
+- Product, payment-provider, regulatory, legal, privacy and licensing approval, including PASVL/LOSDA requirements. No assumption is made about business approvals or connected services.
+
+## Recently mitigated in code (not deployed or independently validated)
+
+D163 keeps unsafe production cash writes blocked. D164–D166 add unused transaction, receipt and transactional-ledger foundations. D167 hardens ledger report arithmetic and removes fictitious sequence reads. D168 expands column extraction and drift detection, fixes the verifier workflow path/driver and requires a read-only verification credential, enforces verified TLS for Python database connections, makes migration ledger read failures fail closed, and disables destructive retention. These changes are not evidence that the entire platform is safe or deployed.

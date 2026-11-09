@@ -53,14 +53,114 @@
       "source": "002_geography.sql"
     },
     "addresses": {
-      "columns": [],
-      "generated": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "user_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "label",
+          "type": "VARCHAR(32)"
+        },
+        {
+          "name": "custom_label",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "recipient_name",
+          "type": "VARCHAR(96)"
+        },
+        {
+          "name": "recipient_phone",
+          "type": "VARCHAR(20)"
+        },
+        {
+          "name": "line1",
+          "type": "VARCHAR(256)"
+        },
+        {
+          "name": "line2",
+          "type": "VARCHAR(256)"
+        },
+        {
+          "name": "landmark",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "floor_flat",
+          "type": "VARCHAR(64)"
+        },
+        {
+          "name": "area",
+          "type": "VARCHAR(96)"
+        },
+        {
+          "name": "city",
+          "type": "VARCHAR(64)"
+        },
+        {
+          "name": "postcode",
+          "type": "VARCHAR(12)"
+        },
+        {
+          "name": "lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "cell_id",
+          "type": "BIGINT"
+        },
+        {
+          "name": "zone_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "delivery_note",
+          "type": "VARCHAR(280)"
+        },
+        {
+          "name": "is_default",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "updated_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "deleted_at",
+          "type": "DATETIME(6)"
+        }
+      ],
+      "generated": [
+        "cell_id"
+      ],
       "indexes": [],
       "inline_checks": 1,
       "source": "002_geography.sql"
     },
     "admin_role_permissions": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "role_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "permission_key",
+          "type": "VARCHAR(64)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 0,
@@ -69,8 +169,28 @@
     "admin_roles": {
       "columns": [
         {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
           "name": "key",
           "type": "VARCHAR(48)"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(96)"
+        },
+        {
+          "name": "name_bn",
+          "type": "VARCHAR(96)"
+        },
+        {
+          "name": "is_system",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
         }
       ],
       "generated": [],
@@ -79,7 +199,32 @@
       "source": "001_identity.sql"
     },
     "admin_user_roles": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "role_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "zone_scope",
+          "type": "JSON"
+        },
+        {
+          "name": "granted_by",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "granted_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "expires_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 0,
@@ -88,12 +233,80 @@
     "audit_log": {
       "columns": [
         {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "seq",
+          "type": "BIGINT"
+        },
+        {
+          "name": "occurred_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "actor_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "actor_type",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "actor_role",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "ip",
+          "type": "VARBINARY(16)"
+        },
+        {
+          "name": "user_agent",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "request_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "action",
+          "type": "VARCHAR(64)"
+        },
+        {
+          "name": "resource_type",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "resource_id",
+          "type": "VARCHAR(64)"
+        },
+        {
+          "name": "subject_id",
+          "type": "BINARY(16)"
+        },
+        {
           "name": "before",
           "type": "JSON"
         },
         {
           "name": "after",
           "type": "JSON"
+        },
+        {
+          "name": "reason",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "severity",
+          "type": "VARCHAR(8)"
+        },
+        {
+          "name": "prev_hash",
+          "type": "BINARY(32)"
+        },
+        {
+          "name": "hash",
+          "type": "BINARY(32)"
         }
       ],
       "generated": [],
@@ -102,14 +315,92 @@
       "source": "011_brain.sql"
     },
     "audit_verifications": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "ran_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "from_seq",
+          "type": "BIGINT"
+        },
+        {
+          "name": "to_seq",
+          "type": "BIGINT"
+        },
+        {
+          "name": "result",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "break_seq",
+          "type": "BIGINT"
+        },
+        {
+          "name": "duration_ms",
+          "type": "INT"
+        },
+        {
+          "name": "trigger_by",
+          "type": "VARCHAR(16)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 0,
       "source": "011_brain.sql"
     },
     "brain_traces": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "kind",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "order_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "zone_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "inputs",
+          "type": "JSON"
+        },
+        {
+          "name": "features",
+          "type": "JSON"
+        },
+        {
+          "name": "intermediates",
+          "type": "JSON"
+        },
+        {
+          "name": "output",
+          "type": "JSON"
+        },
+        {
+          "name": "engine_version",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "duration_ms",
+          "type": "BIGINT"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 1,
@@ -336,7 +627,24 @@
       "source": "003_vendors.sql"
     },
     "cell_zone": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "cell_id",
+          "type": "BIGINT"
+        },
+        {
+          "name": "zone_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "coverage",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "polygon_version",
+          "type": "BIGINT"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 0,
@@ -457,14 +765,114 @@
       "source": "010_support.sql"
     },
     "device_tokens": {
-      "columns": [],
-      "generated": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "device_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "fcm_token",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "valid",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "invalidated_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "invalid_reason",
+          "type": "VARCHAR(64)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "refreshed_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "device_id_if_valid",
+          "type": "BINARY(16)"
+        }
+      ],
+      "generated": [
+        "device_id_if_valid"
+      ],
       "indexes": [],
       "inline_checks": 0,
       "source": "001_identity.sql"
     },
     "devices": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "user_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "platform",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "fingerprint",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "model",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "os_version",
+          "type": "VARCHAR(32)"
+        },
+        {
+          "name": "app_version",
+          "type": "VARCHAR(32)"
+        },
+        {
+          "name": "app_flavour",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "battery_opt_exempt",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "notifications_allowed",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "exact_alarm_allowed",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "full_screen_intent_allowed",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "oem_autostart_prompted",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "first_seen_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "last_seen_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 2,
@@ -603,6 +1011,46 @@
     },
     "fcm_dispatches": {
       "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "order_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "device_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "fcm_token",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "attempt",
+          "type": "TINYINT"
+        },
+        {
+          "name": "outcome",
+          "type": "VARCHAR(24)"
+        },
+        {
+          "name": "message_id",
+          "type": "VARCHAR(256)"
+        },
+        {
+          "name": "sent_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "received_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
         {
           "name": "device_latency_ms",
           "type": "INT"
@@ -794,7 +1242,116 @@
       "source": "009_invoices.sql"
     },
     "invoices": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "number",
+          "type": "VARCHAR(32)"
+        },
+        {
+          "name": "period_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "party_type",
+          "type": "VARCHAR(8)"
+        },
+        {
+          "name": "party_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "order_count",
+          "type": "BIGINT"
+        },
+        {
+          "name": "gross_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "commission_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "tax_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "discount_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "campaign_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "bonus_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "penalty_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "adjustment_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "cash_offset_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "net_payable_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "pdf_url",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "pdf_bytes",
+          "type": "BIGINT"
+        },
+        {
+          "name": "content_hash",
+          "type": "BINARY(32)"
+        },
+        {
+          "name": "verified_by",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "verified_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "paid_by",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "paid_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "paid_method",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "paid_reference",
+          "type": "VARCHAR(64)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 2,
@@ -1027,21 +1584,112 @@
       "source": "004_menu.sql"
     },
     "ledger_accounts": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "code",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "kind",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "owner_type",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "owner_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "currency",
+          "type": "VARCHAR(3)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 2,
       "source": "008_ledger.sql"
     },
     "ledger_entries": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "entry_type",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "order_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "invoice_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "settlement_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "description",
+          "type": "VARCHAR(256)"
+        },
+        {
+          "name": "occurred_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "created_by",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "reverses_id",
+          "type": "BINARY(16)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 0,
       "source": "008_ledger.sql"
     },
     "ledger_postings": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "entry_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "account_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "amount_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 0,
@@ -1133,7 +1781,104 @@
       "source": "010_support.sql"
     },
     "menu_items": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "vendor_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "section_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "name_bn",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "description",
+          "type": "VARCHAR(600)"
+        },
+        {
+          "name": "description_bn",
+          "type": "VARCHAR(600)"
+        },
+        {
+          "name": "price_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "compare_at_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "image_url",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "image_blurhash",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "image_is_cutout",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "prep_time_s",
+          "type": "BIGINT"
+        },
+        {
+          "name": "calories",
+          "type": "BIGINT"
+        },
+        {
+          "name": "spice_level",
+          "type": "SMALLINT"
+        },
+        {
+          "name": "is_vegetarian",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "is_halal",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "contains_allergens",
+          "type": "JSON"
+        },
+        {
+          "name": "availability",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "sold_out_until",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "sort_order",
+          "type": "BIGINT"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "updated_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "deleted_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 4,
@@ -1220,7 +1965,44 @@
       "source": "004_menu.sql"
     },
     "modifier_groups": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "vendor_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(96)"
+        },
+        {
+          "name": "name_bn",
+          "type": "VARCHAR(96)"
+        },
+        {
+          "name": "selection",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "min_select",
+          "type": "SMALLINT"
+        },
+        {
+          "name": "max_select",
+          "type": "SMALLINT"
+        },
+        {
+          "name": "is_required",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "sort_order",
+          "type": "BIGINT"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 5,
@@ -1911,6 +2693,62 @@
     "order_offers": {
       "columns": [
         {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "order_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "rider_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "wave",
+          "type": "SMALLINT"
+        },
+        {
+          "name": "rank_in_wave",
+          "type": "SMALLINT"
+        },
+        {
+          "name": "score",
+          "type": "DOUBLE"
+        },
+        {
+          "name": "trace_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "payout_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "offered_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "expires_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "responded_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "response",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "reject_reason",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "reject_note",
+          "type": "VARCHAR(280)"
+        },
+        {
           "name": "propensity_features",
           "type": "JSON"
         }
@@ -2005,7 +2843,52 @@
       "source": "006_orders.sql"
     },
     "order_state_events": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "order_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "seq",
+          "type": "BIGINT"
+        },
+        {
+          "name": "from_state",
+          "type": "VARCHAR(24)"
+        },
+        {
+          "name": "to_state",
+          "type": "VARCHAR(24)"
+        },
+        {
+          "name": "actor_type",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "actor_user_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "reason_code",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "reason_text",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "metadata",
+          "type": "JSON"
+        },
+        {
+          "name": "occurred_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 1,
@@ -2014,11 +2897,235 @@
     "orders": {
       "columns": [
         {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "code",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "customer_user_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "vendor_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "zone_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "fulfilment",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "state",
+          "type": "VARCHAR(24)"
+        },
+        {
+          "name": "delivery_address_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "delivery_snapshot",
+          "type": "JSON"
+        },
+        {
+          "name": "delivery_lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "delivery_lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "pickup_lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "pickup_lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "subtotal_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "discount_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "delivery_fee_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "small_order_fee_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "tax_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "tip_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "rounding_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "total_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "commission_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "rider_bonus_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "rider_payout_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "vendor_payout_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "platform_revenue_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "fare_source",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "fare_trace_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "surge_bps",
+          "type": "BIGINT"
+        },
+        {
+          "name": "weather_condition",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "route_distance_m",
+          "type": "BIGINT"
+        },
+        {
+          "name": "route_duration_s",
+          "type": "BIGINT"
+        },
+        {
+          "name": "traffic_delay_s",
+          "type": "BIGINT"
+        },
+        {
+          "name": "distance_source",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "placed_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "accepted_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "prep_time_s",
+          "type": "BIGINT"
+        },
+        {
+          "name": "prep_time_source",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "ready_at_estimate",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "assigned_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "picked_up_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "arrived_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "delivered_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "settled_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "eta_min_at_placement",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "eta_max_at_placement",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "rider_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "batch_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "customer_note",
+          "type": "VARCHAR(280)"
+        },
+        {
+          "name": "payment_method",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "cash_collected_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "updated_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "live_zone_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "settled_zone_id",
+          "type": "BINARY(16)"
+        },
+        {
           "name": "delivery_cell",
           "type": "BIGINT"
         }
       ],
-      "generated": [],
+      "generated": [
+        "live_zone_id",
+        "settled_zone_id",
+        "delivery_cell"
+      ],
       "indexes": [],
       "inline_checks": 13,
       "source": "006_orders.sql"
@@ -2050,7 +3157,44 @@
       "source": "001_identity.sql"
     },
     "payout_periods": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "party_type",
+          "type": "VARCHAR(8)"
+        },
+        {
+          "name": "iso_year",
+          "type": "SMALLINT"
+        },
+        {
+          "name": "iso_week",
+          "type": "SMALLINT"
+        },
+        {
+          "name": "window_start",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "window_end",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "generate_after",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "generated_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 3,
@@ -2128,6 +3272,18 @@
         {
           "name": "key",
           "type": "VARCHAR(64)"
+        },
+        {
+          "name": "domain",
+          "type": "VARCHAR(32)"
+        },
+        {
+          "name": "description",
+          "type": "VARCHAR(256)"
+        },
+        {
+          "name": "risk",
+          "type": "VARCHAR(8)"
         }
       ],
       "generated": [],
@@ -2356,7 +3512,48 @@
       "source": "010_support.sql"
     },
     "refresh_tokens": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "session_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "family_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "token_hash",
+          "type": "BINARY(32)"
+        },
+        {
+          "name": "issued_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "expires_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "used_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "revoked_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "revoked_reason",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "replaced_by",
+          "type": "BINARY(16)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 0,
@@ -2845,8 +4042,87 @@
       "source": "005_riders.sql"
     },
     "rider_shifts": {
-      "columns": [],
-      "generated": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "rider_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "zone_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "started_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "ended_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "end_reason",
+          "type": "VARCHAR(32)"
+        },
+        {
+          "name": "selfie_url",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "selfie_verified",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "start_lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "start_lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "end_lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "end_lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "orders_completed",
+          "type": "BIGINT"
+        },
+        {
+          "name": "orders_rejected",
+          "type": "BIGINT"
+        },
+        {
+          "name": "distance_m",
+          "type": "BIGINT"
+        },
+        {
+          "name": "online_seconds",
+          "type": "BIGINT"
+        },
+        {
+          "name": "cash_collected_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "earnings_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "zone_id_if_open",
+          "type": "BINARY(16)"
+        }
+      ],
+      "generated": [
+        "zone_id_if_open"
+      ],
       "indexes": [],
       "inline_checks": 1,
       "source": "005_riders.sql"
@@ -3033,7 +4309,88 @@
       "source": "005_riders.sql"
     },
     "riders": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "user_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "code",
+          "type": "VARCHAR(12)"
+        },
+        {
+          "name": "full_name",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "date_of_birth",
+          "type": "DATE"
+        },
+        {
+          "name": "vehicle",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "home_zone_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(24)"
+        },
+        {
+          "name": "shift_state",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "photo_url",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "payout_method",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "payout_number",
+          "type": "VARCHAR(20)"
+        },
+        {
+          "name": "payout_name",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "bank_name",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "bank_account",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "bank_routing",
+          "type": "VARCHAR(24)"
+        },
+        {
+          "name": "approved_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "approved_by",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "updated_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 4,
@@ -3107,14 +4464,96 @@
       "source": "000_smoke.sql"
     },
     "security_events": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "kind",
+          "type": "VARCHAR(32)"
+        },
+        {
+          "name": "severity",
+          "type": "VARCHAR(8)"
+        },
+        {
+          "name": "actor_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "subject_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "request_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "ip",
+          "type": "VARBINARY(16)"
+        },
+        {
+          "name": "detail",
+          "type": "JSON"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 2,
       "source": "013_session_security.sql"
     },
     "sessions": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "user_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "token_hash",
+          "type": "BINARY(32)"
+        },
+        {
+          "name": "device_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "ip_created",
+          "type": "VARCHAR(45)"
+        },
+        {
+          "name": "ua_created",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "issued_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "expires_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "last_used_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "revoked_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "revoked_reason",
+          "type": "VARCHAR(64)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 0,
@@ -3379,7 +4818,60 @@
       "source": "001_identity.sql"
     },
     "users": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "phone",
+          "type": "VARCHAR(20)"
+        },
+        {
+          "name": "phone_norm",
+          "type": "VARCHAR(20)"
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR(254)"
+        },
+        {
+          "name": "email_norm",
+          "type": "VARCHAR(254)"
+        },
+        {
+          "name": "password_hash",
+          "type": "VARCHAR(255)"
+        },
+        {
+          "name": "actor_type",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(24)"
+        },
+        {
+          "name": "locale",
+          "type": "VARCHAR(5)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "updated_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "last_seen_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "deleted_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 2,
@@ -3820,8 +5312,188 @@
       "source": "003_vendors.sql"
     },
     "vendors": {
-      "columns": [],
-      "generated": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "owner_user_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "kind",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "slug",
+          "type": "VARCHAR(96)"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "name_bn",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "tagline",
+          "type": "VARCHAR(160)"
+        },
+        {
+          "name": "description",
+          "type": "VARCHAR(1200)"
+        },
+        {
+          "name": "phone",
+          "type": "VARCHAR(20)"
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR(254)"
+        },
+        {
+          "name": "zone_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "cell_id",
+          "type": "BIGINT"
+        },
+        {
+          "name": "service_area",
+          "type": "JSON"
+        },
+        {
+          "name": "sa_bbox_min_lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "sa_bbox_max_lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "sa_bbox_min_lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "sa_bbox_max_lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "max_delivery_m",
+          "type": "BIGINT"
+        },
+        {
+          "name": "address_line",
+          "type": "VARCHAR(256)"
+        },
+        {
+          "name": "landmark",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(24)"
+        },
+        {
+          "name": "open_state",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "busy_level",
+          "type": "SMALLINT"
+        },
+        {
+          "name": "busy_until",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "paused_until",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "pause_reason",
+          "type": "VARCHAR(128)"
+        },
+        {
+          "name": "commission_bps",
+          "type": "BIGINT"
+        },
+        {
+          "name": "rider_bonus_bps",
+          "type": "BIGINT"
+        },
+        {
+          "name": "supports_pickup",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "supports_delivery",
+          "type": "TINYINT(1)"
+        },
+        {
+          "name": "min_order_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "prep_time_default_s",
+          "type": "BIGINT"
+        },
+        {
+          "name": "cover_url",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "cover_blurhash",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "logo_url",
+          "type": "VARCHAR(512)"
+        },
+        {
+          "name": "logo_blurhash",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "approved_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "approved_by",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "updated_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "deleted_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "slug_active",
+          "type": "VARCHAR(96)"
+        }
+      ],
+      "generated": [
+        "cell_id",
+        "slug_active"
+      ],
       "indexes": [],
       "inline_checks": 6,
       "source": "003_vendors.sql"
@@ -3962,14 +5634,148 @@
       "source": "002_geography.sql"
     },
     "zone_pricing": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "zone_id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "vehicle",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "base_fare_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "base_distance_m",
+          "type": "BIGINT"
+        },
+        {
+          "name": "per_km_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "max_radius_m",
+          "type": "BIGINT"
+        },
+        {
+          "name": "min_payout_paisa",
+          "type": "BIGINT"
+        },
+        {
+          "name": "surge_cap_bps",
+          "type": "BIGINT"
+        },
+        {
+          "name": "effective_from",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "effective_to",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "created_by",
+          "type": "BINARY(16)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 3,
       "source": "002_geography.sql"
     },
     "zones": {
-      "columns": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "code",
+          "type": "VARCHAR(24)"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(96)"
+        },
+        {
+          "name": "name_bn",
+          "type": "VARCHAR(96)"
+        },
+        {
+          "name": "country",
+          "type": "VARCHAR(2)"
+        },
+        {
+          "name": "city",
+          "type": "VARCHAR(64)"
+        },
+        {
+          "name": "currency",
+          "type": "VARCHAR(3)"
+        },
+        {
+          "name": "timezone",
+          "type": "VARCHAR(48)"
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(16)"
+        },
+        {
+          "name": "polygon",
+          "type": "JSON"
+        },
+        {
+          "name": "polygon_version",
+          "type": "BIGINT"
+        },
+        {
+          "name": "bbox_min_lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "bbox_max_lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "bbox_min_lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "bbox_max_lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "centroid_lat_e7",
+          "type": "INT"
+        },
+        {
+          "name": "centroid_lon_e7",
+          "type": "INT"
+        },
+        {
+          "name": "area_sq_km",
+          "type": "DOUBLE"
+        },
+        {
+          "name": "created_by",
+          "type": "BINARY(16)"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME(6)"
+        },
+        {
+          "name": "updated_at",
+          "type": "DATETIME(6)"
+        }
+      ],
       "generated": [],
       "indexes": [],
       "inline_checks": 1,

@@ -163,21 +163,22 @@ def orphans(connection) -> dict[str, object]:
 
 
 def retention(connection, apply: bool) -> dict[str, object]:
-    """Delete expired rows in batches; report the count either way."""
-    removed: dict[str, int] = {}
+    """Count bounded candidates; destructive retention is disabled until policy review."""
+    if apply:
+        raise RuntimeError("retention deletion is disabled pending policy and safety review")
+    candidates: dict[str, int] = {}
     for table, window in RETENTION:
         if not isinstance(window, int):
-            removed[table] = 0
+            candidates[table] = 0
             continue
         with connection.cursor() as cursor:
             cursor.execute(
-                f"DELETE FROM `{table}` WHERE `created_at` < NOW() - INTERVAL %s DAY LIMIT {BATCH}",
+                f"SELECT COUNT(*) FROM (SELECT 1 FROM `{table}` "
+                f"WHERE `created_at` < NOW() - INTERVAL %s DAY LIMIT {BATCH}) AS candidates",
                 (window,),
             )
-            removed[table] = int(cursor.rowcount)
-        if apply:
-            connection.commit()
-    return removed
+            candidates[table] = int(cursor.fetchone()[0])
+    return candidates
 
 
 def main(argv: list[str]) -> int:
@@ -199,7 +200,8 @@ def main(argv: list[str]) -> int:
             report = orphans(connection)
             failed = any(count > 0 for count in report.values())  # type: ignore[union-attr]
         else:
-            report = retention(connection, apply=not args.dry_run)
+            # Always read-only, including scheduled runs and invocations without --dry-run.
+            report = retention(connection, apply=False)
             failed = False
     finally:
         connection.close()

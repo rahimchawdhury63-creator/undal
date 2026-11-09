@@ -46,7 +46,7 @@ export function sumPaisa(postings: readonly Posting[]): number {
  * sum to zero; a set with fewer than two postings (one-sided entries are how a ledger
  * becomes a list); a non-integer amount (the money law); and a zero amount, which the
  * application rejects because a zero posting is noise that makes "who touched this account"
- * unanswerable. The posting table does not currently enforce that rule as a constraint.
+ * unanswerable. Migration 012 also declares a nonzero CHECK; its live enforcement must be verified.
  */
 export function assertClosed(entryType: EntryType, postings: readonly Posting[]): void {
   if (postings.length < 2) {

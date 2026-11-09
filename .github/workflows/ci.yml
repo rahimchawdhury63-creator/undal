@@ -86,9 +86,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Every table in 06 §2 is created by a migration
         run: python3 scripts/db/check_schema_parity.py
-      - name: Statements still split and apply in order
-        working-directory: scripts/db
-        run: python3 -m unittest test_migrate
+      - name: Migration and schema verification tests
+        run: python3 -m unittest discover -s scripts/db -p 'test_*.py'
       - name: Regenerate the constraints and prove nothing changed
         run: |
           python3 scripts/db/extract_constraints.py

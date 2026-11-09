@@ -1,10 +1,10 @@
 # Undal — forward-only schema migrations. Licensed under PASVL-1.0.
 #
 # DDL in TiDB auto-commits, so a migration that fails halfway leaves the schema
-# in a state no rollback can describe. Two defences: every migration file is
-# individually idempotent, and this workflow runs them one at a time in filename
-# order inside a `schema_migrations` ledger, stopping at the first failure and
-# printing exactly which file the database is now at.
+# in a state no rollback can describe. The runner applies statements in filename
+# order and records each in a `schema_migrations` ledger. DDL commits independently
+# of that ledger: a lost acknowledgement or crash requires schema inspection, not
+# blind replay; some ALTER statements are not idempotent.
 name: migrate
 
 on:
@@ -30,7 +30,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Refuse an unconfirmed migration
-        run: test "${{ inputs.confirm }}" = "MIGRATE"
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: test "$CONFIRM" = "MIGRATE"
 
   migrate:
     needs: guard
@@ -42,6 +44,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install pinned database driver
+        run: python3 -m pip install --require-hashes --only-binary=:all: -r scripts/db/requirements.txt
       - name: Guardrails must be green first
         run: python3 scripts/guardrails/run.py
       - name: Apply pending migrations

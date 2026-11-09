@@ -45,7 +45,7 @@ or script instructs the reader to run a command on their own machine, and it che
 | 3 | `deploy-web.yml` | push to `main`, manual | Build and deploy the storefront to Pages |
 | 4 | `deploy-admin.yml` | push to `main`, manual | Build and deploy the admin panel to Pages |
 | 5 | `migrate.yml` | manual, typed confirmation | Forward-only schema migrations |
-| 6 | `verify-schema.yml` | after migrate, nightly | Compare live schema to `docs/schema/expected.json` |
+| 6 | `verify-schema.yml` | after migrate, nightly | Compare live schema to `db/expected.json` |
 | 7 | `d1-migrate.yml` | manual | D1 schema for live tracking |
 | 8 | `android-debug.yml` | push, PR | Debug APKs for all three apps |
 | 9 | `android-release.yml` | tag, manual | **Signed `.apk` and `.aab` for all three apps** |
@@ -62,7 +62,7 @@ or script instructs the reader to run a command on their own machine, and it che
 | 20 | `db-query.yml` | manual | Read-only allowlisted queries, results in the summary |
 | 21 | `tail-logs.yml` | manual | Worker tail into the job summary |
 | 22 | `release.yml` | tag | GitHub Release with APKs, AABs, notes and checksums |
-| 23 | `housekeeping.yml` | manual | Retention, orphan cleanup, chain verification |
+| 23 | `housekeeping.yml` | manual / nightly | Read-only retention candidates, orphan and chain checks; retention deletion disabled (D168) |
 
 Nothing in this list is a cron. `nightly` entries use `workflow_dispatch` plus a
 `schedule` trigger — and `schedule` on GitHub Actions is **CI infrastructure**, not application
@@ -437,7 +437,7 @@ on:
 | Advisory lock | Taken for the run; a second concurrent run blocks rather than racing |
 | Idempotent | Each migration records itself in `schema_migrations`; re-running is a no-op |
 | Online | Every migration must be non-blocking: `ADD COLUMN` nullable, backfill in batches, then constrain. The validator rejects a migration containing a blocking statement |
-| Verification | `verify-schema.yml` runs afterwards and compares the live schema against `docs/schema/expected.json`, failing on any drift |
+| Verification | `verify-schema.yml` runs afterwards and compares the live schema against `db/expected.json`, failing on detected table/column/type drift; it does not check all schema properties |
 | Summary | Statements executed, rows affected, duration, and the new schema hash, all in the job summary |
 
 The twelve migrations are listed in [`06`](06-data-model-tidb.md), preceded by `000_smoke.sql`, which probes `CHECK` behaviour and stops the run before the real schema if the probe fails.
