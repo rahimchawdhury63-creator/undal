@@ -45,7 +45,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install pinned database driver
-        run: python3 -m pip install --require-hashes --only-binary=:all: -r scripts/db/requirements.txt
+        run: |
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/db/requirements.txt
       - name: Guardrails must be green first
         run: python3 scripts/guardrails/run.py
       - name: Apply pending migrations

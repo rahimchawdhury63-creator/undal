@@ -27,7 +27,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install pinned database driver
-        run: python3 -m pip install --require-hashes --only-binary=:all: -r scripts/db/requirements.txt
+        run: |
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/db/requirements.txt
       - name: Compare live columns to db/expected.json
         env:
           TIDB_READONLY_URL: ${{ secrets.TIDB_READONLY_URL }}
