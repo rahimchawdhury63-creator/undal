@@ -363,7 +363,7 @@ describe("the LEDGER_IMBALANCE exception", () => {
     assert.equal(exception.trigger, "LEDGER_IMBALANCE");
     assert.equal(exception.differencePaisa, 250);
     assert.equal(exception.debitTotalPaisa, 500);
-    assert.equal(exception.creditTotalPaisa, -250);
+    assert.equal(exception.creditTotalPaisa, 250);
     assert.match(exception.messageEn, /ORDER_DELIVERED posting set did not close/u);
   });
 

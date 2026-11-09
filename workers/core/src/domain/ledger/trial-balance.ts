@@ -6,16 +6,17 @@
 import type { Db } from "../../db/client.ts";
 
 import { byAccount } from "./closure.ts";
+import { ledgerAccountKind } from "./balance.ts";
+import { safeLedgerNumber, sqlLedgerInteger } from "./exact.ts";
 import { naturalBalance } from "./accounts.ts";
 import type { AccountKind, Posting } from "./types.ts";
 
 /**
  * The trial balance: every account's signed total, and the proof that they sum to zero.
  *
- * A ledger that closes entry by entry still has to close in aggregate, and the aggregate is
- * what catches the bug closure cannot: an entry posted twice with a compensating correction
- * that landed on the wrong account. The property test runs this over a hundred thousand
- * postings; the nightly job runs it over the whole table.
+ * Equal total debits and credits are necessary, but not sufficient for correctness: this
+ * report alone cannot detect duplicates, offsetting errors, missing rows, or unbalanced
+ * entries that cancel each other. It is not a substitute for entry-level reconciliation.
  */
 
 /** One account's line in the balance. */
@@ -36,21 +37,42 @@ export interface TrialBalance {
   readonly differencePaisa: number;
 }
 
+/** Compute totals exactly, refusing results the number-based report cannot represent. */
+function makeTrialBalance(totals: Iterable<readonly [string, number, AccountKind]>): TrialBalance {
+  const lines: TrialBalanceLine[] = [];
+  let debits = 0n;
+  let credits = 0n;
+  for (const [code, raw, kind] of totals) {
+    lines.push({ accountCode: code, rawPaisa: raw, naturalPaisa: naturalBalance(kind, raw) });
+    if (raw > 0) debits += BigInt(raw);
+    else credits -= BigInt(raw);
+  }
+  return { lines, debitTotalPaisa: safeLedgerNumber(debits), creditTotalPaisa: safeLedgerNumber(credits),
+    differencePaisa: safeLedgerNumber(debits - credits) };
+}
+
 /** Compute the balance from postings already in memory. */
 export function trialBalance(postings: readonly Posting[], kinds: ReadonlyMap<string, AccountKind>): TrialBalance {
   const totals = byAccount(postings);
-  const lines: TrialBalanceLine[] = [];
-  let debits = 0;
-  let credits = 0;
+  return makeTrialBalance([...totals.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)).map(([code, raw]) => {
+    return [code, raw, ledgerAccountKind(kinds.get(code))] as const;
+  }));
+}
 
-  for (const [code, raw] of [...totals.entries()].sort(([left], [right]) => (left < right ? -1 : 1))) {
-    const kind = kinds.get(code) ?? "ASSET";
-    lines.push({ accountCode: code, rawPaisa: raw, naturalPaisa: naturalBalance(kind, raw) });
-    if (raw > 0) debits += raw;
-    else credits += -raw;
+/** Normalize a UTC DATETIME(6) boundary without losing microsecond precision. */
+function reportBoundary(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?Z?$/u.exec(value);
+  if (!match) throw new RangeError("invalid ledger report time boundary");
+  const [, year, month, day, hour, minute, second, fraction = ""] = match;
+  const y = Number(year), m = Number(month), d = Number(day), h = Number(hour), min = Number(minute), s = Number(second);
+  if (y < 1000 || h > 23 || min > 59 || s > 59 || m < 1 || m > 12 || d < 1 || d > 31) {
+    throw new RangeError("invalid ledger report time boundary");
   }
-
-  return { lines, debitTotalPaisa: debits, creditTotalPaisa: credits, differencePaisa: debits - credits };
+  const date = new Date(Date.UTC(y, m - 1, d, h, min, s));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() + 1 !== m || date.getUTCDate() !== d) {
+    throw new RangeError("invalid ledger report time boundary");
+  }
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}.${fraction.padEnd(6, "0")}`;
 }
 
 /** The balance over a period, read from the database. */
@@ -58,25 +80,15 @@ export async function trialBalanceFromDb(
   db: Db,
   input: { fromIso: string; toIso: string },
 ): Promise<TrialBalance> {
-  const rows = await db.query<{ code: string; kind: string; total: number | string | null }>(
+  const from = reportBoundary(input.fromIso);
+  const to = reportBoundary(input.toIso);
+  if (from >= to) throw new RangeError("ledger report interval must be increasing");
+  const rows = await db.query<{ code: string; kind: unknown; total: unknown }>(
     "SELECT a.`code`, a.`kind`, SUM(p.`amount_paisa`) AS total " +
       "FROM `ledger_postings` p JOIN `ledger_accounts` a ON a.`id` = p.`account_id` " +
       "JOIN `ledger_entries` e ON e.`id` = p.`entry_id` " +
       "WHERE e.`occurred_at` >= ? AND e.`occurred_at` < ? GROUP BY a.`code`, a.`kind` ORDER BY a.`code`",
-    [input.fromIso, input.toIso],
+    [from, to],
   );
-
-  const kinds = new Map<string, AccountKind>();
-  const lines: TrialBalanceLine[] = [];
-  let debits = 0;
-  let credits = 0;
-  for (const row of rows) {
-    const raw = Number(row.total ?? 0);
-    const kind = row.kind as AccountKind;
-    kinds.set(row.code, kind);
-    lines.push({ accountCode: row.code, rawPaisa: raw, naturalPaisa: naturalBalance(kind, raw) });
-    if (raw > 0) debits += raw;
-    else credits += -raw;
-  }
-  return { lines, debitTotalPaisa: debits, creditTotalPaisa: credits, differencePaisa: debits - credits };
+  return makeTrialBalance(rows.map((row) => [row.code, sqlLedgerInteger(row.total), ledgerAccountKind(row.kind)] as const));
 }

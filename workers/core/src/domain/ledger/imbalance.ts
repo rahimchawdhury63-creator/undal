@@ -5,7 +5,7 @@
 
 import type { Db } from "../../db/client.ts";
 
-import { LedgerImbalanceError } from "./closure.ts";
+import { sumPaisa, LedgerImbalanceError } from "./closure.ts";
 import { trialBalanceFromDb, type TrialBalance } from "./trial-balance.ts";
 
 /**
@@ -101,8 +101,8 @@ export function exceptionFromImbalance(error: LedgerImbalanceError): LedgerExcep
       .sort((left, right) => Math.abs(right.signedPaisa) - Math.abs(left.signedPaisa))
       .slice(0, 20),
     differencePaisa: error.sumPaisa,
-    debitTotalPaisa: error.postings.reduce((total, posting) => (posting.amountPaisa > 0 ? total + posting.amountPaisa : total), 0),
-    creditTotalPaisa: error.postings.reduce((total, posting) => (posting.amountPaisa < 0 ? total + posting.amountPaisa : total), 0),
+    debitTotalPaisa: sumPaisa(error.postings.filter((posting) => posting.amountPaisa > 0)),
+    creditTotalPaisa: Math.abs(sumPaisa(error.postings.filter((posting) => posting.amountPaisa < 0))),
     messageEn: `A ${error.entryType} posting set did not close: ${error.sumPaisa} paisa over ${error.postings.length} postings.`,
     messageBn: `একটি ${error.entryType} পোস্টিং সেট মেলেনি: ${error.postings.length}টি পোস্টিংয়ে ${error.sumPaisa} পয়সা বেশি।`,
   };

@@ -3,15 +3,15 @@
  * SPDX-License-Identifier: LicenseRef-PASVL-1.0
  */
 
+import { safeLedgerNumber } from "./exact.ts";
 import type { EntryType, Posting } from "./types.ts";
 
 /**
  * Closure: the one rule a ledger cannot break, checked in three places.
  *
  * Checked in the posting set before it reaches SQL, checked again after the postings are
- * written (because the write is what actually happened), and asserted by a property test
- * over ten thousand generated entries. A trigger cannot do this — TiDB has none — so the
- * assertion travels with the code that writes, and the nightly reconciliation proves it held.
+ * written by the transactional posting foundation, and asserted by property tests. Existing
+ * legacy writers are not atomic; aggregate reports alone do not prove every entry closed.
  */
 
 /** A posting set that does not close, with the arithmetic that says so. */
@@ -36,10 +36,7 @@ export function sumPaisa(postings: readonly Posting[]): number {
     if (!Number.isSafeInteger(posting.amountPaisa)) throw new RangeError("posting amount must be a safe integer");
     total += BigInt(posting.amountPaisa);
   }
-  if (total > BigInt(Number.MAX_SAFE_INTEGER) || total < BigInt(Number.MIN_SAFE_INTEGER)) {
-    throw new RangeError("posting total exceeds safe integer range");
-  }
-  return Number(total);
+  return safeLedgerNumber(total);
 }
 
 /**
@@ -48,8 +45,8 @@ export function sumPaisa(postings: readonly Posting[]): number {
  * Four refusals, each a real bug that reaches production otherwise: a set that does not
  * sum to zero; a set with fewer than two postings (one-sided entries are how a ledger
  * becomes a list); a non-integer amount (the money law); and a zero amount, which the
- * schema refuses too because a zero posting is noise that makes "who touched this account"
- * unanswerable.
+ * application rejects because a zero posting is noise that makes "who touched this account"
+ * unanswerable. The posting table does not currently enforce that rule as a constraint.
  */
 export function assertClosed(entryType: EntryType, postings: readonly Posting[]): void {
   if (postings.length < 2) {
@@ -80,10 +77,11 @@ export function isClosed(postings: readonly Posting[]): boolean {
 
 /** Merge postings that share an account, which is what a trial balance needs. */
 export function byAccount(postings: readonly Posting[]): Map<string, number> {
-  const totals = new Map<string, number>();
+  const totals = new Map<string, bigint>();
   for (const posting of postings) {
+    if (!Number.isSafeInteger(posting.amountPaisa)) throw new RangeError("posting amount must be a safe integer");
     const key = posting.account.code;
-    totals.set(key, (totals.get(key) ?? 0) + posting.amountPaisa);
+    totals.set(key, (totals.get(key) ?? 0n) + BigInt(posting.amountPaisa));
   }
-  return totals;
+  return new Map([...totals].map(([code, amount]) => [code, safeLedgerNumber(amount)]));
 }

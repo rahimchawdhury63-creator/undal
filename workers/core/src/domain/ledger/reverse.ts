@@ -6,6 +6,7 @@
 import type { Db } from "../../db/client.ts";
 import { uuidBytes } from "./repositories/accounts.ts";
 
+import { sqlLedgerInteger } from "./exact.ts";
 import { postEntry, type PostedEntry } from "./post-entry.ts";
 import type { EntryType, Posting } from "./types.ts";
 
@@ -83,7 +84,7 @@ export async function reverseEntry(
       ownerType: row.owner_type as Posting["account"]["ownerType"],
       ...(row.owner_id === null ? {} : { ownerId: hexUuid(new Uint8Array(row.owner_id)) }),
     },
-    amountPaisa: -Number(row.amount_paisa),
+    amountPaisa: -sqlLedgerInteger(row.amount_paisa),
   }));
 
   const nowMs = input.nowMs ?? Date.now();

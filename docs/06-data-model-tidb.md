@@ -5,6 +5,11 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 
 # 06 — Data Model (TiDB)
 
+> **Schema verification limitation (D167):** `scripts/db/expected.py` currently misses
+> unquoted column definitions, including every column in the three ledger tables. A passing
+> inventory/parity check does not prove the live database has those columns. Repair and test
+> the extractor before relying on its output for production verification.
+
 > The system of record. 96 tables, serializable isolation, integer-paisa money, spatial types for
 > zones and proximity. Migrations are numbered SQL files applied by a GitHub Actions workflow — no
 > CLI, no ORM migration runner, no drift.

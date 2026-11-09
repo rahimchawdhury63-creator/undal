@@ -10,6 +10,9 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 > posting foundation exists but is not wired to routes or verified against real TiDB; it does
 > not by itself make balances, case closure, audit, replay, payouts or other money flows safe.
 > Reconcile existing data and complete isolated concurrency/failure testing before rollout.
+> A balanced aggregate alone cannot prove each entry is complete or correct; missing rows,
+> duplicates and offsetting errors require separate reconciliation. Reporting errors must not
+> be interpreted as a clean ledger.
 
 > The brief: *"auto generated 100% accurate invoices ... never fails and never mismatches ... no
 > cron ... manual admin review ... riders paid Friday, vendors Saturday ... branded graphic-rich
