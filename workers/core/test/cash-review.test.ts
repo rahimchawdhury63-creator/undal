@@ -114,7 +114,7 @@ function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
 
 function ctxFor(db: ReturnType<typeof stubDb>, path: string): Ctx {
   return {
-    env: testEnv(),
+    env: testEnv({ ALLOW_UNSAFE_CASH_WRITES: "true" }),
     db,
     url: new URL(`https://api.undal.test${path}`),
     request: new Request(`https://api.undal.test${path}`),

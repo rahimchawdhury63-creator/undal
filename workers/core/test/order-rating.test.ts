@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { stubDb } from "../src/db/client.ts";
+import { sqlDatetime } from "../src/db/time.ts";
 import { testEnv } from "./support.ts";
 import { ORDER_ROUTES } from "../src/routes/orders.ts";
 import type { Ctx } from "../src/middleware/context.ts";
@@ -97,7 +98,8 @@ const route = () => {
 /** The statements a rating touches: the order, the existing rating, the insert, and the audit chain. */
 function ratingDb(overrides: { existing?: boolean; order?: Record<string, unknown> } = {}) {
   return stubDb([
-    { match: /FROM `orders` WHERE `id` = \?/u, rows: [{ ...ORDER_ROW, ...overrides.order }] },
+    // The normal fixture must remain inside the seven-day rating window as calendar time advances.
+    { match: /FROM `orders` WHERE `id` = \?/u, rows: [{ ...ORDER_ROW, delivered_at: sqlDatetime(new Date(Date.now() - 60_000)), ...overrides.order }] },
     {
       match: /FROM `order_ratings` WHERE `order_id`/u,
       rows: overrides.existing === true

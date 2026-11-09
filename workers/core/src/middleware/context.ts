@@ -37,6 +37,8 @@ export interface Env {
   readonly REALTIME_BASE?: string;
   readonly LOG_LEVEL: string;
   readonly ENVIRONMENT: "production" | "staging" | "preview" | "test";
+  /** Explicit opt-in to exercise non-atomic cash financial writes on isolated test/staging data only. */
+  readonly ALLOW_UNSAFE_CASH_WRITES?: string;
   /**
    * The bearer token `undal-realtime` presents when it asks a question only this Worker can answer
    * (D82). Absent, the internal surface refuses everybody rather than answering whoever asks.
@@ -85,6 +87,8 @@ export interface RouteDefinition {
   readonly permission: string;
   /** Whether the route mutates state; impersonation sessions may not. */
   readonly write?: boolean;
+  /** Block this cash financial route before idempotency replay when the safety gate is closed. */
+  readonly unsafeCashFinancialWrite?: true;
   /**
    * A `POST` that changes no rows.
    *

@@ -14,6 +14,7 @@ import { applyRateLimit } from "./middleware/ratelimit.ts";
 import { bodyHashOf, begin as beginIdempotency, finish as finishIdempotency } from "./middleware/idempotency.ts";
 import { DEFAULT_MAX_BODY_BYTES, readJsonBody } from "./middleware/body-limit.ts";
 import { baseHeaders, failureResponse, successResponse } from "./middleware/envelope.ts";
+import { unsafeCashWriteRefusal } from "./middleware/cash-financial-safety.ts";
 import { clientIp, clientUserAgent, resolveRequestId } from "./middleware/request-id.ts";
 import type { Ctx, Env, RouteDefinition, RouteInput } from "./middleware/context.ts";
 import { AUTH_ROUTES } from "./routes/auth.ts";
@@ -222,6 +223,13 @@ export function createApp(routes: readonly RouteDefinition[] = ROUTES, dependenc
         reason,
       });
       if (!permitted.ok) return failureResponse(permitted.error, locale, requestId);
+
+      // Block before idempotency replay: a cached 200 from an earlier unsafe run must
+      // never make a disabled financial action appear to succeed.
+      if (match.route.unsafeCashFinancialWrite === true) {
+        const refusal = unsafeCashWriteRefusal(ctx);
+        if (refusal !== null) return refusal;
+      }
 
       const input: RouteInput = { params: match.params, body: body.value, reason };
       const replayable = match.route.write === true && match.route.method !== "GET";

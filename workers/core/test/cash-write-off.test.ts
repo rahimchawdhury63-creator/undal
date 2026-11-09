@@ -102,7 +102,7 @@ const PRINCIPAL = {
 function ctxFor(db: ReturnType<typeof stubDb>): Ctx {
   const path = `/v1/finance/cash/riders/${RIDER_HEX}/write-off`;
   return {
-    env: testEnv(),
+    env: testEnv({ ALLOW_UNSAFE_CASH_WRITES: "true" }),
     db,
     url: new URL(`https://api.undal.test${path}`),
     request: new Request(`https://api.undal.test${path}`, { method: "POST" }),

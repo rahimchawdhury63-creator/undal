@@ -330,3 +330,8 @@ Next: [`30-testing-and-verification.md`](30-testing-and-verification.md).
 ---
 
 *Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.*
+
+
+### Temporary cash-write test gate (D163)
+
+`ALLOW_UNSAFE_CASH_WRITES` is an optional non-secret development setting, absent by default. Only the exact value `true` together with `ENVIRONMENT=test` or `ENVIRONMENT=staging` enables the currently non-atomic settlement approval and cash write-off paths. It must only be used with isolated, non-production databases. An environment labelled `production`, `preview`, missing, or unknown cannot enable those routes with this flag. Do not label a live deployment as test/staging or point an opted-in worker at production data. Remove this temporary opt-in only after the financial paths have transactional, durable idempotency and have been validated on real staging.

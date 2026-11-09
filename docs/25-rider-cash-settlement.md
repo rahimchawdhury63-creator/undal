@@ -304,6 +304,14 @@ orders that generated the cash.
 
 Every decision is audited with the reviewer, the evidence they saw, and the reason.
 
+> **Production safety gate (D163).** Settlement approval and cash write-off return `503 SERVICE_DEGRADED`
+> (`component: cash_financial_writes`) before replay or financial queries unless `ENVIRONMENT` is `test` or `staging`
+> **and** `ALLOW_UNSAFE_CASH_WRITES=true`. This opt-in is exclusively for isolated, non-production data. Production,
+> preview, missing/unknown environment, and absent opt-in remain blocked; production is not overridable by that flag.
+> Deployment must not mislabel a live environment as test/staging or point a test/staging instance at live data.
+> This guard does not establish the safety of rejection, escalation, or other financial operations. Pending claims
+> remain pending; no manual approval or accounting reconciliation is provided by the gate.
+
 > **Approve is built; the other three are not (D143).** `POST /v1/finance/cash/settlements/{id}/approve` is the row
 > above with a route attached: it requires `finance.cash.approve_settlement`, which is one of the twenty-three step-up
 > keys, so a reviewer must have entered a TOTP code within the last five minutes. It takes the claim with

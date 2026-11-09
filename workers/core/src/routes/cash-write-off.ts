@@ -7,6 +7,7 @@ import * as audit from "../audit/write.ts";
 import { reasonAllowed, reasonsFor } from "../audit/reasons.ts";
 import { toHexId } from "../lib/ids.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
+import { unsafeCashWriteRefusal } from "../middleware/cash-financial-safety.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
 import { cashCollectedPaisa, cashOutstandingPaisa, setShiftState, shiftStateOf } from "../repositories/riders.ts";
@@ -102,6 +103,8 @@ function idBytes(raw: string): Uint8Array | null {
  */
 async function writeOff(ctx: Ctx, rawRiderId: string, body: unknown): Promise<Response> {
   if (ctx.principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+  const safetyRefusal = unsafeCashWriteRefusal(ctx);
+  if (safetyRefusal !== null) return safetyRefusal;
 
   const riderBytes = idBytes(rawRiderId);
   if (riderBytes === null) {
@@ -253,6 +256,7 @@ export const CASH_WRITE_OFF_ROUTES: readonly RouteDefinition[] = [
     // the action that does so.
     permission: "finance.cash.write_off",
     write: true,
+    unsafeCashFinancialWrite: true,
     group: "ADMIN_WRITE",
     maxBodyBytes: 1_024,
     run: async (ctx, input) => writeOff(ctx, input.params["id"] ?? "", input.body),

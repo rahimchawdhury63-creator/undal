@@ -8,6 +8,7 @@ import { reasonAllowed, reasonsFor } from "../audit/reasons.ts";
 import { auditReasonFor, isRejectionReason, REJECTION_REASONS, refusalNeedsNote } from "../domain/rider/cash.ts";
 import { toHexId } from "../lib/ids.ts";
 import { failureResponse, successResponse } from "../middleware/envelope.ts";
+import { unsafeCashWriteRefusal } from "../middleware/cash-financial-safety.ts";
 import type { Ctx, RouteDefinition } from "../middleware/context.ts";
 import { uuidBytes } from "../middleware/auth.ts";
 import { cashOutstandingPaisa, setShiftState, shiftStateOf } from "../repositories/riders.ts";
@@ -40,11 +41,9 @@ import { postEntry } from "../domain/ledger/post-entry.ts";
  * caller, so two reviewers who open the same claim a minute apart cannot both post an entry. The loser is told the
  * settlement is already settled — a message about the row, not about their typing.
  *
- * **Three statements, no transaction, so the route unwinds by hand.** TiDB auto-commits each statement and the HTTP
- * driver's interactive transactions are not concurrency-safe, so approval cannot be atomic. The order is chosen for what
- * a failure leaves behind: the claim is taken first (so a retry cannot double-post), then the deposit is credited, then
- * the ledger entry is posted. If the ledger fails, the deposit is credited back and the claim released, and the reviewer
- * gets `500` and a settlement that is still pending — which is the only failure shape a reviewer can safely retry.
+ * **The approval is not atomic.** The claim, deposit, ledger, and audit are separate statements. Best-effort
+ * compensation cannot resolve ambiguous commits, and the existing KV replay guard is not financial idempotency.
+ * The route is gated off in production (D163) pending a transactional implementation and real TiDB staging tests.
  *
  * **A rejection is the cheaper decision and the one that has to explain itself.** No money moves, no balance changes, no
  * ledger entry: one `UPDATE ... WHERE status = 'PENDING'` and one audit row. What it must carry is a reason, because
@@ -134,6 +133,8 @@ function idBytes(raw: string): Uint8Array | null {
  */
 async function approveSettlement(ctx: Ctx, rawId: string, body: unknown): Promise<Response> {
   if (ctx.principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+  const safetyRefusal = unsafeCashWriteRefusal(ctx);
+  if (safetyRefusal !== null) return safetyRefusal;
 
   const id = idBytes(rawId);
   if (id === null) return failureResponse({ code: "VALIDATION_ID_MALFORMED", details: { field: "id" } }, ctx.locale, ctx.requestId);
@@ -534,6 +535,7 @@ export const CASH_REVIEW_ROUTES: readonly RouteDefinition[] = [
     path: "/v1/finance/cash/settlements/{id}/approve",
     permission: "finance.cash.approve_settlement",
     write: true,
+    unsafeCashFinancialWrite: true,
     group: "ADMIN_WRITE",
     maxBodyBytes: 1_024,
     run: async (ctx, input) => approveSettlement(ctx, input.params["id"] ?? "", input.body),
