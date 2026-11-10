@@ -5,6 +5,12 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 
 # 27 — Security, RBAC and Audit
 
+> **Audit safety (D169):** Legacy audit hashes cannot always be recomputed from stored rows:
+> UUID spelling and some IP values are not preserved. Current audit checks inspect links and
+> sequence continuity only and return incomplete, never a clean verification. Historical
+> verification records cannot prove integrity. A versioned canonical format, serialized
+> transactional append, trusted checkpoints and migration/reconciliation are still required.
+
 > A platform that holds national ID cards, home addresses, phone numbers and cash owes its users a
 > serious security posture. This document specifies authentication, authorisation, the audit
 > trail, the threat model, and the things Undal deliberately does not do.

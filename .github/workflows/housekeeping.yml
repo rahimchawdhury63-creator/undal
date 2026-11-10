@@ -1,9 +1,8 @@
 # Undal — retention, orphan cleanup and the audit chain. Licensed under PASVL-1.0.
 #
-# Three jobs that must never run inside a Worker: expire what the free tier
-# charges for, find rows that lost their parent (order_items, order_offers and
-# order_state_events deliberately carry no foreign key), and walk the SHA-256
-# audit chain to prove no historical row was rewritten.
+# Read-only diagnostics only. The legacy audit check is necessarily INCOMPLETE
+# and returns nonzero; it must not be presented as proof of chain integrity.
+# Retention deletion stays disabled pending policy and safety review.
 name: housekeeping
 
 on:

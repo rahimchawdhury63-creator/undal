@@ -2,30 +2,18 @@
 Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.
 SPDX-License-Identifier: LicenseRef-PASVL-1.0
 
-The three nightly jobs that keep a cash ledger honest: the chain, the orphans, the clock.
-
-**audit-chain** re-walks `audit_log` and proves every row's `prev_hash` is its
-predecessor's `hash` and that the row's own hash recomputes. Grants stop a customer
-support agent from editing history; only recomputation proves nobody with a
-connection did.
-
-**orphans** counts rows in the three tables the schema deliberately leaves without a
-foreign key (`order_items`, `order_state_events`, `order_offers`). No FK is the right
-choice for those three — an order item must survive its order row's cancellation —
-but "no FK" must not quietly become "no parent".
-
-**retention** deletes what the retention policy says is done, oldest first, in bounded
-batches, and reports what it removed. Nothing is deleted that a settlement, an audit
-chain or an invoice still needs; the queries are written as `DELETE ... WHERE ... LIMIT`
-so a run that times out leaves a smaller remainder rather than half a table.
+Read-only operational diagnostics for audit links, orphan rows and retention candidates.
+Legacy audit payloads are not reconstructible reliably. An audit link diagnostic cannot
+certify integrity and always exits nonzero until a reviewed, versioned verifier exists.
+Retention deletion is disabled; candidate counts do not delete rows.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -57,12 +45,12 @@ SEPARATOR = "\u001f"
 
 
 def canonical_json(value: object) -> str:
-    """JSON with sorted keys and no spaces: the form `audit/chain.ts` hashes."""
+    """Legacy fixture helper, not a proven cross-language canonical serializer."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def digest_input(entry: dict) -> str:
-    """The fields the chain commits to, in the order both implementations agree on."""
+    """Legacy fixture helper; stored rows do not preserve every original input."""
     before = entry.get("before")
     after = entry.get("after")
     return SEPARATOR.join(
@@ -72,7 +60,7 @@ def digest_input(entry: dict) -> str:
             entry.get("actorId") or "",
             entry["actorType"],
             entry.get("actorRole") or "",
-            "",  # ip: not part of the digest, kept for symmetry with the TypeScript builder
+            entry.get("ip") or "",
             entry["requestId"],
             entry["action"],
             entry["resourceType"],
@@ -86,67 +74,62 @@ def digest_input(entry: dict) -> str:
     )
 
 
-def audit_chain(connection) -> dict[str, object]:
-    """Recompute the whole chain; the first break is reported with its sequence.
-
-    The digest is recomputed from the row's own fields rather than read from a column:
-    a stored digest proves only that somebody wrote the column, while a recomputed one
-    proves the row has not changed since it was chained.
-    """
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT `seq`, `occurred_at`, `actor_id`, `actor_type`, `actor_role`, `request_id`, `action`, "
-            "`resource_type`, `resource_id`, `subject_id`, `before`, `after`, `reason`, `severity`, "
-            "`prev_hash`, `hash` FROM `audit_log` ORDER BY `seq` ASC"
-        )
-        rows = cursor.fetchall()
-
-    previous = b"\x00" * 32
-    broken: list[dict[str, object]] = []
-    for row in rows:
-        (seq, occurred_at, actor_id, actor_type, actor_role, request_id, action, resource_type,
-         resource_id, subject_id, before, after, reason, severity, prev_hash, row_hash) = row
-        entry = {
-            "seq": int(seq),
-            "occurredAt": str(occurred_at),
-            "actorId": _hex_uuid(actor_id),
-            "actorType": str(actor_type),
-            "actorRole": actor_role,
-            "requestId": _hex_uuid(request_id),
-            "action": str(action),
-            "resourceType": str(resource_type),
-            "resourceId": resource_id,
-            "subjectId": _hex_uuid(subject_id),
-            "before": _json_value(before),
-            "after": _json_value(after),
-            "reason": reason,
-            "severity": str(severity),
-        }
-        digest = hashlib.sha256(digest_input(entry).encode("utf-8")).digest()
-        expected = hashlib.sha256(previous + digest).hexdigest()
-        stored_prev = bytes(prev_hash) if prev_hash is not None else b"\x00" * 32
-        if stored_prev != previous or bytes(row_hash).hex() != expected:
-            broken.append({"seq": int(seq), "expected": expected, "actual": bytes(row_hash).hex()})
-        previous = bytes(row_hash)
-    return {"rows": len(rows), "broken": broken}
+def _audit_sequence(value: object) -> int:
+    """Reject malformed or JavaScript-unsafe sequence values."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)) or not re.fullmatch(r"[1-9][0-9]*", str(value)):
+        raise ValueError("invalid audit sequence")
+    result = int(value)
+    if result >= 9_007_199_254_740_991:
+        raise ValueError("audit sequence outside supported range")
+    return result
 
 
-def _hex_uuid(value: object) -> str | None:
-    """The 16 stored bytes as the dashed UUID string the digest writes."""
-    if value is None:
+def _audit_hash(value: object, nullable: bool) -> bytes | None:
+    if value is None and nullable:
         return None
-    raw = bytes(value).hex()
-    return f"{raw[0:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
+    if not isinstance(value, (bytes, bytearray, memoryview)) or len(value) != 32:
+        raise ValueError("invalid audit hash")
+    return bytes(value)
 
 
-def _json_value(value: object) -> object:
-    """A JSON column as the value the app wrote, whether the driver parsed it or not."""
-    if value is None or not isinstance(value, str):
-        return value
-    try:
-        return json.loads(value)
-    except ValueError:
-        return value
+def audit_chain(connection) -> dict[str, object]:
+    """Inspect sequence and stored links only; payload integrity remains unverified."""
+    cursor_seq = 1
+    previous: bytes | None = None
+    rows_seen = 0
+    last_seq: int | None = None
+    broken: list[dict[str, object]] = []
+    while True:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT `seq`, `prev_hash`, `hash` FROM `audit_log` "
+                "WHERE `seq` >= %s ORDER BY `seq` ASC LIMIT %s", (cursor_seq, BATCH),
+            )
+            page = cursor.fetchall()
+        if len(page) > BATCH:
+            raise ValueError("audit page exceeds requested limit")
+        if not page:
+            break
+        for raw_seq, raw_prev, raw_hash in page:
+            seq = _audit_sequence(raw_seq)
+            if seq < cursor_seq:
+                raise ValueError("audit rows are not strictly increasing")
+            if seq != cursor_seq:
+                broken.append({"seq": seq, "expected": str(cursor_seq), "actual": str(seq), "reason": "SEQUENCE"})
+            prev = _audit_hash(raw_prev, True)
+            current = _audit_hash(raw_hash, False)
+            if previous is not None and prev != previous:
+                broken.append({"seq": seq, "expected": previous.hex(), "actual": prev.hex() if prev is not None else "null", "reason": "LINK"})
+            elif rows_seen == 0 and seq == 1 and prev is not None:
+                broken.append({"seq": seq, "expected": "null", "actual": prev.hex(), "reason": "LINK"})
+            previous = current
+            last_seq = seq
+            rows_seen += 1
+            cursor_seq = seq + 1
+        if len(page) < BATCH:
+            break
+    return {"status": "BREAK" if broken else "INCOMPLETE", "rows": rows_seen, "last_seq": last_seq,
+            "broken": broken, "payloads_verified": False, "last_hash_hex": previous.hex() if previous else None}
 
 
 def orphans(connection) -> dict[str, object]:
@@ -195,7 +178,8 @@ def main(argv: list[str]) -> int:
     try:
         if args.command == "audit-chain":
             report = audit_chain(connection)
-            failed = bool(report["broken"])
+            # A link-only walk is always incomplete, even when no structural break appears.
+            failed = True
         elif args.command == "orphans":
             report = orphans(connection)
             failed = any(count > 0 for count in report.values())  # type: ignore[union-attr]

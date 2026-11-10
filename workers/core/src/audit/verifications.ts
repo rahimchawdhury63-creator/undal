@@ -12,10 +12,8 @@ import type { VerifyReport } from "./verify.ts";
 /**
  * The record that a verification happened, and what it found.
  *
- * `audit_verifications` exists because "we verify the chain nightly" is a claim, and a claim
- * with no rows is a claim nobody can check. Each run writes its range, its last hash and its
- * break count, so the admin panel can show a green tick that means something and an auditor
- * can see when the chain was last proven rather than asserted.
+ * The legacy verification implementation could report a false success or payload break.
+ * Existing unversioned records cannot establish integrity and must not be shown as proof.
  */
 
 /** Which of the three outcomes a run had, matching the column's comment. */
@@ -46,11 +44,12 @@ export function recordOf(
   ranAt: Date,
   options: { durationMs: number; triggeredBy: VerificationRecord["triggeredBy"] },
 ): VerificationRecord {
+  if (fromSeq !== report.fromSeq) throw new RangeError("verification range does not match report");
   const firstBreak = report.breaks[0];
   return {
     fromSeq,
-    toSeq: fromSeq + report.rows - 1,
-    result: firstBreak === undefined ? "OK" : "BREAK",
+    toSeq: report.lastSeq ?? fromSeq - 1,
+    result: firstBreak === undefined ? "ERROR" : "BREAK",
     breakSeq: firstBreak === undefined ? null : firstBreak.seq,
     durationMs: options.durationMs,
     triggeredBy: options.triggeredBy,
@@ -66,6 +65,7 @@ export function recordOf(
  * to keep a dashboard green would be the one unrecoverable mistake here.
  */
 export async function saveVerification(db: Db, record: VerificationRecord): Promise<void> {
+  if (record.result === "OK") throw new RangeError("legacy audit verification cannot establish OK");
   await db.execute(
     "INSERT INTO `audit_verifications` (`id`, `ran_at`, `from_seq`, `to_seq`, `result`, `break_seq`, `duration_ms`, `trigger_by`) " +
       "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -100,8 +100,9 @@ export async function lastVerification(db: Db): Promise<VerificationRecord | nul
   return {
     fromSeq: Number(row.from_seq),
     toSeq: Number(row.to_seq),
-    result: row.result as VerificationResult,
-    breakSeq: row.break_seq === null ? null : Number(row.break_seq),
+    // The table has no verifier version; pre-D169 OK/BREAK rows are not reliable.
+    result: "ERROR",
+    breakSeq: null,
     durationMs: Number(row.duration_ms),
     triggeredBy: row.trigger_by as VerificationRecord["triggeredBy"],
     ranAt: new Date(`${row.ran_at.replace(" ", "T")}Z`),

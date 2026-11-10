@@ -136,27 +136,20 @@ class MigrationRunnerTest(unittest.TestCase):
 class HousekeepingTest(unittest.TestCase):
     """The nightly jobs, against a scripted cursor: a chain that breaks is a failure."""
 
-    def test_a_link_that_does_not_recompute_is_reported(self) -> None:
+    def test_a_broken_stored_link_is_reported_without_claiming_payload_proof(self) -> None:
         import housekeeping
-
-        # One row, whose stored hash is not the hash of its own fields: the chain must
-        # notice, because a verifier that trusts the column verifies nothing.
-        row = (
-            1, "2026-11-01 04:00:00.000000", None, "SYSTEM", None, Uint8Array16(0xAA),
-            "system.invoice.generate", "invoice_period", "2026-W44", None, None, '{"invoices":344}',
-            None, "INFO", None, Uint8Array16(0x00),
-        )
 
         class Cursor(FakeCursor):
             def fetchall(self):  # noqa: ANN201
-                return [row]
+                return [(1, None, bytes([1]) * 32), (2, bytes([3]) * 32, bytes([2]) * 32)]
 
         connection = FakeConnection()
         connection.cursor = lambda: Cursor(connection)  # type: ignore[method-assign]
         report = housekeeping.audit_chain(connection)
-        self.assertEqual(report["rows"], 1)
-        self.assertEqual(len(report["broken"]), 1)
-        self.assertEqual(report["broken"][0]["seq"], 1)
+        self.assertEqual(report["rows"], 2)
+        self.assertEqual(report["status"], "BREAK")
+        self.assertFalse(report["payloads_verified"])
+        self.assertEqual(report["broken"][0]["reason"], "LINK")
 
     def test_the_chain_reproduces_the_shared_vectors(self) -> None:
         """The TypeScript writer and this verifier must agree, or one of them is wrong."""

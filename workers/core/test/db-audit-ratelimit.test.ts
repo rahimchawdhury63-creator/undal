@@ -62,33 +62,20 @@ describe("the audit chain", () => {
     }
   });
 
-  test("a row whose payload was edited is reported as a PAYLOAD break", async () => {
-    const entries = [
-      { seq: 1, occurred_at: "2026-11-01 04:00:00.000000", actor_id: null, actor_type: "SYSTEM", actor_role: null, ip: null, request_id: new Uint8Array(16), action: "a.b.c", resource_type: "x", resource_id: null, subject_id: null, before: null, after: null, reason: null, severity: "INFO", prev_hash: null, hash: new Uint8Array(32) },
-    ];
-    const hash = await hashOf({
-      seq: 1,
-      occurredAt: "2026-11-01 04:00:00.000000",
-      actorId: null,
-      actorType: "SYSTEM",
-      actorRole: null,
-      requestId: toHex(new Uint8Array(16)).replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/u, "$1-$2-$3-$4-$5"),
-      action: "a.b.c",
-      ip: null,
-      resourceType: "x",
-      resourceId: null,
-      subjectId: null,
-      reason: null,
-      severity: "INFO",
-      prevHash: null,
-    });
-    const db = stubDb([{ match: /FROM `audit_log`/u, rows: [{ ...entries[0], hash }] }]);
-    const clean = await verifyChain(db);
-    assert.equal(clean.breaks.length, 0);
-
-    const tampered = stubDb([{ match: /FROM `audit_log`/u, rows: [{ ...entries[0], hash: new Uint8Array(32) }] }]);
-    const broken = await verifyChain(tampered);
-    assert.equal(broken.breaks[0]?.reason, "PAYLOAD");
+  test("legacy rows are incomplete, even if a candidate payload hash matches", async () => {
+    const entry = { seq: 1, occurred_at: "2026-11-01 04:00:00.000000", actor_id: null, actor_type: "SYSTEM", actor_role: null,
+      ip: null, request_id: new Uint8Array(16), action: "a.b.c", resource_type: "x", resource_id: null, subject_id: null,
+      before: null, after: null, reason: null, severity: "INFO", prev_hash: null, hash: new Uint8Array(32) };
+    const hash = await hashOf({ seq: 1, occurredAt: entry.occurred_at, actorId: null, actorType: "SYSTEM", actorRole: null,
+      requestId: "00000000-0000-0000-0000-000000000000", action: entry.action, ip: null, resourceType: "x",
+      resourceId: null, subjectId: null, reason: null, severity: "INFO", prevHash: null });
+    for (const changed of [{ ...entry, hash }, { ...entry, action: "changed", hash }]) {
+      const db = stubDb([{ match: /FROM `audit_log`/u, rows: [changed] }]);
+      const report = await verifyChain(db);
+      assert.equal(report.status, "INCOMPLETE");
+      assert.equal(report.payloadsVerified, false);
+      assert.deepEqual(report.breaks, []);
+    }
   });
 });
 

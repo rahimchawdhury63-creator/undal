@@ -8,17 +8,14 @@ import { concatBytes, sha256 } from "../lib/ids.ts";
 import type { AuditEntry } from "./types.ts";
 
 /**
- * The audit chain: every row commits to the one before it, so removing or editing a
- * row in the middle is detectable without a copy of the table anywhere else.
- *
- * `hash = SHA-256(prev_hash ‖ payload_digest)` and `payload_digest` is the SHA-256 of
- * the row's own fields, canonically serialised. Two implementations compute this — this
- * one when a row is written, and `scripts/db/housekeeping.py` when the chain is
- * verified from a machine that has no Worker — so the canonical form is pinned by a
- * shared fixture (`db/fixtures/audit_chain_vectors.json`) that both must reproduce.
+ * Legacy audit hash encoding. It hashes caller-provided strings and JSON, not a
+ * versioned canonical representation of the stored database row. UUID formatting,
+ * IP storage and JSON serialization can therefore prevent reliable recomputation.
+ * A link-only diagnostic is not proof that payloads are intact. Do not change this
+ * encoding for old rows or treat matching fixture vectors as production verification.
  */
 
-/** The separator between fields. U+001F cannot appear in any field, so no value can shift another. */
+/** Legacy field separator; inputs are not currently checked for this character. */
 export const FIELD_SEPARATOR = "\u001f";
 
 /** JSON with object keys sorted at every depth, so two key orders hash the same. */
@@ -80,7 +77,7 @@ export interface ChainBreak {
   readonly seq: number;
   readonly expected: string;
   readonly actual: string;
-  readonly reason: "LINK" | "PAYLOAD";
+  readonly reason: "LINK" | "SEQUENCE" | "PAYLOAD";
 }
 
 /** Lowercase hex, for the break report. */
