@@ -10,6 +10,8 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 > sequence continuity only and return incomplete, never a clean verification. Historical
 > verification records cannot prove integrity. A versioned canonical format, serialized
 > transactional append, trusted checkpoints and migration/reconciliation are still required.
+> D170 adds an experimental [v2 byte-format foundation](_plan/AUDIT-V2-FORMAT.md); it is not
+> connected to the database or the legacy verifier.
 
 > A platform that holds national ID cards, home addresses, phone numbers and cash owes its users a
 > serious security posture. This document specifies authentication, authorisation, the audit
