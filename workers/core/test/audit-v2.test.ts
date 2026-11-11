@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { auditV2Hashes, auditV2Payload, encodeAuditV2Value, type AuditV2Record } from "../src/audit/canonical-v2.ts";
+import { parseAuditV2Json } from "../src/audit/lossless-json.ts";
 
 interface Vector {
   name: string;
@@ -19,6 +20,8 @@ interface Vector {
   hashHex: string;
 }
 const vectors = (JSON.parse(readFileSync(new URL("../../../db/fixtures/audit_v2_vectors.json", import.meta.url), "utf8")) as { vectors: Vector[] }).vectors;
+interface JsonVector { name: string; source: string; encodedHex?: string }
+const jsonVectors = JSON.parse(readFileSync(new URL("../../../db/fixtures/audit_v2_json_vectors.json", import.meta.url), "utf8")) as { valid: JsonVector[]; invalid: JsonVector[] };
 const hex = (value: Uint8Array) => Buffer.from(value).toString("hex");
 const fromHex = (value: string) => new Uint8Array(Buffer.from(value, "hex"));
 function recordOf(vector: Vector): AuditV2Record {
@@ -39,6 +42,37 @@ test("v2 payload and domain-separated hashes match independent cross-language ve
     assert.equal(hex(result.hash), vector.hashHex, vector.name);
   }
   assert.equal(vectors[1]?.previousHex, vectors[0]?.hashHex);
+});
+
+test("lossless raw-JSON vectors match canonical bytes and the independent Python parser", () => {
+  for (const vector of jsonVectors.valid) {
+    assert.equal(hex(encodeAuditV2Value(parseAuditV2Json(vector.source))), vector.encodedHex, vector.name);
+  }
+  for (const vector of jsonVectors.invalid) {
+    assert.throws(() => parseAuditV2Json(vector.source), (error: unknown) => error instanceof RangeError || error instanceof SyntaxError, vector.name);
+  }
+  const script = "import json,sys;sys.path.insert(0,sys.argv[1]);import audit_v2;print(json.dumps([audit_v2.encode_value(audit_v2.parse_audit_v2_json(s)).hex() for s in json.load(sys.stdin)]))";
+  const directory = fileURLToPath(new URL("../../../scripts/db/", import.meta.url));
+  const python = JSON.parse(execFileSync("python3", ["-c", script, directory], { input: JSON.stringify(jsonVectors.valid.map((vector) => vector.source)), encoding: "utf8" })) as string[];
+  assert.deepEqual(python, jsonVectors.valid.map((vector) => vector.encodedHex));
+});
+
+test("lossless parser refuses JSON spellings that JavaScript would round", () => {
+  assert.equal(JSON.parse("1.0000000000000001"), 1);
+  assert.equal(JSON.parse("9007199254740993"), 9007199254740992);
+  assert.throws(() => parseAuditV2Json("1.0000000000000001"), RangeError);
+  assert.throws(() => parseAuditV2Json("9007199254740993"), RangeError);
+});
+
+test("lossless parser enforces source, canonical, node, depth and string bounds", () => {
+  assert.throws(() => parseAuditV2Json(1 as never), TypeError);
+  assert.throws(() => parseAuditV2Json(" ".repeat(400_001)), RangeError);
+  assert.throws(() => parseAuditV2Json(`"${"x".repeat(8_193)}"`), RangeError);
+  assert.throws(() => parseAuditV2Json(`[${Array(2_048).fill("0").join(",")}]`), RangeError);
+  let nested = "null";
+  for (let i = 0; i < 17; i++) nested = `[${nested}]`;
+  assert.throws(() => parseAuditV2Json(nested), RangeError);
+  assert.throws(() => parseAuditV2Json(JSON.stringify(Array(9).fill("x".repeat(8_192)))), RangeError);
 });
 
 test("UTF-8 key order is stable and arrays, types and framing stay distinct", () => {
@@ -104,7 +138,7 @@ test("every persisted field affects the hash and previous bytes are snapshotted"
   assert.notEqual(expected, original);
 });
 
-test("two implementations agree over deterministic generated nested values", () => {
+test("two implementations agree over deterministic generated values and raw JSON", () => {
   let seed = 0x156234;
   const next = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
   const strings = ["", "a", "বাংলা", "𝄞", "\ue000", "𐀀", "\u0000\n", "x:y;"];
@@ -118,8 +152,12 @@ test("two implementations agree over deterministic generated nested values", () 
     return { [strings[next() % strings.length]!]: generate(depth - 1), nested: generate(depth - 1) };
   };
   const values = Array.from({ length: 200 }, () => generate(4));
-  const script = "import json,sys;sys.path.insert(0,sys.argv[1]);import audit_v2;print(json.dumps([audit_v2.encode_value(v).hex() for v in json.load(sys.stdin)]))";
+  const sources = values.map((value) => JSON.stringify(value));
+  const script = "import json,sys;sys.path.insert(0,sys.argv[1]);import audit_v2;data=json.load(sys.stdin);print(json.dumps({'values':[audit_v2.encode_value(v).hex() for v in data['values']],'parsed':[audit_v2.encode_value(audit_v2.parse_audit_v2_json(v)).hex() for v in data['sources']]}))";
   const directory = fileURLToPath(new URL("../../../scripts/db/", import.meta.url));
-  const python = JSON.parse(execFileSync("python3", ["-c", script, directory], { input: JSON.stringify(values), encoding: "utf8" })) as string[];
-  assert.deepEqual(values.map((value) => hex(encodeAuditV2Value(value))), python);
+  const python = JSON.parse(execFileSync("python3", ["-c", script, directory], {
+    input: JSON.stringify({ values, sources }), encoding: "utf8",
+  })) as { values: string[]; parsed: string[] };
+  assert.deepEqual(values.map((value) => hex(encodeAuditV2Value(value))), python.values);
+  assert.deepEqual(sources.map((source) => hex(encodeAuditV2Value(parseAuditV2Json(source)))), python.parsed);
 });

@@ -15,6 +15,7 @@ import audit_v2
 
 ROOT = Path(__file__).resolve().parents[2]
 VECTORS = json.loads((ROOT / "db" / "fixtures" / "audit_v2_vectors.json").read_text(encoding="utf-8"))["vectors"]
+JSON_VECTORS = json.loads((ROOT / "db" / "fixtures" / "audit_v2_json_vectors.json").read_text(encoding="utf-8"))
 
 
 def record_of(vector: dict) -> dict:
@@ -75,6 +76,40 @@ class AuditV2Test(unittest.TestCase):
             audit_v2.hashes({**base, "seq": 2}, None)
         with self.assertRaises(ValueError):
             audit_v2.hashes({**base, "seq": 2}, bytes(31))
+
+    def test_lossless_raw_json_vectors(self) -> None:
+        for vector in JSON_VECTORS["valid"]:
+            with self.subTest(vector=vector["name"]):
+                value = audit_v2.parse_audit_v2_json(vector["source"])
+                self.assertEqual(audit_v2.encode_value(value).hex(), vector["encodedHex"])
+        for vector in JSON_VECTORS["invalid"]:
+            with self.subTest(vector=vector["name"]), self.assertRaises(ValueError):
+                audit_v2.parse_audit_v2_json(vector["source"])
+
+    def test_lossless_json_rejects_tokens_before_float_or_integer_rounding(self) -> None:
+        self.assertEqual(json.loads("1.0000000000000001"), 1.0)
+        self.assertEqual(json.loads("9007199254740993", parse_int=float), 9_007_199_254_740_992.0)
+        for source in ("1.0000000000000001", "9007199254740993", "-0"):
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                audit_v2.parse_audit_v2_json(source)
+
+    def test_lossless_json_bounds_and_raw_text_requirement(self) -> None:
+        with self.assertRaises(ValueError):
+            audit_v2.parse_audit_v2_json(b"1")  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            audit_v2.parse_audit_v2_json(" " * 400_001)
+        with self.assertRaises(ValueError):
+            audit_v2.parse_audit_v2_json('"' + "x" * 8_193 + '"')
+        with self.assertRaises(ValueError):
+            audit_v2.parse_audit_v2_json("[" + ",".join(["0"] * 2_048) + "]")
+        nested = "null"
+        for _ in range(17):
+            nested = f"[{nested}]"
+        with self.assertRaises(ValueError):
+            audit_v2.parse_audit_v2_json(nested)
+        payload_too_large = json.dumps(["x" * 8_192] * 9, separators=(",", ":"))
+        with self.assertRaises(ValueError):
+            audit_v2.parse_audit_v2_json(payload_too_large)
 
 
 if __name__ == "__main__":

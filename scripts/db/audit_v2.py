@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
 import re
 
 MAX_BYTES = 65_536
@@ -20,6 +21,85 @@ ACTORS = {"ADMIN", "VENDOR", "RIDER", "CUSTOMER", "SYSTEM"}
 SEVERITIES = {"INFO", "NOTICE", "WARNING", "CRITICAL"}
 RECORD_KEYS = {"id", "seq", "occurredAt", "actorId", "actorType", "actorRole", "ip", "userAgent", "requestId",
                "action", "resourceType", "resourceId", "subjectId", "before", "after", "reason", "severity"}
+MAX_JSON_BYTES = 400_000
+
+
+def parse_audit_v2_json(source: str) -> object:
+    """Parse raw JSON without converting decimal or oversized number tokens first.
+
+    This deliberately accepts a narrower subset than JSON: every number must be a
+    safe integer, negative zero and duplicate keys are refused, and all strings must
+    be valid Unicode scalar strings. Pass the original text, not ``json.loads`` output.
+    """
+    if type(source) is not str or len(source) > MAX_JSON_BYTES:
+        raise ValueError("invalid or oversized audit v2 JSON source")
+    try:
+        encoded_source = source.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as error:
+        raise ValueError("invalid audit v2 JSON Unicode") from error
+    if len(encoded_source) > MAX_JSON_BYTES:
+        raise ValueError("audit v2 JSON too large")
+
+    def integer_token(token: str) -> int:
+        digits = token[1:] if token.startswith("-") else token
+        if token == "-0" or len(digits) > 16:
+            raise ValueError("audit v2 JSON integer out of range")
+        result = int(token)
+        if abs(result) > MAX_INTEGER:
+            raise ValueError("audit v2 JSON integer out of range")
+        return result
+
+    def unsupported_number(_token: str) -> object:
+        raise ValueError("audit v2 JSON numbers must be safe integers")
+
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            _text(key, MAX_STRING_BYTES)
+            if key in result:
+                raise ValueError("duplicate audit v2 JSON object key")
+            result[key] = value
+        return result
+
+    try:
+        parsed = json.loads(source, parse_int=integer_token, parse_float=unsupported_number,
+                            parse_constant=unsupported_number, object_pairs_hook=unique_object)
+    except (json.JSONDecodeError, RecursionError) as error:
+        raise ValueError("invalid audit v2 JSON syntax or nesting") from error
+
+    nodes = 0
+
+    def check(value: object, depth: int) -> None:
+        nonlocal nodes
+        nodes += 1
+        if nodes > MAX_NODES or depth > MAX_DEPTH:
+            raise ValueError("audit v2 JSON too complex")
+        if value is None or type(value) is bool:
+            return
+        if type(value) is int:
+            if abs(value) > MAX_INTEGER:
+                raise ValueError("audit v2 JSON integer out of range")
+            return
+        if type(value) is str:
+            _text(value, MAX_STRING_BYTES)
+            return
+        if type(value) is list:
+            for child in value:
+                check(child, depth + 1)
+            return
+        if type(value) is dict:
+            for key, child in value.items():
+                nodes += 1  # Object keys count as values in the canonical grammar.
+                if nodes > MAX_NODES or depth + 1 > MAX_DEPTH:
+                    raise ValueError("audit v2 JSON too complex")
+                _text(key, MAX_STRING_BYTES)
+                check(child, depth + 1)
+            return
+        raise ValueError("invalid audit v2 JSON value")
+
+    check(parsed, 0)
+    encode_value(parsed)  # Apply the exact canonical byte-size and structural limits.
+    return parsed
 
 
 def _text(value: object, limit: int, nullable: bool = False) -> str | None:
