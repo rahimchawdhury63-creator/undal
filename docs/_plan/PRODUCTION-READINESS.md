@@ -5,7 +5,15 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 
 # Production readiness and known blockers
 
-**Status: not production-ready.** This is an evidence-based working register, not a claim that every possible defect has been found. Repository review and automated tests cannot establish production configuration, live data correctness, security, reliability, legal approval or Foodpanda-scale performance. No live environment was inspected or modified in D168–D174. Reassess this register as implementation and independent testing proceed.
+**Status: not production-ready. Last repository-only assessment: 2026-11-01, at the D174 code baseline.** This is an evidence-based working register, not a claim that every possible defect has been found. Repository review and automated tests cannot establish production configuration, live data correctness, security, reliability, legal approval or Foodpanda-scale performance. No live TiDB or production environment was inspected or modified in D168–D174. Reassess this register as implementation and independent testing proceed.
+
+## Progress rating and provisional schedule
+
+The current provisional platform-wide progress rating is **about 3/10**. This is a qualitative assessment of the scope implemented, not a test-health score or a calculated percentage. Backend foundations and passing CI are meaningful, but do not substitute for missing applications, verified deployments, or production evidence. In this checkout, there is no `web/` tree and Android contains only the shared money module; the customer, rider, partner and admin apps in the plan are not present.
+
+From the current repository state to the **remaining full-production scope**, a rough planning range is **12–24 months for an experienced 6–10 person cross-functional team**, or **3–5+ years for one full-time developer**. This estimate is highly provisional: it is not based on measured team velocity and is not a delivery commitment or guarantee. It assumes scope broadly comparable to the plan, sustained staffing, timely provider and legal decisions, and access to isolated staging, representative devices and test integrations. Scope changes, staging findings, security remediation and external approvals may materially extend the range. Re-estimate after isolated TiDB integration/recovery testing and an up-to-date app-scope inventory. A limited pilot may be possible sooner, but would not establish full production readiness.
+
+The original 28-day schedule in [`35 §10`](../35-execution-plan.md) is retained as the plan's historical, idealized response sequence; **it is not the current forecast**. The blockers below—including financial atomicity, audit integrity, missing apps, staging/operations evidence, and provider, legal and licensing approvals—are included in the revised planning range, not considered complete.
 
 ## Confirmed blockers
 

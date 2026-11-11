@@ -7,10 +7,12 @@
 # Build plan — every file, every boundary, every gate
 
 This is the second and last planning response. It turns
-[`35 §3`](../35-execution-plan.md) into a file-by-file manifest for the twenty build responses, fixes
-the module boundaries that make 2 500 files navigable, states the dependency order, and names the
-gate that must be green at the end of each response. Nothing here is built yet; the build starts at
-Response 3.
+[`35 §3`](../35-execution-plan.md) into a file-by-file target manifest for the twenty build
+responses, fixes the module boundaries that make 2 500 files navigable, states the dependency order,
+and names the gate intended for each response. The original statement that nothing was built and
+implementation would start at Response 3 described the plan's starting point; it is not a current
+status report. This manifest is not evidence that its files or gates exist. See §0.1 for a dated,
+provisional status, open launch blockers and revised estimate.
 
 Two numbers to hold onto: **≈ 292 000 lines**, **≈ 2 550 files**, and **one rule that outranks both**
 — nothing is stubbed (`35 §4.1`).
@@ -52,6 +54,37 @@ feature code onward.
 
 Total: ≈ 292 000 lines (288 000 of build plus ≈ 4 000 of infrastructure), ≈ 2 550 files. Every file
 ≤ 700 lines, every file with the PASVL header, every exported symbol with a *why* comment.
+
+### 0.1 Current status, blockers and estimate · 2026-11-01
+
+This is a repository-only snapshot based on the D174 code state. **Undal is not production-ready.**
+A provisional platform-wide progress rating is **about 3/10**: it is a qualitative assessment of
+scope implemented, not a test-health score, response count, or completion percentage. The backend
+has substantial foundations and D174's listed CI run passed, but a green CI run only establishes the
+checks that ran against that commit. No live TiDB or production environment was accessed.
+
+The actual checkout does not contain the planned `web/` tree; `android/` contains only the shared
+money module, not customer, rider or partner applications. The plan's progress notes record R7 and
+R9 gates as met and explicitly leave R6 and R8 gates outstanding. They do not establish later R10–R22
+gates as complete, and should not be treated as a synchronized delivery tracker.
+
+**Revised estimate for the remaining full-production scope, from this repository state:**
+**12–24 months for an experienced 6–10 person cross-functional team**, or **3–5+ years for one
+full-time developer**. This is a provisional planning range, not measured velocity, a commitment or
+a guarantee. It assumes broadly the planned scope, sustained staffing, timely provider/legal
+approvals, and access to isolated staging, representative devices and test integrations. Revisit it
+after isolated TiDB integration/recovery testing and an application-scope inventory. The original
+four-week schedule in [`35 §10`](../35-execution-plan.md) is an idealized historical scenario, not a
+current forecast.
+
+The open launch blockers remain: non-atomic financial mutations and business/audit writes; an
+unserialized legacy audit chain with no persisted versioned canonical format or completed historical
+review; unproven TiDB behavior, partial schema checks and migration DDL/ledger recovery gaps; absent
+customer, rider, partner and admin applications; no secure private-media pipeline; incomplete
+provider/ledger reconciliation; and missing security, end-to-end, device, load, backup/restore,
+monitoring/on-call, legal, privacy and licensing evidence. See the detailed, evidence-based
+[`production-readiness register`](PRODUCTION-READINESS.md); neither CI nor this estimate closes any
+of those blockers.
 
 ---
 
@@ -687,14 +720,15 @@ end.
 
 ## 8. Decisions
 
-`docs/_plan/DECISIONS.md` records D1–D35. Thirty-five entries, and the arithmetic matters because
-[`35 §7`](../35-execution-plan.md) says 31: the migration closed two of those thirty-one outright,
-leaving **29 open** (D1–D29), and this plan adds **three** the corpus leaves implicit but the build
-cannot avoid — generated Kotlin models (D31), the QR key-rotation overlap (D32), error-text
-ownership (D33). The last two entries are the deviations made visible in
+At the initial planning stage, `docs/_plan/DECISIONS.md` recorded D1–D35. The arithmetic matters
+because [`35 §7`](../35-execution-plan.md) says 31: the migration closed two of those thirty-one
+outright, leaving **29 open** (D1–D29), and this plan adds **three** the corpus leaves implicit but
+the build cannot avoid — generated Kotlin models (D31), the QR key-rotation overlap (D32), error-text
+ownership (D33). The last two planning entries are the deviations made visible in
 `UNDERSTANDING.md` §9: one Pages project with a path-scoped CSP (D34) and `minSdk 26` (D35).
-Every entry states the decision, what was rejected, and why — so a later reader can tell a choice
-from an accident.
+Subsequent implementation decisions are appended to that record; it currently extends through D175,
+including the schedule and progress rebaseline. Every entry states the decision, what was rejected,
+and why — so a later reader can tell a choice from an accident.
 
 ---
 

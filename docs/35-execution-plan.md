@@ -246,9 +246,12 @@ what make it trustworthy.
 
 ---
 
-## 10. A realistic schedule
+## 10. Schedule: original target and current planning range
 
-If the twenty responses are produced in sequence with the developer reviewing between each:
+### Original response-based target (historical, not a current forecast)
+
+The original plan assumed the twenty build responses could be produced in sequence, with review
+between responses:
 
 | Phase | Responses | Elapsed |
 | --- | --- | --- |
@@ -260,9 +263,36 @@ If the twenty responses are produced in sequence with the developer reviewing be
 | Admin and finance | B18–B20 | Days 17–20 |
 | Integration, device testing, first zone setup | — | Days 21–28 |
 
-Four weeks to a platform that can take a real order in one zone. The last week is not
-optional: device testing, OEM coaching validation, and the first vendor and rider onboarding
-rehearsals are where the real problems surface.
+This four-week schedule is an original idealized response sequence, not a measured delivery rate or
+a promise. It assumed the planned applications, integration and verification could be completed in
+those responses and seven days of follow-through. The repository state does not support that
+assumption: significant planned applications are absent, several response gates remain open or
+unverified, and production integration and operational evidence have not been established. Do not
+use the 28-day figure as the current estimate.
+
+### Revised provisional estimate (remaining full-production scope)
+
+As of 2026-11-01, the rough planning range from the current repository state to a defensible,
+full-production launch is **12–24 months for an experienced 6–10 person cross-functional team**, or
+**3–5+ years for one full-time developer**. This is a provisional planning estimate, not a measured
+velocity, delivery commitment, or guarantee. It assumes the scope remains broadly comparable to this
+plan, sustained staffing, timely provider and legal decisions, and access to isolated staging,
+representative devices and test integrations. Scope changes, staffing, staging discoveries, security
+findings and external approvals may materially extend it. Re-estimate after an isolated TiDB
+integration/recovery exercise and a current application-scope inventory.
+
+This estimate covers remaining implementation **and** production evidence, including the blockers
+listed in [`PRODUCTION-READINESS.md`](_plan/PRODUCTION-READINESS.md): atomic financial
+and audit writes; serialized, versioned audit persistence and historical review; isolated TiDB,
+migration-recovery and schema validation; customer, rider, partner and admin applications; secure
+private media; provider/ledger reconciliation; security, end-to-end, device and load testing;
+backup/restore, monitoring and operational readiness; and legal, privacy, provider and licensing
+approvals. A limited, explicitly bounded pilot might be possible earlier, but it would not mean the
+full platform is production-ready.
+
+The current provisional platform-wide progress rating is **about 3/10**. It is a qualitative scope
+assessment, not a test-health score or a completion percentage; the evidence and caveats are tracked
+in the production-readiness register linked above.
 
 ---
 

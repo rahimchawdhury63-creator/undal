@@ -8,9 +8,10 @@
 
 [`35 §7`](../35-execution-plan.md) leaves 31 points to the building agent. The TiDB migration closed
 two of them outright (the `gen_random_uuid` source, the PostGIS index parameters), leaving **29
-open**; this record adds **three** that the corpus leaves implicit but the build cannot avoid
-(D31–D33) and **two visible deviations** from the corpus that the operator's brief forces
-(D34–D35). Every entry states the decision, what was rejected, and why — so a later reader can tell
+open**; the initial planning record adds **three** that the corpus leaves implicit but the build
+cannot avoid (D31–D33) and **two visible deviations** from the corpus that the operator's brief
+forces (D34–D35). Subsequent implementation decisions are appended below; the sequence now extends
+through D175. Every entry states the decision, what was rejected, and why — so a later reader can tell
 a choice from an accident.
 
 Format: **Decision.** *Rejected:* … *Why:* …
@@ -4148,3 +4149,8 @@ The database diagnostics are unit-tested with fake connections; the 38 `scripts/
 `appendAudit` now normalizes UUID text to lowercase 8-4-4-4-12 form before hashing and stores the bytes from that same value. IPv4 is normalized to dotted decimal and four bytes; IPv6 is normalized through the standard WHATWG URL parser and stored as sixteen bytes instead of being dropped as NULL. The missing-IP sentinel and unparseable IP values are treated as unavailable and hashed/stored as NULL rather than hashing text the binary column cannot retain. Tests prove equivalent UUID/IP spellings yield the same digest and stored bytes.
 
 This is a forward-only mitigation: historical rows are unchanged. It does not version or canonicalize the legacy JSON/delimiter format, serialize the tail-read/insert, or make business changes and audit writes atomic. Existing verifiers remain link-only and INCOMPLETE; no audit-integrity claim follows from these tests. The core suite passed using fake database connections (873 tests: 871 passed, 2 skipped); strict TypeScript typecheck passed. No live TiDB or production data was accessed.
+
+
+### D175 — Rebaseline the schedule against repository evidence
+
+**Decision.** Retain the original four-week response schedule as a historical idealized target, not the current forecast. Record a provisional progress rating of about 3/10 and a remaining full-production planning range of 12–24 months for an experienced 6–10 person cross-functional team, or 3–5+ years for one full-time developer. *Rejected:* treating the response count, a green CI run, or the original 28-day schedule as proof of completion or production readiness. *Why:* at the D174 code baseline, the planned web and customer/rider/partner applications are absent; the recorded plan notes leave R6 and R8 gates open and do not establish R10–R22 gates; and substantial financial, audit, TiDB, media, reconciliation, operational, security and approval work remains. The score is qualitative, and the time range is a provisional planning estimate, not measured velocity or a delivery commitment. It assumes scope broadly comparable to the plan, sustained staffing, timely provider/legal decisions, and isolated staging, representative devices and test integrations. Reassess after an isolated TiDB integration/recovery exercise and a current application-scope inventory. No live TiDB or production environment was accessed; Undal remains **not production-ready**.
