@@ -79,18 +79,51 @@ test("invalid bounds, malformed hashes, out-of-order pages and duplicates fail c
   await assert.rejects(verifyChain(duplicate), /strictly increasing/u);
 });
 
-test("legacy writer loses UUID spelling and IPv6 even though it hashes the original input", async () => {
+test("new audit writes canonicalize UUID spellings and persist IPv6 before hashing", async () => {
   const id = "0193f2a1-7c3e-7890-abcd-ef0123456789";
-  const input = { actorId: id, actorType: "ADMIN" as const, actorRole: "FINANCE", ip: "2001:db8::1", userAgent: null,
-    requestId: id, action: "example.action", resourceType: "test", resourceId: null, subjectId: null, reason: null, severity: "INFO" as const };
+  const input = { actorId: id, actorType: "ADMIN" as const, actorRole: "FINANCE", ip: "2001:0DB8:0:0:0:0:0:1", userAgent: null,
+    requestId: id, action: "example.action", resourceType: "test", resourceId: null, subjectId: id, reason: null, severity: "INFO" as const };
   const make = () => stubDb([{ match: /SELECT `seq`/u, rows: [] }, { match: /INSERT INTO `audit_log`/u, affectedRows: 1 }]);
   const left = make(), right = make();
-  await appendAudit(left, input, 1700000000000);
-  await appendAudit(right, { ...input, actorId: id.toUpperCase().replaceAll("-", "") }, 1700000000000);
+  const entry = await appendAudit(left, input, 1700000000000);
+  await appendAudit(right, { ...input, actorId: id.toUpperCase().replaceAll("-", ""),
+    requestId: id.toUpperCase().replaceAll("-", ""), subjectId: id.toUpperCase().replaceAll("-", ""), ip: "2001:db8::1" }, 1700000000000);
   const a = left.calls[1]!.params, b = right.calls[1]!.params;
-  assert.deepEqual(a[3], b[3]); // Same stored UUID bytes, different original spelling.
-  assert.equal(a[6], null); // The original IPv6 string was hashed but not stored.
-  assert.notDeepEqual(a[18], b[18]);
-  const report = await verifyChain(pagedDb([{ seq: 1, prev_hash: a[17], hash: a[18] }]));
-  assert.equal(report.status, "INCOMPLETE");
+  assert.equal(entry.actorId, id);
+  assert.equal(entry.ip, "2001:db8::1");
+  assert.deepEqual(a[3], b[3]);
+  assert.deepEqual(a[6], new Uint8Array([0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]));
+  assert.deepEqual(a[6], b[6]);
+  assert.deepEqual(a[8], b[8]);
+  assert.deepEqual(a[12], b[12]);
+  assert.deepEqual(a[18], b[18]);
+});
+
+test("new audit writes normalize IPv4 octets to the exact stored bytes", async () => {
+  const id = "0193f2a1-7c3e-7890-abcd-ef0123456789";
+  const input = { actorId: id, actorType: "ADMIN" as const, actorRole: "FINANCE", ip: "192.000.002.009", userAgent: null,
+    requestId: id, action: "example.action", resourceType: "test", resourceId: null, subjectId: null, reason: null, severity: "INFO" as const };
+  const make = () => stubDb([{ match: /SELECT `seq`/u, rows: [] }, { match: /INSERT INTO `audit_log`/u, affectedRows: 1 }]);
+  const expanded = make(), canonical = make();
+  const entry = await appendAudit(expanded, input, 1700000000000);
+  await appendAudit(canonical, { ...input, ip: "192.0.2.9" }, 1700000000000);
+  assert.equal(entry.ip, "192.0.2.9");
+  assert.deepEqual(expanded.calls[1]!.params[6], new Uint8Array([192, 0, 2, 9]));
+  assert.deepEqual(expanded.calls[1]!.params[18], canonical.calls[1]!.params[18]);
+});
+
+test("invalid audit IPs and the missing-IP sentinel normalize to NULL before hashing", async () => {
+  const id = "0193f2a1-7c3e-7890-abcd-ef0123456789";
+  const input = { actorId: id, actorType: "ADMIN" as const, actorRole: "FINANCE", ip: "unknown", userAgent: null,
+    requestId: id, action: "example.action", resourceType: "test", resourceId: null, subjectId: null, reason: null, severity: "INFO" as const };
+  const make = () => stubDb([{ match: /SELECT `seq`/u, rows: [] }, { match: /INSERT INTO `audit_log`/u, affectedRows: 1 }]);
+  const invalid = make(), unknown = make(), missing = make();
+  await appendAudit(invalid, { ...input, ip: "999.1.2.3" }, 1700000000000);
+  await appendAudit(unknown, input, 1700000000000);
+  await appendAudit(missing, { ...input, ip: null }, 1700000000000);
+  assert.equal(invalid.calls[1]!.params[6], null);
+  assert.equal(unknown.calls[1]!.params[6], null);
+  assert.equal(missing.calls[1]!.params[6], null);
+  assert.deepEqual(invalid.calls[1]!.params[18], missing.calls[1]!.params[18]);
+  assert.deepEqual(unknown.calls[1]!.params[18], missing.calls[1]!.params[18]);
 });

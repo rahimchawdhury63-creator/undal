@@ -8,11 +8,12 @@ import { concatBytes, sha256 } from "../lib/ids.ts";
 import type { AuditEntry } from "./types.ts";
 
 /**
- * Legacy audit hash encoding. It hashes caller-provided strings and JSON, not a
- * versioned canonical representation of the stored database row. UUID formatting,
- * IP storage and JSON serialization can therefore prevent reliable recomputation.
- * A link-only diagnostic is not proof that payloads are intact. Do not change this
- * encoding for old rows or treat matching fixture vectors as production verification.
+ * Legacy audit hash encoding. It hashes strings and JSON, not a versioned canonical
+ * representation of the stored database row. Historical rows and rows written before
+ * D174 can use UUID spellings or IP values that storage did not preserve; D174 normalizes
+ * those fields for new writes only. JSON representation and delimiter framing can still
+ * prevent reliable recomputation. A link-only diagnostic is not proof that payloads are
+ * intact. Do not change this encoding for old rows or treat fixtures as production proof.
  */
 
 /** Legacy field separator; inputs are not currently checked for this character. */

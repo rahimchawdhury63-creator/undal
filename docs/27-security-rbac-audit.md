@@ -5,14 +5,16 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 
 # 27 — Security, RBAC and Audit
 
-> **Audit safety (D169):** Legacy audit hashes cannot always be recomputed from stored rows:
-> UUID spelling and some IP values are not preserved. Current audit checks inspect links and
-> sequence continuity only and return incomplete, never a clean verification. Historical
-> verification records cannot prove integrity. A versioned canonical format, serialized
-> transactional append, trusted checkpoints and migration/reconciliation are still required.
-> D170 adds an experimental [v2 byte-format foundation](_plan/AUDIT-V2-FORMAT.md), and D171
-> adds a raw-JSON safe-integer parser. Neither is connected to database reads/writes or the legacy
-> verifier, and neither establishes TiDB/driver JSON preservation.
+> **Audit safety (D169, D174):** Historical rows and rows written before D174 can hash UUID
+> spellings or IP text that storage did not preserve; IPv6 was previously stored as NULL. New
+> writes canonicalize UUIDs and IPv4/IPv6 before hashing and store the corresponding address bytes.
+> This does not repair history, serialize concurrent appends or make business and audit changes
+> atomic. Current checks inspect links and sequence continuity only and return incomplete, never a
+> clean verification. Historical verification records cannot prove integrity. A versioned canonical
+> format, serialized transactional append, trusted checkpoints and migration/reconciliation remain
+> required. D170 adds an experimental [v2 byte-format foundation](_plan/AUDIT-V2-FORMAT.md), and
+> D171 adds a raw-JSON safe-integer parser. Neither is connected to database reads/writes or the
+> legacy verifier, and neither establishes TiDB/driver JSON preservation.
 
 > A platform that holds national ID cards, home addresses, phone numbers and cash owes its users a
 > serious security posture. This document specifies authentication, authorisation, the audit
