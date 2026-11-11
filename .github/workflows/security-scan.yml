@@ -22,7 +22,7 @@ jobs:
   guardrails:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Entropy and pattern scan
         run: python3 scripts/guardrails/run.py --only secret_scan dependency_licence_and_cost license_headers
   codeql:
@@ -32,8 +32,8 @@ jobs:
       matrix:
         language: [javascript-typescript, python]
     steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
         with:
-          language: ${{ matrix.language }}
-      - uses: github/codeql-action/analyze@v3
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/analyze@v4

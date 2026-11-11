@@ -18,11 +18,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 9.12.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22.22.3"
           cache: pnpm
@@ -34,7 +34,7 @@ jobs:
         run: node scripts/ci/responsive-matrix.mjs --out .artifacts/responsive/matrix.json --shots .artifacts/responsive/shots
       - name: Guardrail
         run: python3 scripts/guardrails/run.py --only responsive_matrix no_fixed_width
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: responsive-matrix

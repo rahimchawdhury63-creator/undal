@@ -40,8 +40,8 @@ jobs:
     timeout-minutes: 15
     environment: production
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install pinned database driver
@@ -60,7 +60,7 @@ jobs:
         run: |
           python3 scripts/db/expected.py
           python3 scripts/db/check_schema_parity.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: expected-schema
           path: db/expected.json

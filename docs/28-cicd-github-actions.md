@@ -205,6 +205,20 @@ thirteen money constraints and WARNING for the rest.
 always lived in Actions, alongside the audit-chain walk. The `no-cron` guardrail checks
 `wrangler.toml` and Worker `scheduled` handlers, and is unaffected by a workflow schedule.
 
+### 3.3 Action runtime compatibility (D172)
+
+All workflows now reference action majors that declare the Node 24 runtime, replacing the
+Node 20-targeted versions that produced deprecation annotations. This action runtime is separate
+from `NODE_VERSION` (still 22.22.3), which selects Node for Undal's own tests and builds. The
+workflow examples below use the same current action majors. The CodeQL matrix now passes the
+published `languages` input rather than the previously misspelled singular `language` input.
+
+`gradle/actions/setup-gradle@v5` is intentionally used instead of v6: v5 supports Node 24, while
+v6 introduces a separately licensed caching component. Upgrading the runtime does not imply
+acceptance of new commercial terms. The main CI workflow is covered by CI; Android, GCP, release
+and other credential-dependent workflows still require their own configured environments and
+end-to-end runs. These references use major tags, not immutable commit-SHA pins.
+
 ---
 
 ## 4. The release keystore
@@ -311,8 +325,8 @@ jobs:
       matrix:
         app: [customer, partner, rider]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with: { distribution: temurin, java-version: '17', cache: gradle }
 
       - name: Restore keystore
@@ -340,7 +354,7 @@ jobs:
         if: always()
         run: shred -u app/undal-release.jks || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: undal-${{ matrix.app }}-${{ github.ref_name }}
           path: |
@@ -383,7 +397,7 @@ jobs:
   deploy:
     strategy: { matrix: { worker: [core, realtime, brain] }, max-parallel: 1 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: npm ci
       - name: Push secrets
         run: |

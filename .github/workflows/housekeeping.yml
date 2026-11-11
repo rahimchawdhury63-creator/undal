@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Audit chain walk
@@ -34,7 +34,7 @@ jobs:
         env:
           TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
         run: python3 scripts/db/housekeeping.py retention --dry-run --out .artifacts/housekeeping/retention.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: housekeeping

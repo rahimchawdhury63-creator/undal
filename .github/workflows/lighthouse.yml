@@ -20,8 +20,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22.22.3"
       - name: Audit the storefront
@@ -30,7 +30,7 @@ jobs:
         run: node scripts/ci/lighthouse.mjs --target "$TARGET" --out .artifacts/lighthouse/summary.json
       - name: Guardrail
         run: python3 scripts/guardrails/run.py --only lighthouse_budget a11y
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: lighthouse
