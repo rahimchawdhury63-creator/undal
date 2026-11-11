@@ -62,7 +62,7 @@ or script instructs the reader to run a command on their own machine, and it che
 | 20 | `db-query.yml` | manual | Read-only allowlisted queries, results in the summary |
 | 21 | `tail-logs.yml` | manual | Worker tail into the job summary |
 | 22 | `release.yml` | tag | GitHub Release with APKs, AABs, notes and checksums |
-| 23 | `housekeeping.yml` | manual / nightly | Read-only retention candidates, orphan and chain checks; retention deletion disabled (D168) |
+| 23 | `housekeeping.yml` | manual / nightly | Read-only retention candidates, orphan and link checks; pinned DB client and dedicated read-only secret (D173); audit remains incomplete and job fails closed; deletion disabled (D168) |
 
 Nothing in this list is a cron. `nightly` entries use `workflow_dispatch` plus a
 `schedule` trigger — and `schedule` on GitHub Actions is **CI infrastructure**, not application
@@ -470,7 +470,7 @@ See [`06 §10`](06-data-model-tidb.md) for why this replaced the per-file transa
 | See Worker logs | `tail-logs.yml` — takes a worker name and a duration, runs `wrangler tail`, writes the output to the job summary |
 | Run a query | `db-query.yml` — a named query from an allowlist in `scripts/db/queries/`, parameters as inputs, results rendered as a markdown table. **No free-form SQL**, because a free-form SQL input on a public repository is a catastrophe waiting for a misconfigured permission |
 | Check health | `health.yml` — pings every service and renders a status table |
-| Verify the audit chain | `housekeeping.yml` |
+| Run the audit link diagnostic and read-only orphan/retention reports | `housekeeping.yml` — uses the `TIDB_READONLY_URL` GitHub Actions secret only. Its link-only audit check is deliberately INCOMPLETE and returns nonzero; later reports are still collected, and the job ends failed until a full, reviewed verifier exists. A database-enforced read-only account and secret configuration are required. |
 | Inspect a Brain decision | The admin panel's trace explorer ([`21 §11`](21-admin-panel.md)) |
 
 Everything lands in `$GITHUB_STEP_SUMMARY`, which renders as formatted markdown on a phone

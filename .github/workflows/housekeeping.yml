@@ -1,14 +1,14 @@
-# Undal — retention, orphan cleanup and the audit chain. Licensed under PASVL-1.0.
+# Undal — retention, orphan and audit-link diagnostics. Licensed under PASVL-1.0.
 #
 # Read-only diagnostics only. The legacy audit check is necessarily INCOMPLETE
-# and returns nonzero; it must not be presented as proof of chain integrity.
-# Retention deletion stays disabled pending policy and safety review.
+# and returns nonzero; collect every report, then fail the job rather than hiding
+# the incomplete verification. Retention deletion stays disabled pending review.
 name: housekeeping
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "47 19 * * *"   # 01:47 Asia/Dhaka
+    - cron: "47 19 * * *" # 01:47 Asia/Dhaka
 
 permissions:
   contents: read
@@ -22,17 +22,27 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Install pinned database driver
+        id: driver
+        run: |
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/db/requirements.txt
       - name: Audit chain walk
+        id: audit_chain
+        continue-on-error: true
         env:
-          TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
+          TIDB_READONLY_URL: ${{ secrets.TIDB_READONLY_URL }}
         run: python3 scripts/db/housekeeping.py audit-chain --out .artifacts/housekeeping/audit-chain.json
-      - name: Orphan sweep
+      - name: Orphan checks
+        id: orphans
+        continue-on-error: true
         env:
-          TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
+          TIDB_READONLY_URL: ${{ secrets.TIDB_READONLY_URL }}
         run: python3 scripts/db/housekeeping.py orphans --out .artifacts/housekeeping/orphans.json
       - name: Report retention candidates (deletion disabled)
+        id: retention
+        continue-on-error: true
         env:
-          TIDB_DATABASE_URL: ${{ secrets.TIDB_DATABASE_URL }}
+          TIDB_READONLY_URL: ${{ secrets.TIDB_READONLY_URL }}
         run: python3 scripts/db/housekeeping.py retention --dry-run --out .artifacts/housekeeping/retention.json
       - uses: actions/upload-artifact@v7
         if: always()
@@ -40,3 +50,11 @@ jobs:
           name: housekeeping
           path: .artifacts/housekeeping/
           retention-days: 30
+      - name: Fail closed on incomplete or failed diagnostics
+        if: always()
+        env:
+          DRIVER_OUTCOME: ${{ steps.driver.outcome }}
+          AUDIT_CHAIN_OUTCOME: ${{ steps.audit_chain.outcome }}
+          ORPHANS_OUTCOME: ${{ steps.orphans.outcome }}
+          RETENTION_OUTCOME: ${{ steps.retention.outcome }}
+        run: bash scripts/db/check_housekeeping_outcomes.sh

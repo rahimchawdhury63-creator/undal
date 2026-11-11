@@ -242,7 +242,7 @@ class MigrationCliSafetyTest(unittest.TestCase):
         from unittest.mock import patch
 
         connection = FakeConnection()
-        with patch.dict(os.environ, {"TIDB_DATABASE_URL": "mysql://not-a-real-server"}), \
+        with patch.dict(os.environ, {"TIDB_READONLY_URL": "mysql://not-a-real-server"}), \
              patch.object(migrate, "connect", return_value=connection), \
              contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(housekeeping.main(["retention"]), 0)

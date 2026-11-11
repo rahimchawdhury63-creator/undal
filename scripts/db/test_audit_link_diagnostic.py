@@ -82,7 +82,7 @@ class AuditLinkDiagnosticTest(unittest.TestCase):
     def test_even_a_clean_or_empty_link_walk_exits_nonzero(self) -> None:
         for rows in ([], [decode(row) for row in VECTORS["cases"][1]["rows"]]):
             connection = Connection(rows)
-            with patch.dict(os.environ, {"TIDB_DATABASE_URL": "mysql://test:secret@db.test/test"}), \
+            with patch.dict(os.environ, {"TIDB_READONLY_URL": "mysql://test:secret@db.test/test"}), \
                  patch.object(migrate, "connect", return_value=connection), \
                  contextlib.redirect_stdout(io.StringIO()) as output:
                 status = housekeeping.main(["audit-chain"])
@@ -91,6 +91,27 @@ class AuditLinkDiagnosticTest(unittest.TestCase):
             report = json.loads(output.getvalue())
             self.assertEqual(report["status"], "INCOMPLETE")
             self.assertIs(report["payloads_verified"], False)
+
+    def test_cli_requires_readonly_url_and_never_falls_back_to_privileged_urls(self) -> None:
+        privileged = {
+            "TIDB_DATABASE_URL": "mysql://app:secret@db.test/test",
+            "TIDB_MIGRATION_URL": "mysql://migrator:secret@db.test/test",
+        }
+        with patch.dict(os.environ, privileged, clear=True), self.assertRaisesRegex(SystemExit, "TIDB_READONLY_URL is not set"):
+            housekeeping.main(["retention"])
+
+    def test_cli_uses_readonly_url_even_when_privileged_urls_are_present(self) -> None:
+        connection = Connection([])
+        environment = {
+            "TIDB_READONLY_URL": "mysql://reader:secret@db.test/test",
+            "TIDB_DATABASE_URL": "mysql://app:secret@db.test/test",
+            "TIDB_MIGRATION_URL": "mysql://migrator:secret@db.test/test",
+        }
+        with patch.dict(os.environ, environment, clear=True), \
+             patch.object(migrate, "connect", return_value=connection) as connect, \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(housekeeping.main(["audit-chain"]), 1)
+        connect.assert_called_once_with(environment["TIDB_READONLY_URL"])
 
     def test_shared_legacy_digest_includes_ip_when_provided(self) -> None:
         source = json.loads((ROOT / "db" / "fixtures" / "audit_chain_vectors.json").read_text(encoding="utf-8"))

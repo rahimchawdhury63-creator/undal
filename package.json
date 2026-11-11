@@ -9,8 +9,8 @@
     "node": ">=22.6.0"
   },
   "scripts": {
-    "guardrails": "python3 .github/scripts/guardrails/run.py",
-    "guardrails:fixtures": "python3 .github/scripts/guardrails/run.py --fixtures",
+    "guardrails": "python3 scripts/guardrails/run.py",
+    "guardrails:fixtures": "python3 scripts/guardrails/run.py --fixtures",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "pnpm -r --if-present lint"

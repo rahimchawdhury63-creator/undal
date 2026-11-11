@@ -171,9 +171,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--dry-run", action="store_true", help="count without deleting")
     args = parser.parse_args(argv)
 
-    url = os.environ.get("TIDB_DATABASE_URL") or os.environ.get("TIDB_MIGRATION_URL")
+    url = os.environ.get("TIDB_READONLY_URL")
     if not url:
-        raise SystemExit("TIDB_DATABASE_URL is not set")
+        raise SystemExit("TIDB_READONLY_URL is not set")
     connection = migrate.connect(url)
     try:
         if args.command == "audit-chain":
