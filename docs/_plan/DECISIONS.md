@@ -11,7 +11,7 @@ two of them outright (the `gen_random_uuid` source, the PostGIS index parameters
 open**; the initial planning record adds **three** that the corpus leaves implicit but the build
 cannot avoid (D31–D33) and **two visible deviations** from the corpus that the operator's brief
 forces (D34–D35). Subsequent implementation decisions are appended below; the sequence now extends
-through D176. Every entry states the decision, what was rejected, and why — so a later reader can
+through D177. Every entry states the decision, what was rejected, and why — so a later reader can
 tell a choice from an accident.
 
 Format: **Decision.** *Rejected:* … *Why:* …
@@ -4161,3 +4161,10 @@ This is a forward-only mitigation: historical rows are unchanged. It does not ve
 **Decision.** `appendAudit` now refuses to insert when an existing tail hash is absent or not exactly 32 bytes, or when its `BIGINT` sequence cannot be incremented without unsafe JavaScript `Number` rounding. Exact decimal string values are parsed with bounded syntax and `BigInt`; the next sequence is admitted only while it remains a safe integer. *Rejected:* treating a present-but-hashless tail as a new genesis row, or using `Number(tail.seq) + 1` on arbitrary driver values. *Why:* either behavior could create a broken link or silently reuse/round a sequence while appearing to succeed. Tests prove no INSERT occurs for malformed hashes or invalid/unsafe sequences, and cover exact driver strings and the safe-integer boundary. The dispatch-route test fixture now supplies the 32-byte hash required by the schema.
 
 This is a fail-closed preflight safeguard only. It does **not** serialize the tail-read/insert, make business and audit writes atomic, validate historical payloads, version the stored legacy format, or prove TiDB behavior. The core suite passed locally (876 tests: 874 passed, 2 skipped), workspace typechecks and the 31 guardrails/fixtures passed, and the touched audit writer and new tests pass Prettier. Tests use fakes; no live TiDB or production data was accessed. Cash financial writes remain gated, and Undal remains **not production-ready**.
+
+
+### D177 — Parse rider cash balances as exact safe SQL integers
+
+**Decision.** Extract the exact, bounded SQL-integer parser into `workers/core/src/lib/sql-integer.ts` and use it for both ledger aggregates and the rider's `collected_paisa`/`outstanding_paisa` reads. A missing balance row still means zero; an existing row with NULL, negative, fractional, malformed or out-of-safe-range data now fails closed rather than being rounded by `Number(...)` or hidden by `Math.max(0, ...)`. *Rejected:* treating unsafe or negative stored financial values as ordinary rider balances. *Why:* those values drive the rider cash screen and cash-reconciliation/write-off decisions; silently rounding or clamping can conceal corrupted state.
+
+Focused tests cover exact string/decimal representations, the missing-row case, and malformed/unsafe values for both reads; existing ledger-integer tests continue to pass. This change covers only the rider cash-balance repository reads. Other money readers still use direct `Number(...)` conversions and need an inventory and safe conversion; no live TiDB data was accessed. The full workspace test command passed (core: 878 tests, 876 passed, 2 skipped; money: 34; contracts: 25; realtime: 754), workspace TypeScript checks passed, and all 31 guardrails and fixtures passed. It does not make financial writes atomic or enable them; Undal remains **not production-ready**.

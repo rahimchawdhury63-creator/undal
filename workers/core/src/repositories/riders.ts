@@ -15,6 +15,7 @@
 
 import type { Db } from "../db/client.ts";
 import { parseDatetime } from "../db/time.ts";
+import { sqlSafeNonNegativeInteger } from "../lib/sql-integer.ts";
 
 /** The rider a token resolves to, with the columns a shift start judges. */
 export interface RiderRow {
@@ -192,21 +193,22 @@ export async function countActiveOrders(db: Db, riderId: Uint8Array): Promise<nu
  * primary-key-ish read rather than arithmetic over orders (`25 §2`).
  */
 export async function cashOutstandingPaisa(db: Db, riderId: Uint8Array): Promise<number> {
-  const row = await db.first<{ outstanding_paisa: number | string | null }>(
+  const row = await db.first<{ outstanding_paisa: unknown }>(
     "SELECT `outstanding_paisa` FROM `rider_cash_balances` WHERE `rider_id` = ? LIMIT 1",
     [riderId],
   );
-  const value = row === null ? null : row.outstanding_paisa;
-  return value === null || value === undefined ? 0 : Math.max(0, Number(value));
+  return row === null
+    ? 0
+    : sqlSafeNonNegativeInteger(row.outstanding_paisa, "rider cash outstanding");
 }
 
 /** What the rider has been credited with collecting, before any deposit — the top line of `25 §7`'s breakdown (D150). */
 export async function cashCollectedPaisa(db: Db, riderId: Uint8Array): Promise<number> {
-  const row = await db.first<{ collected_paisa: number | string | null }>(
+  const row = await db.first<{ collected_paisa: unknown }>(
     "SELECT `collected_paisa` FROM `rider_cash_balances` WHERE `rider_id` = ? LIMIT 1",
     [riderId],
   );
-  return row === null ? 0 : Math.max(0, Number(row.collected_paisa ?? 0));
+  return row === null ? 0 : sqlSafeNonNegativeInteger(row.collected_paisa, "rider cash collected");
 }
 
 /**

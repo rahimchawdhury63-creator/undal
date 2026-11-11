@@ -57,11 +57,11 @@ Total: ≈ 292 000 lines (288 000 of build plus ≈ 4 000 of infrastructure), �
 
 ### 0.1 Current status, blockers and estimate · 2026-11-01
 
-This is a repository-only snapshot based on the D176 code state. **Undal is not production-ready.**
+This is a repository-only snapshot based on the D177 code state. **Undal is not production-ready.**
 A provisional platform-wide progress rating is **about 3/10**: it is a qualitative assessment of
 scope implemented, not a test-health score, response count, or completion percentage. The backend
-has substantial foundations and the D174 CI run passed before D176; a CI result only establishes the
-checks that ran against its own commit. D176 has local test evidence but no live TiDB or production
+has substantial foundations and the D176 CI run passed before D177; a CI result only establishes the
+checks that ran against its own commit. D177 has local test evidence but no live TiDB or production
 environment was accessed.
 
 The actual checkout does not contain the planned `web/` tree; `android/` contains only the shared
@@ -80,10 +80,11 @@ current forecast.
 
 The open launch blockers remain: non-atomic financial mutations and business/audit writes; an
 unserialized legacy audit chain with no persisted versioned canonical format or completed historical
-review; unproven TiDB behavior, partial schema checks and migration DDL/ledger recovery gaps; absent
-customer, rider, partner and admin applications; no secure private-media pipeline; incomplete
-provider/ledger reconciliation; and missing security, end-to-end, device, load, backup/restore,
-monitoring/on-call, legal, privacy and licensing evidence. See the detailed, evidence-based
+review; unsafe BIGINT-to-`Number` conversions in remaining cash/money read paths; unproven TiDB
+behavior, partial schema checks and migration DDL/ledger recovery gaps; absent customer, rider,
+partner and admin applications; no secure private-media pipeline; incomplete provider/ledger
+reconciliation; and missing security, end-to-end, device, load, backup/restore, monitoring/on-call,
+legal, privacy and licensing evidence. See the detailed, evidence-based
 [`production-readiness register`](PRODUCTION-READINESS.md); neither CI nor this estimate closes any
 of those blockers.
 
@@ -727,9 +728,9 @@ outright, leaving **29 open** (D1–D29), and this plan adds **three** the corpu
 the build cannot avoid — generated Kotlin models (D31), the QR key-rotation overlap (D32), error-text
 ownership (D33). The last two planning entries are the deviations made visible in
 `UNDERSTANDING.md` §9: one Pages project with a path-scoped CSP (D34) and `minSdk 26` (D35).
-Subsequent implementation decisions are appended to that record; it currently extends through D176,
-including the schedule/progress rebaseline and audit-tail refusal safeguard. Every entry states the
-decision, what was rejected, and why — so a later reader can tell a choice from an accident.
+Subsequent implementation decisions are appended to that record; it currently extends through D177,
+including the schedule/progress rebaseline and audit/cash-integer refusal safeguards. Every entry states
+the decision, what was rejected, and why — so a later reader can tell a choice from an accident.
 
 ---
 
