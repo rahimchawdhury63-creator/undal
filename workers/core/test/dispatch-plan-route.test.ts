@@ -98,7 +98,7 @@ function dbFor(options: Options = {}): ReturnType<typeof stubDb> {
     { match: /FROM `orders` WHERE `rider_id` IN/u, rows: [] },
     { match: /FROM `order_ratings` `r` JOIN `order_assignments`/u, rows: [...(options.ratings ?? [])] },
     { match: /INSERT INTO `order_offers`/u, affectedRows: 1 },
-    { match: /FROM `audit_log`/u, rows: [{ seq: 4, hash: null }] },
+    { match: /FROM `audit_log`/u, rows: [{ seq: 4, hash: new Uint8Array(32) }] },
     { match: /INSERT INTO `audit_log`/u, affectedRows: 1 },
     { match: /UPDATE `dispatch_locks`/u, affectedRows: 1 },
   ]);

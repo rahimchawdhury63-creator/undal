@@ -11,8 +11,8 @@ two of them outright (the `gen_random_uuid` source, the PostGIS index parameters
 open**; the initial planning record adds **three** that the corpus leaves implicit but the build
 cannot avoid (D31–D33) and **two visible deviations** from the corpus that the operator's brief
 forces (D34–D35). Subsequent implementation decisions are appended below; the sequence now extends
-through D175. Every entry states the decision, what was rejected, and why — so a later reader can tell
-a choice from an accident.
+through D176. Every entry states the decision, what was rejected, and why — so a later reader can
+tell a choice from an accident.
 
 Format: **Decision.** *Rejected:* … *Why:* …
 
@@ -4154,3 +4154,10 @@ This is a forward-only mitigation: historical rows are unchanged. It does not ve
 ### D175 — Rebaseline the schedule against repository evidence
 
 **Decision.** Retain the original four-week response schedule as a historical idealized target, not the current forecast. Record a provisional progress rating of about 3/10 and a remaining full-production planning range of 12–24 months for an experienced 6–10 person cross-functional team, or 3–5+ years for one full-time developer. *Rejected:* treating the response count, a green CI run, or the original 28-day schedule as proof of completion or production readiness. *Why:* at the D174 code baseline, the planned web and customer/rider/partner applications are absent; the recorded plan notes leave R6 and R8 gates open and do not establish R10–R22 gates; and substantial financial, audit, TiDB, media, reconciliation, operational, security and approval work remains. The score is qualitative, and the time range is a provisional planning estimate, not measured velocity or a delivery commitment. It assumes scope broadly comparable to the plan, sustained staffing, timely provider/legal decisions, and isolated staging, representative devices and test integrations. Reassess after an isolated TiDB integration/recovery exercise and a current application-scope inventory. No live TiDB or production environment was accessed; Undal remains **not production-ready**.
+
+
+### D176 — Refuse audit appends when stored tail metadata is unsafe
+
+**Decision.** `appendAudit` now refuses to insert when an existing tail hash is absent or not exactly 32 bytes, or when its `BIGINT` sequence cannot be incremented without unsafe JavaScript `Number` rounding. Exact decimal string values are parsed with bounded syntax and `BigInt`; the next sequence is admitted only while it remains a safe integer. *Rejected:* treating a present-but-hashless tail as a new genesis row, or using `Number(tail.seq) + 1` on arbitrary driver values. *Why:* either behavior could create a broken link or silently reuse/round a sequence while appearing to succeed. Tests prove no INSERT occurs for malformed hashes or invalid/unsafe sequences, and cover exact driver strings and the safe-integer boundary. The dispatch-route test fixture now supplies the 32-byte hash required by the schema.
+
+This is a fail-closed preflight safeguard only. It does **not** serialize the tail-read/insert, make business and audit writes atomic, validate historical payloads, version the stored legacy format, or prove TiDB behavior. The core suite passed locally (876 tests: 874 passed, 2 skipped), workspace typechecks and the 31 guardrails/fixtures passed, and the touched audit writer and new tests pass Prettier. Tests use fakes; no live TiDB or production data was accessed. Cash financial writes remain gated, and Undal remains **not production-ready**.

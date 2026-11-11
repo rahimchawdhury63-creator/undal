@@ -10,6 +10,21 @@ import { newId, toHexId } from "../lib/ids.ts";
 import { hashOf } from "./chain.ts";
 import type { AuditEntry, AuditEntryInput } from "./types.ts";
 
+/** Why an append stopped before inserting because the stored tail cannot be trusted. */
+export class AuditAppendRefusedError extends Error {
+  readonly reason: "INVALID_TAIL_SEQUENCE" | "INVALID_TAIL_HASH";
+
+  constructor(reason: "INVALID_TAIL_SEQUENCE" | "INVALID_TAIL_HASH") {
+    super(
+      reason === "INVALID_TAIL_SEQUENCE"
+        ? "audit chain tail has an invalid or unsafe sequence; refusing append"
+        : "audit chain tail has an invalid hash; refusing append",
+    );
+    this.name = "AuditAppendRefusedError";
+    this.reason = reason;
+  }
+}
+
 /**
  * Append one row to the audit chain.
  *
@@ -19,12 +34,17 @@ import type { AuditEntry, AuditEntryInput } from "./types.ts";
  * and audit committed together. See D163–D166 before enabling cash financial writes.
  * New rows normalize UUID spelling and valid IPv4/IPv6 text before hashing and storing bytes;
  * missing or unparseable IP values become NULL in both places. This does not repair historical
- * rows or make the legacy JSON/delimiter format canonical.
+ * rows or make the legacy JSON/delimiter format canonical. An existing tail with an invalid hash
+ * or an unsafe sequence now fails closed instead of opening a new genesis link or rounding BIGINT.
  *
  * Requires `INSERT` and `SELECT` grants on `audit_log` and nothing else — no `UPDATE`,
  * no `DELETE` — which is the structural half of immutability; the chain is the other.
  */
-export async function appendAudit(db: Db, input: AuditEntryInput, nowMs: number = Date.now()): Promise<AuditEntry> {
+export async function appendAudit(
+  db: Db,
+  input: AuditEntryInput,
+  nowMs: number = Date.now(),
+): Promise<AuditEntry> {
   // Hash exactly the canonical identities and address bytes that this row stores. This
   // makes new rows independent of UUID spelling and prevents IPv6 from becoming NULL.
   const normalizedIp = normalizeAuditIp(input.ip);
@@ -38,8 +58,15 @@ export async function appendAudit(db: Db, input: AuditEntryInput, nowMs: number 
   const tail = await db.first<{ seq: number | string; hash: Uint8Array | null }>(
     "SELECT `seq`, `hash` FROM `audit_log` ORDER BY `seq` DESC LIMIT 1",
   );
-  const seq = tail === null ? 1 : Number(tail.seq) + 1;
-  const prevHash = tail === null || tail.hash === null ? null : new Uint8Array(tail.hash);
+  let seq = 1;
+  let prevHash: Uint8Array | null = null;
+  if (tail !== null) {
+    seq = nextAuditSequence(tail.seq);
+    if (!(tail.hash instanceof Uint8Array) || tail.hash.byteLength !== 32) {
+      throw new AuditAppendRefusedError("INVALID_TAIL_HASH");
+    }
+    prevHash = new Uint8Array(tail.hash);
+  }
 
   const entry: AuditEntry = {
     ...normalizedInput,
@@ -78,6 +105,26 @@ export async function appendAudit(db: Db, input: AuditEntryInput, nowMs: number 
   return entry;
 }
 
+/** Parse a driver BIGINT without losing precision, and reserve one safe JS number for the next row. */
+function nextAuditSequence(value: number | string): number {
+  let current: bigint;
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || value < 1)
+      throw new AuditAppendRefusedError("INVALID_TAIL_SEQUENCE");
+    current = BigInt(value);
+  } else {
+    // TiDB's signed BIGINT is at most 19 decimal digits. Bound parsing before BigInt
+    // and refuse alternate spellings rather than silently normalizing corrupt metadata.
+    if (!/^[1-9][0-9]{0,18}$/u.test(value))
+      throw new AuditAppendRefusedError("INVALID_TAIL_SEQUENCE");
+    current = BigInt(value);
+  }
+  const next = current + 1n;
+  if (next > BigInt(Number.MAX_SAFE_INTEGER))
+    throw new AuditAppendRefusedError("INVALID_TAIL_SEQUENCE");
+  return Number(next);
+}
+
 /**
  * A UUID string as the 16 bytes the column stores.
  *
@@ -87,7 +134,8 @@ export async function appendAudit(db: Db, input: AuditEntryInput, nowMs: number 
  */
 function canonicalUuid(uuid: string): string {
   const hex = uuid.replace(/-/gu, "").toLowerCase();
-  if (hex.length !== 32 || !/^[0-9a-f]{32}$/u.test(hex)) throw new RangeError(`not a UUID: ${uuid}`);
+  if (hex.length !== 32 || !/^[0-9a-f]{32}$/u.test(hex))
+    throw new RangeError(`not a UUID: ${uuid}`);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
@@ -95,7 +143,8 @@ function canonicalUuid(uuid: string): string {
 function uuidBytes(uuid: string): Uint8Array {
   const hex = canonicalUuid(uuid).replace(/-/gu, "");
   const bytes = new Uint8Array(16);
-  for (let index = 0; index < 16; index += 1) bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  for (let index = 0; index < 16; index += 1)
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
   return bytes;
 }
 
@@ -106,7 +155,8 @@ interface NormalizedIp {
 
 /** Canonical textual IPv4/IPv6 plus the exact network bytes stored in VARBINARY(16). */
 function normalizeAuditIp(ip: string | null): NormalizedIp {
-  if (ip === null || ip === "" || ip.toLowerCase() === "unknown") return { text: null, bytes: null };
+  if (ip === null || ip === "" || ip.toLowerCase() === "unknown")
+    return { text: null, bytes: null };
   const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/u.exec(ip);
   if (ipv4 !== null) {
     const octets = ipv4.slice(1).map(Number);

@@ -57,11 +57,12 @@ Total: ≈ 292 000 lines (288 000 of build plus ≈ 4 000 of infrastructure), �
 
 ### 0.1 Current status, blockers and estimate · 2026-11-01
 
-This is a repository-only snapshot based on the D174 code state. **Undal is not production-ready.**
+This is a repository-only snapshot based on the D176 code state. **Undal is not production-ready.**
 A provisional platform-wide progress rating is **about 3/10**: it is a qualitative assessment of
 scope implemented, not a test-health score, response count, or completion percentage. The backend
-has substantial foundations and D174's listed CI run passed, but a green CI run only establishes the
-checks that ran against that commit. No live TiDB or production environment was accessed.
+has substantial foundations and the D174 CI run passed before D176; a CI result only establishes the
+checks that ran against its own commit. D176 has local test evidence but no live TiDB or production
+environment was accessed.
 
 The actual checkout does not contain the planned `web/` tree; `android/` contains only the shared
 money module, not customer, rider or partner applications. The plan's progress notes record R7 and
@@ -726,9 +727,9 @@ outright, leaving **29 open** (D1–D29), and this plan adds **three** the corpu
 the build cannot avoid — generated Kotlin models (D31), the QR key-rotation overlap (D32), error-text
 ownership (D33). The last two planning entries are the deviations made visible in
 `UNDERSTANDING.md` §9: one Pages project with a path-scoped CSP (D34) and `minSdk 26` (D35).
-Subsequent implementation decisions are appended to that record; it currently extends through D175,
-including the schedule and progress rebaseline. Every entry states the decision, what was rejected,
-and why — so a later reader can tell a choice from an accident.
+Subsequent implementation decisions are appended to that record; it currently extends through D176,
+including the schedule/progress rebaseline and audit-tail refusal safeguard. Every entry states the
+decision, what was rejected, and why — so a later reader can tell a choice from an accident.
 
 ---
 
