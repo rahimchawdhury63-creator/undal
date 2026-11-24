@@ -1,0 +1,89 @@
+/*
+ * Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.
+ * SPDX-License-Identifier: LicenseRef-PASVL-1.0
+ */
+
+.wide,
+.compact {
+  margin-inline: auto;
+}
+
+.wide {
+  max-inline-size: 640px;
+}
+
+.compact {
+  max-inline-size: 420px;
+}
+
+.inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+}
+
+.artwork {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-panel);
+  color: var(--color-brand-forest);
+}
+
+.title {
+  font-size: var(--type-heading-lg-size);
+  line-height: var(--type-heading-lg-lineheight);
+  max-inline-size: 32ch;
+}
+
+.body {
+  color: var(--color-text-secondary);
+  max-inline-size: 52ch;
+}
+
+.linkButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--layout-tap-target-comfortable);
+  padding-inline: var(--space-5);
+  border-radius: var(--radius-full);
+  background: var(--color-action-primary);
+  color: var(--color-text-on-action);
+  font-weight: 600;
+}
+
+.details {
+  font-size: var(--type-caption-size);
+  color: var(--color-text-tertiary);
+}
+
+.summary {
+  cursor: pointer;
+  min-height: var(--layout-tap-target-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.pre {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-panel);
+  font-family: var(--font-family-mono);
+  font-size: var(--type-mono-md-size);
+  text-align: start;
+  overflow-x: auto;
+}
+
+.offline {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-status-warning-soft);
+  color: var(--color-status-warning);
+  font-size: var(--type-body-sm-size);
+  text-align: center;
+}

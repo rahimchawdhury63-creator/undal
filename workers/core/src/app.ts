@@ -37,6 +37,7 @@ import { CASH_WRITE_OFF_ROUTES } from "./routes/cash-write-off.ts";
 import { DISPATCH_ROUTES } from "./routes/dispatch.ts";
 import { OFFER_ROUTES } from "./routes/offers.ts";
 import { PUSH_RETRY_ROUTES } from "./routes/push-retry.ts";
+import { PUBLIC_ROUTES } from "./routes/public.ts";
 
 /**
  * The pipeline, in the order a request meets it: identify, throttle, parse, authenticate,
@@ -71,6 +72,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   ...OFFER_ROUTES,
   ...DISPATCH_ROUTES,
   ...PUSH_RETRY_ROUTES,
+  ...PUBLIC_ROUTES,
 ];
 
 /** A matched route plus the parameters its template captured. */

@@ -13,7 +13,7 @@ import { applyTransition } from "../domain/order/lifecycle.ts";
 import { canTransition } from "../domain/order/state-machine.ts";
 import type { TransitionContext } from "../domain/order/guards.ts";
 import type { OrderState } from "../domain/order/states.ts";
-import { findOrder, listOrders, moveState, nextEventSeq, vendorForUser, type OrderRow } from "../repositories/orders.ts";
+import { findOrder, findOrderByCode, listOrders, moveState, nextEventSeq, vendorForUser, type OrderRow } from "../repositories/orders.ts";
 import { parseRatingBody, ratingWindow, targetAllowed } from "../domain/order/rating.ts";
 import { ratingSubject, writeRating } from "../repositories/ratings.ts";
 
@@ -61,13 +61,16 @@ export function serialiseOrder(row: OrderRow): Record<string, unknown> {
   };
 }
 
-/** Read one order, if the caller is allowed to see it. */
-async function getOrder(ctx: Ctx, orderId: string): Promise<Response> {
+/**
+ * Answer with one order if the caller is party to it.
+ *
+ * Shared by the id route and the code route so the authorisation question is asked once: a
+ * second copy is a second place to forget the vendor branch, and the failure mode of forgetting
+ * it is a kitchen reading another kitchen's order.
+ */
+async function answerOrder(ctx: Ctx, row: OrderRow): Promise<Response> {
   const principal = ctx.principal;
   if (principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
-
-  const row = await findOrder(ctx.db, uuidBytes(orderId));
-  if (row === null) return failureResponse({ code: "ORDER_NOT_FOUND" }, ctx.locale, ctx.requestId);
 
   const isOwner =
     (principal.actorType === "CUSTOMER" && toHexId(row.customer_user_id) === principal.userId) ||
@@ -82,6 +85,28 @@ async function getOrder(ctx: Ctx, orderId: string): Promise<Response> {
   }
 
   return successResponse({ order: serialiseOrder(row) }, ctx.locale, ctx.requestId);
+}
+
+/** Read one order by its UUID, if the caller is allowed to see it. */
+async function getOrder(ctx: Ctx, orderId: string): Promise<Response> {
+  if (ctx.principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+  const row = await findOrder(ctx.db, uuidBytes(orderId));
+  if (row === null) return failureResponse({ code: "ORDER_NOT_FOUND" }, ctx.locale, ctx.requestId);
+  return answerOrder(ctx, row);
+}
+
+/**
+ * Read one order by the code a customer reads aloud and types into the tracking page.
+ *
+ * The code is the human identity of an order (`UND-7K2M9QX4`); a storefront route keyed on a
+ * UUID would be a URL nobody can share in a WhatsApp message, which is how most Undal orders
+ * are discussed. The lookup is on a unique index, so this is the same single-row read.
+ */
+async function getOrderByCode(ctx: Ctx, code: string): Promise<Response> {
+  if (ctx.principal === null) return failureResponse({ code: "AUTH_TOKEN_MISSING" }, ctx.locale, ctx.requestId);
+  const row = await findOrderByCode(ctx.db, code.trim().toUpperCase());
+  if (row === null) return failureResponse({ code: "ORDER_NOT_FOUND" }, ctx.locale, ctx.requestId);
+  return answerOrder(ctx, row);
 }
 
 /** The caller's own orders. */
@@ -324,6 +349,8 @@ async function rateOrder(ctx: Ctx, orderId: string, body: unknown): Promise<Resp
 export const ORDER_ROUTES: readonly RouteDefinition[] = [
   { method: "GET", path: "/v1/orders", permission: "order.list", group: "ORDER_WRITE", run: (ctx) => listMyOrders(ctx) },
   { method: "GET", path: "/v1/orders/{id}", permission: "order.read", group: "ORDER_WRITE", run: (ctx, input) => getOrder(ctx, input.params["id"] as string) },
+  // The tracking page and every shared link use the code, not the UUID.
+  { method: "GET", path: "/v1/orders/code/{code}", permission: "order.read", group: "ORDER_WRITE", run: (ctx, input) => getOrderByCode(ctx, input.params["code"] as string) },
   {
     method: "POST",
     path: "/v1/orders/{id}/accept",

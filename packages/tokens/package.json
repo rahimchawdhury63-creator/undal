@@ -1,0 +1,24 @@
+{
+  "name": "@undal/tokens",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Undal design tokens: the single source of truth for colour, type, spacing, radius, elevation and motion.",
+  "license": "LicenseRef-PASVL-1.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.json": "./tokens.json",
+    "./dist/tokens.css": "./dist/tokens.css",
+    "./dist/tokens.json": "./dist/tokens.json"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "codegen": "node build.mjs",
+    "check": "node build.mjs --check",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "22.7.4"
+  }
+}
