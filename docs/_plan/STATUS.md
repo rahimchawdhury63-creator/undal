@@ -32,7 +32,7 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | Storefront deploy gate | `node web/storefront/scripts/verify-prerender.mjs` | 17 pages, 124 KB JS gzipped, deployable |
 | `web/admin` types | `npx tsc --noEmit` in `web/admin` | exit 0 |
 | `web/admin` tests | `node --experimental-strip-types --test test/*.test.ts` | 15 tests, 15 pass |
-| `web/admin` build | `pnpm --filter @undal/admin build` | 470 KB, 149 KB JS gzipped |
+| `web/admin` build | `pnpm --filter @undal/admin build` | 443 KB, 129 KB JS gzipped (measured across both chunks) |
 | Admin deploy gate | `node web/admin/scripts/verify-csp.mjs` | policy scoped to `/admin/*`, publishable |
 | Repository guardrails | `python3 scripts/guardrails/run.py` | 31 rules, 0 errors, 0 warnings |
 | Schema vs specification | `python3 scripts/db/check_schema_parity.py` | 115 tables, inventory and migrations agree |
