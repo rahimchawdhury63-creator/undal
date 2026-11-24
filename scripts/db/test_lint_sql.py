@@ -64,6 +64,17 @@ class StatementExtraction(unittest.TestCase):
         found = self.extract('const a = "SELECT `id` FROM `zones` " + `WHERE ${where} ORDER BY id`;')
         self.assertEqual(found, [])
 
+    def test_reads_a_statement_that_follows_an_interpolated_one(self) -> None:
+        # The first version marked the next statement as truncated too, and silently stopped
+        # checking everything after the first template with a ${} in it — eleven statements, in
+        # this repository, without a word of complaint.
+        found = self.extract(
+            "const a = `SELECT `x` FROM ${table}`;\n"
+            'const b = "SELECT `id` FROM `zones` WHERE `status` = NULL";'
+        )
+        self.assertEqual(len(found), 1)
+        self.assertIn("FROM `zones`", found[0])
+
     def test_ignores_a_keyword_that_is_a_word_in_a_list(self) -> None:
         self.assertEqual(self.extract('const keys = ["delete", "update"];'), [])
 

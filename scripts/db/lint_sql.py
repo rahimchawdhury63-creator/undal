@@ -175,6 +175,10 @@ def statements(path: Path) -> list[str]:
                 current = []
             truncated = True
             continue
+        # A group that starts here is a group of its own: the cut flag belongs to what came before,
+        # and letting it leak forward silently dropped every statement after an interpolated one.
+        if not current:
+            truncated = False
         current.append(content)
     if current:
         groups.append(current)

@@ -43,6 +43,7 @@ import { RIDER_ADMIN_ROUTES } from "./routes/riders.ts";
 import { AUDIT_ROUTES } from "./routes/audit.ts";
 import { ZONE_ROUTES } from "./routes/zones.ts";
 import { GROWTH_ROUTES } from "./routes/growth.ts";
+import { SYSTEM_ROUTES } from "./routes/system.ts";
 
 /**
  * The pipeline, in the order a request meets it: identify, throttle, parse, authenticate,
@@ -82,6 +83,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   ...AUDIT_ROUTES,
   ...ZONE_ROUTES,
   ...GROWTH_ROUTES,
+  ...SYSTEM_ROUTES,
   ...PUBLIC_ROUTES,
 ];
 

@@ -640,5 +640,18 @@
   "admin.growth.reward": "Reward",
   "admin.growth.invited": "Invited",
   "admin.growth.qualifiedAt": "Qualified",
-  "admin.growth.privacy": "This screen shows two account ids and a reward, never a name or a phone number: a growth report is not a place to read somebody's contact details."
+  "admin.growth.privacy": "This screen shows two account ids and a reward, never a name or a phone number: a growth report is not a place to read somebody's contact details.",
+  "admin.system.title": "System",
+  "admin.system.intro": "The configuration the platform is running on: every key, its current value, the version that introduced it and the reason it changed. Editing happens elsewhere, under its own permission.",
+  "admin.system.prefix": "Key prefix",
+  "admin.system.showing": "Showing",
+  "admin.system.empty.title": "No configuration matches",
+  "admin.system.empty.body": "No key starts with that prefix. Clear the box to see the whole register.",
+  "admin.system.key": "Key",
+  "admin.system.value": "Value",
+  "admin.system.version": "Version",
+  "admin.system.effective": "In force since",
+  "admin.system.reason": "Reason",
+  "admin.system.redacted": "Redacted",
+  "admin.system.note": "Redacted rows are values the platform keeps out of a screen: they exist, and reading them is a different permission. There is no edit control here — changing a live weight or threshold is an audited action with its own route."
 }

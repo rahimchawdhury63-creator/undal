@@ -20,8 +20,8 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 
 | Area | Command | Result |
 |---|---|---|
-| The whole gate | `pnpm verify` | 19 steps green in 56 s |
-| `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 966 tests, 964 pass, 0 fail |
+| The whole gate | `pnpm verify` | 19 steps green in 54 s |
+| `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 974 tests, 972 pass, 0 fail |
 | `workers/core` types | `npx tsc --noEmit -p workers/core/tsconfig.json` | exit 0 |
 | `packages/tokens` | `pnpm --filter @undal/tokens test` | 6/6 |
 | `packages/i18n` | `pnpm --filter @undal/i18n test` | 15/15 |
@@ -38,8 +38,8 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | Schema vs specification | `python3 scripts/db/check_schema_parity.py` | 115 tables, inventory and migrations agree |
 | Schema snapshot | `python3 scripts/db/expected.py` then `git diff --exit-code db/expected.json` | current: 117 tables, 1158 columns, 151 inline checks |
 | Migration runner | `python3 scripts/db/test_migrate.py` | 15 tests, 15 pass |
-| Workers' SQL vs schema | `python3 scripts/db/lint_sql.py` | 170 statements, 0 findings, 0 unparseable |
-| SQL linter itself | `python3 scripts/db/test_lint_sql.py` | 11 tests, 11 pass, three of them requiring the gate to go red |
+| Workers' SQL vs schema | `python3 scripts/db/lint_sql.py` | 181 statements, 0 findings, 0 unparseable |
+| SQL linter itself | `python3 scripts/db/test_lint_sql.py` | 12 tests, 12 pass, four of them requiring the gate to go red |
 
 ## The SQL linter, and the bug it found
 
@@ -58,6 +58,11 @@ It found a real one on its first run: the zone pause guard counting live orders 
 would never have caught it, because the stub never reads the statement. It now counts the seven
 terminal states by name.
 
+A third bug of that shape was found while adding the system route: a statement following an
+interpolated template inherited the template's "truncated" flag and was silently dropped — eleven
+statements across the repository were never being checked, and the count said 170 instead of 181.
+Fixed, with a regression test.
+
 An unparseable statement counts as a failure, not as a line in a log: the first version of the
 linter exited 0 when it could not read a statement, which meant a typo turned the check into
 silence — the second silent-skip bug of the same shape in two days.
@@ -65,6 +70,13 @@ silence — the second silent-skip bug of the same shape in two days.
 What it cannot do, plainly: it does not execute anything, so a wrong join predicate, a missing
 index and a value that violates a CHECK are all invisible to it. It is a spelling check with a
 schema.
+
+The system reader: `GET /v1/system/config` — the current value of every `platform_config` key,
+newest `effective_at` per key and zone, with its version and the reason it changed. It sits behind
+`admin.config.edit` because the register grants configuration as one key and reading is weaker than
+rewriting; inventing `admin.config.read` would change a register the specification fixes. Values
+whose key looks like a credential come back marked `redacted` rather than absent: a row that
+vanishes leaves a reviewer wondering whether the setting exists.
 
 The growth readers: `GET /v1/campaigns` (kind, active, name; each row carrying its latest budget
 period, what it has spent, what is left and how many times it was used) and `GET /v1/referrals`
@@ -125,8 +137,8 @@ available, Asia/Dhaka timestamps, dark theme from a second; token set, 44 px tar
 
 - **Admin coverage** — `web/admin` ships the cash queue, the exception queue, the vendor list with
   pause/resume, the fleet board, the zone board with close/reopen, the order board, the audit
-  register, the growth board (campaign budgets, referral tally) and the dashboard. System has no
-  screen yet, and no route behind it; its absence is visible, not simulated.
+  register, the growth board (campaign budgets, referral tally), the system board (configuration)
+  and the dashboard.
 - **Android** — `android/shared/money` is the only module. Customer, partner and rider apps are not
   written. No JDK exists in the build sandbox, so anything written there cannot be compiled here.
 - **`workers/realtime` and `workers/brain`** — present, not exercised by any test that runs in CI.
@@ -148,8 +160,8 @@ ticket:
 
 ## The next four things, in order
 
-1. System: a reader over `platform_config` and a screen over the error registry, so the last silent
-   surface has a way in.
+1. The error-registry screen: 187 codes with their copy and statuses, rendered from
+   `@undal/contracts` — the last surface an operator cannot currently see from the console.
 2. Run the prerender against a live `undal-core` (`wrangler dev`) so vendor, area and category
    pages exist, and assert one of them in a test.
 3. Tests for `workers/realtime` (auth handshake, room broadcast, reconnect) and `workers/brain`

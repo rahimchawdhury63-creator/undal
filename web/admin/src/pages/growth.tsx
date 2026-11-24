@@ -13,7 +13,7 @@
 
 import { useState, type ReactNode } from "react";
 
-import { listCampaigns, listReferrals, type AdminCampaign, type AdminReferral } from "../lib/api.ts";
+import { listCampaigns, listReferrals, type AdminCampaign, type AdminReferral } from "../lib/growth-api.ts";
 import { useT } from "../lib/locale.tsx";
 import { useSession } from "../lib/session.ts";
 import { useResource } from "../lib/use-resource.ts";
