@@ -36,10 +36,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import lint_sql  # noqa: E402
+import seed_local  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 QUERIES = ROOT / "db" / "queries"
-SEED = ROOT / "db" / "seed" / "local.sql"
 EXPECTED = ROOT / "db" / "expected.json"
 URL_ENV = "UNDAL_TEST_DATABASE_URL"
 
@@ -64,29 +64,30 @@ def self_check() -> int:
     schema = lint_sql.schema_of(json.loads(EXPECTED.read_text(encoding="utf-8")))
     mapping = MappingSchema(schema, dialect="mysql")
 
-    targets: list[Path] = sorted(QUERIES.glob("*.sql"))
-    if SEED.exists():
-        targets.append(SEED)
-
     checked = 0
     findings = 0
-    for path in targets:
-        for statement in statements_of(path):
-            checked += 1
-            try:
-                problems = lint_sql.findings_for(statement, schema, mapping)
-            except Exception as error:  # noqa: BLE001 — an unparseable statement is a finding
-                problems = [f"could not parse: {error}"]
-            for problem in problems:
-                findings += 1
-                print(f"integration: {lint_sql.label(path)}: {problem}", file=sys.stderr)
 
-    if not SEED.exists():
-        print(f"integration: no seed at {SEED.relative_to(ROOT)} — --run will report an empty schema", file=sys.stderr)
+    def inspect(source: str, label: str, statement: str) -> None:
+        nonlocal checked, findings
+        checked += 1
+        try:
+            problems = lint_sql.findings_for(statement, schema, mapping)
+        except Exception as error:  # noqa: BLE001 — an unparseable statement is a finding
+            problems = [f"could not parse: {error}"]
+        for problem in problems:
+            findings += 1
+            print(f"integration: {label}: {problem}", file=sys.stderr)
+
+    files = sorted(QUERIES.glob("*.sql"))
+    for path in files:
+        for statement in statements_of(path):
+            inspect("query", lint_sql.label(path), statement)
+    for label, statement in seed_local.STATEMENTS:
+        inspect("seed", f"seed: {label}", statement)
 
     print(
-        f"integration: self-check over {len(targets)} files, {checked} statements, "
-        f"{findings} findings (names only — nothing executed)"
+        f"integration: self-check over {len(files)} queries and {len(seed_local.STATEMENTS)} seed "
+        f"statements — {checked} checked, {findings} findings (names only; nothing executed)"
     )
     return 1 if findings else 0
 
@@ -132,12 +133,16 @@ def run() -> int:
         cursorclass=pymysql.cursors.DictCursor,
     )
 
-    if SEED.exists():
+    try:
         with connection.cursor() as cursor:
-            for statement in statements_of(SEED):
+            for label, statement in seed_local.STATEMENTS:
                 cursor.execute(statement)
+                print(f"  ok   seed: {label}")
         connection.commit()
-        print(f"integration: seed applied from {SEED.relative_to(ROOT)}")
+    except Exception as error:  # noqa: BLE001 — a seed that fails is the finding
+        print(f"integration: seed failed: {error}", file=sys.stderr)
+        connection.close()
+        return 1
 
     failures = 0
     with connection.cursor() as cursor:

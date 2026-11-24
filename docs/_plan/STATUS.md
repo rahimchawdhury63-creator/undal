@@ -40,7 +40,7 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | Migration runner | `python3 scripts/db/test_migrate.py` | 15 tests, 15 pass |
 | Migration policy | `python3 scripts/db/test_migration_policy.py` | 11 tests, 11 pass |
 | API surface | `node scripts/api-surface.mjs` | 67 routes, 32 writes, 33 permissions, current |
-| Operational SQL | `python3 scripts/db/integration.py --self-check` | 20 queries, 20 statements, 0 findings |
+| Operational SQL + fixtures | `python3 scripts/db/integration.py --self-check` | 20 queries and 9 seed statements, 0 findings |
 | Integration harness | `python3 scripts/db/integration.py --run` | **needs `UNDAL_TEST_DATABASE_URL`; exits 1 without one** |
 | Workers' SQL vs schema | `python3 scripts/db/lint_sql.py` | 181 statements, 0 findings, 0 unparseable |
 | SQL linter itself | `python3 scripts/db/test_lint_sql.py` | 12 tests, 12 pass, four of them requiring the gate to go red |
@@ -81,6 +81,13 @@ of the gate. `--run` applies the migrations to a real TiDB and executes all twen
 `UNDAL_TEST_DATABASE_URL` it exits 1 and says so, because a harness that skips quietly is a harness
 that never runs. **It has never been executed against a server.** The HTTP journey — quote, place,
 accept, deliver — needs `wrangler dev` bound to the same database and has not been driven either.
+
+The fixtures live in `scripts/db/seed_local.py`, not in a `.sql` file under `db/`: the guardrail that
+keeps migrations free of business data stays on, and a fixture that has to be typed by hand into a
+database is a fixture nobody runs twice. Nine statements — a customer, a kitchen owner, a rider, a
+zone shaped around Sylhet city centre, the kitchen, its menu, its section, a biryani, and the rider's
+profile — every one carrying `ON DUPLICATE KEY UPDATE`, so a second run leaves one zone and not two.
+All nine are validated against the schema by the same self-check as the queries.
 
 Its first run found **eight broken references in the twenty operator queries** — SQL that had never
 been parsed against the schema it runs on. `zones.name_en` (the column is `name`) in four queries,
