@@ -18,7 +18,11 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 | `web/storefront` types | `npx tsc --noEmit` in `web/storefront` | exit 0 |
 | `web/storefront` tests | `node --experimental-strip-types --test test/*.test.ts` | 22 tests, 22 pass |
 | `web/storefront` build | `pnpm --filter @undal/storefront build` | 17 pages prerendered |
-| Deploy gate | `node web/storefront/scripts/verify-prerender.mjs` | 17 pages, 124 KB JS gzipped, deployable |
+| Storefront deploy gate | `node web/storefront/scripts/verify-prerender.mjs` | 17 pages, 124 KB JS gzipped, deployable |
+| `web/admin` types | `npx tsc --noEmit` in `web/admin` | exit 0 |
+| `web/admin` tests | `node --experimental-strip-types --test test/*.test.ts` | 11 tests, 11 pass |
+| `web/admin` build | `pnpm --filter @undal/admin build` | 369 KB, 121 KB JS gzipped |
+| Admin deploy gate | `node web/admin/scripts/verify-csp.mjs` | policy scoped to `/admin/*`, publishable |
 | Repository guardrails | `python3 scripts/guardrails/run.py` | 31 rules, 0 errors, 0 warnings |
 
 What the storefront does today, end to end and against the real API contract: browse by area,
@@ -29,9 +33,10 @@ available, Asia/Dhaka timestamps, dark theme from a second; token set, 44 px tar
 
 ## Not built yet
 
-- **`web/admin`** — the admin SPA does not exist. `deploy-admin.yml` therefore has nothing to
-  build, and `scripts/verify-csp.mjs` (which it references) does not exist either. The partner and
-  rider browser consoles are honest doorways that send people to the Android apps.
+- **Admin coverage** — `web/admin` ships the cash queue, the exception queue, the order board and
+  the dashboard, with the four decisions the reviewer role can make. The remaining admin domains
+  in `docs/21` (vendors, riders, zones, growth, system) have no screens yet; their APIs are
+  partially present and their absence is visible, not simulated.
 - **Android** — `android/shared/money` is the only module. Customer, partner and rider apps are not
   written. No JDK exists in the build sandbox, so anything written there cannot be compiled here.
 - **`workers/realtime` and `workers/brain`** — present, not exercised by any test that runs in CI.
@@ -53,8 +58,8 @@ ticket:
 
 ## The next four things, in order
 
-1. `web/admin`: sign-in, today's orders board, vendor pause/resume, payout summary, with
-   `scripts/verify-csp.mjs` checking the `/admin/*` path-scoped policy the deploy workflow expects.
+1. The rest of `web/admin`: the vendor list with pause/resume, the rider list with shift state,
+   and the audit register reader. Each needs a route check before a screen exists.
 2. Run the prerender against a live `undal-core` (`wrangler dev`) so vendor, area and category
    pages exist, and assert one of them in a test.
 3. Tests for `workers/realtime` (auth handshake, room broadcast, reconnect) and `workers/brain`
@@ -67,4 +72,4 @@ ticket:
 It does not say the platform is production-ready. `docs/_plan/PRODUCTION-READINESS.md` rates it far
 below that, and the list above is why. The gap is measured in months of team work, not in labels.
 
-_Last verified: 2026-11-24, commit `d4f7429`, branch `arena/bbda8ff4-undal`._
+_Last verified: 2026-11-24, branch `arena/bbda8ff4-undal`._

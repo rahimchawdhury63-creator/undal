@@ -56,6 +56,52 @@ importers:
         specifier: 22.7.4
         version: 22.7.4
 
+  web/admin:
+    dependencies:
+      '@fontsource/hind-siliguri':
+        specifier: 5.1.0
+        version: 5.1.0
+      '@fontsource/poppins':
+        specifier: 5.1.0
+        version: 5.1.0
+      '@undal/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
+      '@undal/tokens':
+        specifier: workspace:*
+        version: link:../../packages/tokens
+      react:
+        specifier: 19.0.0
+        version: 19.0.0
+      react-dom:
+        specifier: 19.0.0
+        version: 19.0.0(react@19.0.0)
+      react-router:
+        specifier: 7.1.1
+        version: 7.1.1(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      zustand:
+        specifier: 5.0.2
+        version: 5.0.2(@types/react@19.0.2)(react@19.0.0)
+    devDependencies:
+      '@types/node':
+        specifier: 22.7.4
+        version: 22.7.4
+      '@types/react':
+        specifier: 19.0.2
+        version: 19.0.2
+      '@types/react-dom':
+        specifier: 19.0.2
+        version: 19.0.2(@types/react@19.0.2)
+      '@vitejs/plugin-react':
+        specifier: 4.3.4
+        version: 4.3.4(vite@6.0.5(@types/node@22.7.4))
+      typescript:
+        specifier: 5.6.3
+        version: 5.6.3
+      vite:
+        specifier: 6.0.5
+        version: 6.0.5(@types/node@22.7.4)
+
   web/storefront:
     dependencies:
       '@fontsource/hind-siliguri':

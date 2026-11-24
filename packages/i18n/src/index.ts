@@ -21,7 +21,6 @@ import {
   formatMoney,
   formatNumber,
   formatRelative,
-  toBengaliDigits,
   type DateStyle,
   type MoneyOptions,
   type Numerals,
@@ -83,7 +82,7 @@ export function createTranslator(locale: Locale): Translator {
       return formatMessage(pattern, locale, args);
     },
     money(amountPaisa, options) {
-      return formatMoney(amountPaisa, locale, options);
+      return formatMoney(amountPaisa, options);
     },
     number(value, numerals) {
       return formatNumber(value, locale, numerals);

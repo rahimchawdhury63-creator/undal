@@ -48,11 +48,12 @@ export interface MoneyOptions {
 /**
  * Format an amount of paisa as taka.
  *
- * Grouping is lakh/crore (`1,00,000.00`), never Western thousands, because that is how
- * a Bangladeshi reads a price. The symbol precedes the amount with a thin space, which
+ * Grouping is lakh/crore (`1,00,000.00`), never Western thousands, because that is how a
+ * Bangladeshi reads a price — in English as well as in Bangla, which is why this function takes no
+ * locale: the grouping is a property of the currency, not of the sentence around it. The symbol precedes the amount with a thin space, which
  * is the typography the invoice and the storefront share.
  */
-export function formatMoney(amountPaisa: Paisa | number, locale: Locale, options: MoneyOptions = {}): string {
+export function formatMoney(amountPaisa: Paisa | number, options: MoneyOptions = {}): string {
   const grouped = groupBdt(amountPaisa);
   let text = grouped.amount;
   if (options.decimals === false) {

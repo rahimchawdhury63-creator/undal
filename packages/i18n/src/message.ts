@@ -149,12 +149,18 @@ function pluralRules(locale: Locale): Intl.PluralRules {
   return rules;
 }
 
-/** Render compiled nodes with a locale and arguments. `hash` carries the plural count for `#`. */
+/**
+ * Render compiled nodes with a locale and arguments.
+ *
+ * `hash` is the plural count a nested branch may print as `#`: without it a Bengali plural such as
+ * "{count, plural, one{একটি} other{#টি}}" renders the word `#` to the customer, which is exactly the
+ * kind of bug that only shows up in the language nobody on the team reads.
+ */
 function render(nodes: readonly Node[], locale: Locale, args: MessageArgs, hash: number | null): string {
   let output = "";
   for (const node of nodes) {
     if (node.kind === "text") {
-      output += node.value;
+      output += hash === null ? node.value : node.value.replace(/#/gu, String(hash));
       continue;
     }
     if (node.kind === "argument") {
