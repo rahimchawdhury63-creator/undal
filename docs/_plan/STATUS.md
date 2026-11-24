@@ -20,8 +20,8 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 
 | Area | Command | Result |
 |---|---|---|
-| The whole gate | `pnpm verify` | 19 steps green in 65 s |
-| `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 954 tests, 952 pass, 0 fail |
+| The whole gate | `pnpm verify` | 19 steps green in 58 s |
+| `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 966 tests, 964 pass, 0 fail |
 | `workers/core` types | `npx tsc --noEmit -p workers/core/tsconfig.json` | exit 0 |
 | `packages/tokens` | `pnpm --filter @undal/tokens test` | 6/6 |
 | `packages/i18n` | `pnpm --filter @undal/i18n test` | 15/15 |
@@ -38,7 +38,7 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | Schema vs specification | `python3 scripts/db/check_schema_parity.py` | 115 tables, inventory and migrations agree |
 | Schema snapshot | `python3 scripts/db/expected.py` then `git diff --exit-code db/expected.json` | current: 117 tables, 1158 columns, 151 inline checks |
 | Migration runner | `python3 scripts/db/test_migrate.py` | 15 tests, 15 pass |
-| Workers' SQL vs schema | `python3 scripts/db/lint_sql.py` | 169 statements, 0 findings, 0 unparseable |
+| Workers' SQL vs schema | `python3 scripts/db/lint_sql.py` | 170 statements, 0 findings, 0 unparseable |
 | SQL linter itself | `python3 scripts/db/test_lint_sql.py` | 11 tests, 11 pass, three of them requiring the gate to go red |
 
 ## The SQL linter, and the bug it found
@@ -65,6 +65,21 @@ silence — the second silent-skip bug of the same shape in two days.
 What it cannot do, plainly: it does not execute anything, so a wrong join predicate, a missing
 index and a value that violates a CHECK are all invisible to it. It is a spelling check with a
 schema.
+
+The growth readers: `GET /v1/campaigns` (kind, active, name; each row carrying its latest budget
+period, what it has spent, what is left and how many times it was used) and `GET /v1/referrals`
+(status, code, keyset-paged; with a tally over the whole table and the reward the qualified queue
+owes). Neither has a switch: starting a campaign, pausing one and paying a reward are three
+permissions and three routes that do not exist yet, so the file reads and says nothing it cannot
+back with a statement. No names or phone numbers cross either route — a referral row is two ids, a
+code and a reward.
+
+**A permissions finding worth more than the routes:** the register splits `promo.campaign.list`
+from `promo.campaign.view_budget`, and the route honours the split — but every system role that
+may list campaigns (SUPER_ADMIN, OPS_MANAGER, FINANCE, ANALYST) also holds the budget key, so
+today the split only bites a role string the register does not know. The gate is written and
+tested; making it *matter* is a role-model decision for the corpus, not something a route can fix
+by pretending.
 
 The zone surface: `GET /v1/zones` (with live kitchen and rider counts per zone),
 `GET /v1/zones/{id}` (plus the ring), `POST /v1/zones/{id}/pause` and `POST /v1/zones/{id}/activate`,
@@ -133,8 +148,8 @@ ticket:
 
 ## The next four things, in order
 
-1. Growth and system: referral and campaign readers over their tables, plus a system screen over the
-   error registry and the config flags, so the last two silent surfaces have a way in.
+1. The growth screen: campaigns and referrals in `web/admin`, over the two readers that now exist.
+2. System: a screen over `platform_config` and the error registry.
 2. Run the prerender against a live `undal-core` (`wrangler dev`) so vendor, area and category
    pages exist, and assert one of them in a test.
 3. Tests for `workers/realtime` (auth handshake, room broadcast, reconnect) and `workers/brain`
