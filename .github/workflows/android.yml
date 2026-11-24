@@ -34,9 +34,19 @@ jobs:
         with:
           gradle-version: "8.10.2"
       # `money` and `api` are plain JVM libraries: no SDK, no emulator, seconds per run.
+      # Run it into a file so a failure can be lifted into an annotation: the raw job log is
+      # served from a host this environment cannot reach, and an error you cannot read is an
+      # error you cannot fix.
       - name: test
         working-directory: android
-        run: gradle :shared:money:test :shared:api:test --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle :shared:money:test :shared:api:test --no-daemon --stacktrace 2>&1 | tee build.log
+      - name: surface the first errors
+        if: failure()
+        working-directory: android
+        run: |
+          grep -m 8 -E "^(e: |What went wrong|Caused by|> )" build.log || tail -20 build.log
       - name: upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
