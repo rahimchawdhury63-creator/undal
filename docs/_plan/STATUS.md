@@ -10,7 +10,7 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 
 | Area | Command | Result |
 |---|---|---|
-| `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 926 tests, 924 pass, 0 fail |
+| `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 937 tests, 935 pass, 0 fail |
 | `workers/core` types | `npx tsc --noEmit -p workers/core/tsconfig.json` | exit 0 |
 | `packages/tokens` | `pnpm --filter @undal/tokens test` | 6/6 |
 | `packages/i18n` | `pnpm --filter @undal/i18n test` | 15/15 |
@@ -21,9 +21,17 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 | Storefront deploy gate | `node web/storefront/scripts/verify-prerender.mjs` | 17 pages, 124 KB JS gzipped, deployable |
 | `web/admin` types | `npx tsc --noEmit` in `web/admin` | exit 0 |
 | `web/admin` tests | `node --experimental-strip-types --test test/*.test.ts` | 11 tests, 11 pass |
-| `web/admin` build | `pnpm --filter @undal/admin build` | 369 KB, 121 KB JS gzipped |
+| `web/admin` build | `pnpm --filter @undal/admin build` | 389 KB, 126 KB JS gzipped |
 | Admin deploy gate | `node web/admin/scripts/verify-csp.mjs` | policy scoped to `/admin/*`, publishable |
 | Repository guardrails | `python3 scripts/guardrails/run.py` | 31 rules, 0 errors, 0 warnings |
+
+The audit register: `GET /v1/audit`, filtered by action, resource, actor class, severity and a
+sequence cursor, returning each entry's before and after, its reason, its request id and the two
+chain hashes that tie it to its neighbour. `web/admin` renders it as a register with the diff opening
+under the table, one entry at a time. Nothing in it can be edited — the register is append-only, and
+a console that could change it would make the chain decorative. The cursor is the sequence number,
+not a timestamp: `occurred_at` is a `DATETIME(6)` that two rows in one transaction can share, and a
+keyset over a column with ties skips rows.
 
 The fleet surface: `GET /v1/riders` — filtered by onboarding status, shift state, zone and text,
 keyset-paged, with the rider's cash balance joined onto the row rather than fetched per rider, and a
@@ -51,8 +59,8 @@ available, Asia/Dhaka timestamps, dark theme from a second; token set, 44 px tar
 ## Not built yet
 
 - **Admin coverage** — `web/admin` ships the cash queue, the exception queue, the vendor list with
-  pause/resume, the fleet board, the order board and the dashboard. Zones, growth, system and the
-  audit register have no screens yet; their absence is visible, not simulated.
+  pause/resume, the fleet board, the order board, the audit register and the dashboard. Zones,
+  growth and system have no screens yet; their absence is visible, not simulated.
 - **Android** — `android/shared/money` is the only module. Customer, partner and rider apps are not
   written. No JDK exists in the build sandbox, so anything written there cannot be compiled here.
 - **`workers/realtime` and `workers/brain`** — present, not exercised by any test that runs in CI.
@@ -74,9 +82,9 @@ ticket:
 
 ## The next four things, in order
 
-1. The audit register reader: `GET /v1/audit` over `audit_log`, with the actor, resource, reason and
-   before/after the hash chain already records. The export exists in `src/audit/export.ts` and has
-   no reader; that is the last operator surface with no way in.
+1. Zone coverage: `GET /v1/zones` for the operator (the table and its reader exist in
+   `repositories/`; there is no admin list route), then growth (referrals, campaigns) and system
+   (config flags, error registry) screens.
 2. Run the prerender against a live `undal-core` (`wrangler dev`) so vendor, area and category
    pages exist, and assert one of them in a test.
 3. Tests for `workers/realtime` (auth handshake, room broadcast, reconnect) and `workers/brain`

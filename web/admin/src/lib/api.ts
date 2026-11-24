@@ -450,3 +450,42 @@ export async function listRiders(
 export async function listOrders(token: string, limit = 50): Promise<{ readonly orders: readonly OrderRow[] }> {
   return apiCall<{ readonly orders: readonly OrderRow[] }>("/v1/orders", { token, query: { limit } });
 }
+
+/** One entry in the audit register. */
+export interface AuditEntry {
+  readonly seq: number;
+  readonly occurredAt: string;
+  readonly actor: { readonly id: string | null; readonly type: string; readonly role: string | null };
+  readonly action: string;
+  readonly resource: { readonly type: string; readonly id: string | null; readonly subjectId: string | null };
+  readonly before: unknown;
+  readonly after: unknown;
+  readonly reason: string | null;
+  readonly severity: string;
+  readonly requestId: string | null;
+  readonly prevHash: string | null;
+  readonly hash: string | null;
+}
+
+/** A page of the register, newest first. */
+export interface AuditPage {
+  readonly entries: readonly AuditEntry[];
+  readonly nextCursor: string | null;
+  readonly limit: number;
+}
+
+/** The register, filtered. Paged by sequence, which is the chain's own order. */
+export async function listAudit(
+  token: string,
+  query: {
+    action?: string | null;
+    resourceType?: string | null;
+    resourceId?: string | null;
+    actorType?: string | null;
+    severity?: string | null;
+    before?: number | null;
+    limit?: number;
+  } = {},
+): Promise<AuditPage> {
+  return apiCall<AuditPage>("/v1/audit", { token, query });
+}

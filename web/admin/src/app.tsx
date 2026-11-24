@@ -20,6 +20,7 @@ import { NotFoundPage } from "./pages/not-found.tsx";
 import { OrdersPage } from "./pages/orders.tsx";
 import { SettlementsPage } from "./pages/settlements.tsx";
 import { RidersPage } from "./pages/riders.tsx";
+import { AuditPage } from "./pages/audit.tsx";
 import { SignInPage } from "./pages/sign-in.tsx";
 import { VendorsPage } from "./pages/vendors.tsx";
 
@@ -56,6 +57,7 @@ const routes = [
       { path: "cash/declarations", element: <DeclarationsPage /> },
       { path: "vendors", element: <VendorsPage /> },
       { path: "fleet", element: <RidersPage /> },
+      { path: "audit", element: <AuditPage /> },
       { path: "orders", element: <OrdersPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
