@@ -5,7 +5,8 @@
 
 SELECT s.`id`, s.`rider_id`, s.`zone_id`, s.`started_at`,
        COALESCE(s.`ended_at`, NOW()) - s.`started_at` AS duration,
-       s.`state`
+       r.`shift_state`
 FROM `rider_shifts` s
+JOIN `riders` r ON r.`id` = s.`rider_id`
 WHERE s.`started_at` >= CURDATE()
 ORDER BY s.`started_at` DESC;

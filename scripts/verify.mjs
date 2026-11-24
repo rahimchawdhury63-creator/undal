@@ -55,6 +55,12 @@ const STEPS = [
     cwd: ROOT,
   },
   {
+    name: "operational-sql",
+    why: "the 20 allowlisted operator queries name tables and columns that exist",
+    command: "python3 scripts/db/integration.py --self-check",
+    cwd: ROOT,
+  },
+  {
     name: "migration-policy",
     summaries: [/^Ran \d+ tests?/u, /^OK$/u],
     why: "every migration is idempotent, additive and shaped the way the rest of the schema is",

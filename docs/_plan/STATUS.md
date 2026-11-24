@@ -10,7 +10,7 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 
 `pnpm verify` (or `node scripts/verify.mjs`) runs every check in this file, in dependency order,
 stops at the first red one and prints the tail of what failed. `--list` names the steps, `--only
-<step>` runs one, `--from <step>` resumes from one. Twenty-one steps, 56 seconds, and it is the only
+<step>` runs one, `--from <step>` resumes from one. Twenty-two steps, 55 seconds, and it is the only
 command a reviewer needs to run.
 
 It has been watched failing: with `orders.status` put back into the zone guard it stops on
@@ -40,6 +40,8 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | Migration runner | `python3 scripts/db/test_migrate.py` | 15 tests, 15 pass |
 | Migration policy | `python3 scripts/db/test_migration_policy.py` | 11 tests, 11 pass |
 | API surface | `node scripts/api-surface.mjs` | 67 routes, 32 writes, 33 permissions, current |
+| Operational SQL | `python3 scripts/db/integration.py --self-check` | 20 queries, 20 statements, 0 findings |
+| Integration harness | `python3 scripts/db/integration.py --run` | **needs `UNDAL_TEST_DATABASE_URL`; exits 1 without one** |
 | Workers' SQL vs schema | `python3 scripts/db/lint_sql.py` | 181 statements, 0 findings, 0 unparseable |
 | SQL linter itself | `python3 scripts/db/test_lint_sql.py` | 12 tests, 12 pass, four of them requiring the gate to go red |
 
@@ -72,6 +74,20 @@ silence — the second silent-skip bug of the same shape in two days.
 What it cannot do, plainly: it does not execute anything, so a wrong join predicate, a missing
 index and a value that violates a CHECK are all invisible to it. It is a spelling check with a
 schema.
+
+The integration harness exists in two halves and only one of them has been run. `--self-check` parses
+every allowlisted query in `db/queries` and the seed against the schema, offline, and it is step five
+of the gate. `--run` applies the migrations to a real TiDB and executes all twenty queries; with no
+`UNDAL_TEST_DATABASE_URL` it exits 1 and says so, because a harness that skips quietly is a harness
+that never runs. **It has never been executed against a server.** The HTTP journey — quote, place,
+accept, deliver — needs `wrangler dev` bound to the same database and has not been driven either.
+
+Its first run found **eight broken references in the twenty operator queries** — SQL that had never
+been parsed against the schema it runs on. `zones.name_en` (the column is `name`) in four queries,
+`riders.phone` (it lives on `users`), `rider_shifts.state` (a shift has none; the rider has
+`shift_state`), `order_offers.state` (an offer has `response`), and `brain_traces.decision_kind` /
+`latency_ms` (they are `kind` and `duration_ms`). All eight are fixed; every one would have failed the
+first time somebody ran the dashboard.
 
 The API surface, published from the route table rather than written beside it: `docs/api/surface.json`
 is generated from `workers/core/src/app.ts` and the gate fails when the file is behind it. 67 routes,
