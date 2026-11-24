@@ -84,7 +84,7 @@ const body = [
   "",
   "  /** Every route above, for the tests that assert none of them is unreachable. */",
   "  public val all: List<ApiRoute> = listOf(",
-  ...publicRoutes.map((entry) => `    ${constant(entry.path)},`),
+  ...publicRoutes.map((entry) => `    ${names.get(entry)},`),
   "  )",
   "}",
   "",
