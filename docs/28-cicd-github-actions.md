@@ -45,7 +45,7 @@ or script instructs the reader to run a command on their own machine, and it che
 | 3 | `deploy-web.yml` | push to `main`, manual | Build and deploy the storefront to Pages |
 | 4 | `deploy-admin.yml` | push to `main`, manual | Build and deploy the admin panel to Pages |
 | 5 | `migrate.yml` | manual, typed confirmation | Forward-only schema migrations |
-| 6 | `verify-schema.yml` | after migrate, nightly | Compare live schema to `docs/schema/expected.json` |
+| 6 | `verify-schema.yml` | after migrate, nightly | Compare live schema to `db/expected.json` |
 | 7 | `d1-migrate.yml` | manual | D1 schema for live tracking |
 | 8 | `android-debug.yml` | push, PR | Debug APKs for all three apps |
 | 9 | `android-release.yml` | tag, manual | **Signed `.apk` and `.aab` for all three apps** |
@@ -62,7 +62,7 @@ or script instructs the reader to run a command on their own machine, and it che
 | 20 | `db-query.yml` | manual | Read-only allowlisted queries, results in the summary |
 | 21 | `tail-logs.yml` | manual | Worker tail into the job summary |
 | 22 | `release.yml` | tag | GitHub Release with APKs, AABs, notes and checksums |
-| 23 | `housekeeping.yml` | manual | Retention, orphan cleanup, chain verification |
+| 23 | `housekeeping.yml` | manual / nightly | Read-only retention candidates, orphan and link checks; pinned DB client and dedicated read-only secret (D173); audit remains incomplete and job fails closed; deletion disabled (D168) |
 
 Nothing in this list is a cron. `nightly` entries use `workflow_dispatch` plus a
 `schedule` trigger — and `schedule` on GitHub Actions is **CI infrastructure**, not application
@@ -205,6 +205,20 @@ thirteen money constraints and WARNING for the rest.
 always lived in Actions, alongside the audit-chain walk. The `no-cron` guardrail checks
 `wrangler.toml` and Worker `scheduled` handlers, and is unaffected by a workflow schedule.
 
+### 3.3 Action runtime compatibility (D172)
+
+All workflows now reference action majors that declare the Node 24 runtime, replacing the
+Node 20-targeted versions that produced deprecation annotations. This action runtime is separate
+from `NODE_VERSION` (still 22.22.3), which selects Node for Undal's own tests and builds. The
+workflow examples below use the same current action majors. The CodeQL matrix now passes the
+published `languages` input rather than the previously misspelled singular `language` input.
+
+`gradle/actions/setup-gradle@v5` is intentionally used instead of v6: v5 supports Node 24, while
+v6 introduces a separately licensed caching component. Upgrading the runtime does not imply
+acceptance of new commercial terms. The main CI workflow is covered by CI; Android, GCP, release
+and other credential-dependent workflows still require their own configured environments and
+end-to-end runs. These references use major tags, not immutable commit-SHA pins.
+
 ---
 
 ## 4. The release keystore
@@ -311,8 +325,8 @@ jobs:
       matrix:
         app: [customer, partner, rider]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with: { distribution: temurin, java-version: '17', cache: gradle }
 
       - name: Restore keystore
@@ -340,7 +354,7 @@ jobs:
         if: always()
         run: shred -u app/undal-release.jks || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: undal-${{ matrix.app }}-${{ github.ref_name }}
           path: |
@@ -383,7 +397,7 @@ jobs:
   deploy:
     strategy: { matrix: { worker: [core, realtime, brain] }, max-parallel: 1 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: npm ci
       - name: Push secrets
         run: |
@@ -437,7 +451,7 @@ on:
 | Advisory lock | Taken for the run; a second concurrent run blocks rather than racing |
 | Idempotent | Each migration records itself in `schema_migrations`; re-running is a no-op |
 | Online | Every migration must be non-blocking: `ADD COLUMN` nullable, backfill in batches, then constrain. The validator rejects a migration containing a blocking statement |
-| Verification | `verify-schema.yml` runs afterwards and compares the live schema against `docs/schema/expected.json`, failing on any drift |
+| Verification | `verify-schema.yml` runs afterwards and compares the live schema against `db/expected.json`, failing on detected table/column/type drift; it does not check all schema properties |
 | Summary | Statements executed, rows affected, duration, and the new schema hash, all in the job summary |
 
 The twelve migrations are listed in [`06`](06-data-model-tidb.md), preceded by `000_smoke.sql`, which probes `CHECK` behaviour and stops the run before the real schema if the probe fails.
@@ -456,7 +470,7 @@ See [`06 §10`](06-data-model-tidb.md) for why this replaced the per-file transa
 | See Worker logs | `tail-logs.yml` — takes a worker name and a duration, runs `wrangler tail`, writes the output to the job summary |
 | Run a query | `db-query.yml` — a named query from an allowlist in `scripts/db/queries/`, parameters as inputs, results rendered as a markdown table. **No free-form SQL**, because a free-form SQL input on a public repository is a catastrophe waiting for a misconfigured permission |
 | Check health | `health.yml` — pings every service and renders a status table |
-| Verify the audit chain | `housekeeping.yml` |
+| Run the audit link diagnostic and read-only orphan/retention reports | `housekeeping.yml` — uses the `TIDB_READONLY_URL` GitHub Actions secret only. Its link-only audit check is deliberately INCOMPLETE and returns nonzero; later reports are still collected, and the job ends failed until a full, reviewed verifier exists. A database-enforced read-only account and secret configuration are required. |
 | Inspect a Brain decision | The admin panel's trace explorer ([`21 §11`](21-admin-panel.md)) |
 
 Everything lands in `$GITHUB_STEP_SUMMARY`, which renders as formatted markdown on a phone

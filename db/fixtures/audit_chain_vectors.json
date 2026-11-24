@@ -1,0 +1,79 @@
+{
+  "_comment": "Shared audit-chain vectors: the TypeScript writer and scripts/db/housekeeping.py must both reproduce these. Generated from the canonical form documented in workers/core/src/audit/chain.ts.",
+  "separatorCodepoint": 31,
+  "vectors": [
+    {
+      "entry": {
+        "seq": 1,
+        "occurredAt": "2026-11-01 04:00:00.000000",
+        "actorId": "0193f2a1-7c3e-7890-abcd-ef0123456789",
+        "actorType": "ADMIN",
+        "actorRole": "FINANCE",
+        "requestId": "0193f2a1-7c3e-7890-abcd-ef012345678a",
+        "action": "finance.payout.mark_paid",
+        "resourceType": "payout",
+        "resourceId": "42",
+        "subjectId": null,
+        "before": {
+          "status": "APPROVED",
+          "amount_paisa": 37400
+        },
+        "after": {
+          "status": "PAID",
+          "amount_paisa": 37400
+        },
+        "reason": "bKash transfer confirmed",
+        "severity": "NOTICE"
+      },
+      "payloadDigestHex": "d5b80b8895b0c9329ca075c0a08a56f7b0735682000b8aab6ed92cf035b5a172",
+      "hashHex": "61b6fec8160572e88dd1d87648b48ff786785d0c143ec8af36ba8f0e0e3771d3"
+    },
+    {
+      "entry": {
+        "seq": 2,
+        "occurredAt": "2026-11-01 04:01:12.345678",
+        "actorId": null,
+        "actorType": "SYSTEM",
+        "actorRole": null,
+        "requestId": "0193f2a1-7c3e-7890-abcd-ef012345678b",
+        "action": "system.invoice.generate",
+        "resourceType": "invoice_period",
+        "resourceId": "2026-W44",
+        "subjectId": "0193f2a1-7c3e-7890-abcd-ef012345678c",
+        "before": null,
+        "after": {
+          "invoices": 344
+        },
+        "reason": null,
+        "severity": "INFO"
+      },
+      "payloadDigestHex": "39f6addcdd81607df41acbb5e2acb1d028c7d1827163cc9b89bcb2d88a1ff329",
+      "hashHex": "e73faa543b76b5aa998cd26f52de071eba7bcb36f7ddb31cedc8f6fa148844c6"
+    },
+    {
+      "entry": {
+        "seq": 3,
+        "occurredAt": "2026-11-01 04:02:00.000000",
+        "actorId": "0193f2a1-7c3e-7890-abcd-ef012345678d",
+        "actorType": "VENDOR",
+        "actorRole": null,
+        "requestId": "0193f2a1-7c3e-7890-abcd-ef012345678e",
+        "action": "order.accept",
+        "resourceType": "order",
+        "resourceId": "UND-2026-000123",
+        "subjectId": null,
+        "before": {
+          "state": "PLACED"
+        },
+        "after": {
+          "state": "ACCEPTED",
+          "note": "নোট — ধন্যবাদ"
+        },
+        "reason": null,
+        "severity": "INFO"
+      },
+      "payloadDigestHex": "922ccaa23a3eb84fd02a23809e22fd3a7405907c33c1dc2886c20fffdfd1f5ca",
+      "hashHex": "08e4669e60fe41254dcba13cb0d715710c15f2eb16893f198b6ff0b1f5d5a6c2"
+    }
+  ]
+}

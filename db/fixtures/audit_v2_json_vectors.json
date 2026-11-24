@@ -1,0 +1,113 @@
+{
+  "format": "undal.audit.v2.lossless-json.v1",
+  "valid": [
+    {
+      "name": "keys decode before UTF-8 sorting; escaped supplementary scalar",
+      "source": " {\"\\u0062\": [true, null, -9007199254740991], \"a\": \"\\uD834\\uDD1E\"} ",
+      "encodedHex": "6f323a73313a6173343af09d849e73313a6261333a746e692d393030373139393235343734303939313b"
+    },
+    {
+      "name": "safe integer boundaries and JSON primitive types",
+      "source": "[0,1,-1,9007199254740991,-9007199254740991,true,false,null]",
+      "encodedHex": "61383a69303b69313b692d313b69393030373139393235343734303939313b692d393030373139393235343734303939313b74666e"
+    },
+    {
+      "name": "prototype-like names remain data",
+      "source": "{\"__proto__\":{\"constructor\":\"kept\",\"__proto__\":1}}",
+      "encodedHex": "6f313a73393a5f5f70726f746f5f5f6f323a73393a5f5f70726f746f5f5f69313b7331313a636f6e7374727563746f7273343a6b657074"
+    },
+    {
+      "name": "empty structures and strings",
+      "source": "{\"empty\":\"\",\"array\":[],\"object\":{}}",
+      "encodedHex": "6f333a73353a617272617961303a73353a656d70747973303a73363a6f626a6563746f303a"
+    },
+    {
+      "name": "escaped NUL and solidus",
+      "source": "[\"\\u0000\",\"\\/\"]",
+      "encodedHex": "61323a73313a0073313a2f"
+    },
+    {
+      "name": "all JSON string escapes",
+      "source": "[\"\\\"\",\"\\\\\",\"/\",\"\\b\",\"\\f\",\"\\n\",\"\\r\",\"\\t\"]",
+      "encodedHex": "61383a73313a2273313a5c73313a2f73313a0873313a0c73313a0a73313a0d73313a09"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "fraction that rounds to an integer",
+      "source": "1.0000000000000001"
+    },
+    {
+      "name": "fraction beyond the safe integer boundary",
+      "source": "9007199254740991.1"
+    },
+    {
+      "name": "integer above the safe range",
+      "source": "9007199254740992"
+    },
+    {
+      "name": "negative integer below the safe range",
+      "source": "-9007199254740992"
+    },
+    {
+      "name": "negative zero",
+      "source": "-0"
+    },
+    {
+      "name": "decimal spelling of zero",
+      "source": "-0.0"
+    },
+    {
+      "name": "exponent spelling",
+      "source": "1e0"
+    },
+    {
+      "name": "duplicate key",
+      "source": "{\"a\":1,\"a\":2}"
+    },
+    {
+      "name": "duplicate key with equivalent escape",
+      "source": "{\"a\":1,\"\\u0061\":2}"
+    },
+    {
+      "name": "escaped unpaired high surrogate",
+      "source": "\"\\ud800\""
+    },
+    {
+      "name": "escaped unpaired low surrogate",
+      "source": "\"\\udc00\""
+    },
+    {
+      "name": "raw unpaired surrogate in source",
+      "source": "\"\ud800\""
+    },
+    {
+      "name": "invalid leading zero",
+      "source": "01"
+    },
+    {
+      "name": "invalid plus sign",
+      "source": "+1"
+    },
+    {
+      "name": "invalid trailing decimal point",
+      "source": "1."
+    },
+    {
+      "name": "invalid exponent",
+      "source": "1e"
+    },
+    {
+      "name": "non-standard NaN",
+      "source": "NaN"
+    },
+    {
+      "name": "trailing JSON value",
+      "source": "1 true"
+    },
+    {
+      "name": "unescaped control character",
+      "source": "\"\n\""
+    }
+  ]
+}

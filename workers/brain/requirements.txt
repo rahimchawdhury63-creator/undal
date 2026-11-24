@@ -1,0 +1,5 @@
+# Undal — undal-brain runtime requirements. Licensed under PASVL-1.0.
+#
+# Pinned exactly: a Python Worker's cold start depends on how much it has to
+# import, so an unpinned transitive bump is a latency regression with no diff.
+# Nothing here may require a credit card or a network service.

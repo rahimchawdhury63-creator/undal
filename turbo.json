@@ -1,0 +1,10 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "codegen": { "outputs": ["src/generated/**", "generated/**"] },
+    "build": { "dependsOn": ["codegen"], "outputs": ["dist/**"] },
+    "typecheck": { "dependsOn": ["codegen"], "outputs": [] },
+    "lint": { "outputs": [] },
+    "test": { "dependsOn": ["codegen"], "outputs": ["coverage/**"], "cache": false }
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "expected": {
+    "ranking": [],
+    "scores": [],
+    "ttls": [],
+    "waves": []
+  },
+  "name": "cash-locked",
+  "request": {
+    "candidates": [
+      {
+        "cash_in_hand_paisa": 0,
+        "cash_limit_paisa": 350000,
+        "cash_locked": true,
+        "current_load": 0,
+        "distance_to_zone_edge_m": 0,
+        "fix_age_s": 10,
+        "max_concurrent": 3,
+        "notifications_allowed": true,
+        "rejected_waves": [],
+        "rider_id": "rider-d",
+        "routed_to_vendor_m": 700,
+        "selfie_verified": true,
+        "shift_state": "ONLINE",
+        "stale_after_s": 60,
+        "status": "APPROVED",
+        "suspended": false,
+        "vehicle": "MOTORBIKE",
+        "vehicle_max_radius_m": 12000,
+        "vendor_cooldown": false,
+        "zone_id": ""
+      },
+      {
+        "cash_in_hand_paisa": 330000,
+        "cash_limit_paisa": 350000,
+        "cash_locked": false,
+        "current_load": 0,
+        "distance_to_zone_edge_m": 0,
+        "fix_age_s": 10,
+        "max_concurrent": 3,
+        "notifications_allowed": true,
+        "rejected_waves": [],
+        "rider_id": "rider-e",
+        "routed_to_vendor_m": 1900,
+        "selfie_verified": true,
+        "shift_state": "ONLINE",
+        "stale_after_s": 60,
+        "status": "APPROVED",
+        "suspended": false,
+        "vehicle": "MOTORBIKE",
+        "vehicle_max_radius_m": 12000,
+        "vendor_cooldown": false,
+        "zone_id": ""
+      }
+    ],
+    "histories": {
+      "rider-e": {
+        "acceptance_probability": 0.55,
+        "batch_feasibility": null,
+        "completion_rate": 0.95,
+        "deliveries_from_vendor": 0,
+        "deliveries_into_cell": 0,
+        "deliveries_today": 2,
+        "eta_to_vendor_s": 300,
+        "idle_s": 1500,
+        "on_time_rate": 0.9,
+        "rating_positives": 0,
+        "rating_total": 0
+      }
+    },
+    "order": {
+      "drop_cell": "",
+      "total_paisa": 61000,
+      "vendor_id": "v02",
+      "zone_id": "sylhet-1"
+    },
+    "weights_version": "r10.3.1",
+    "zone": {
+      "forecast_drop_cell": 3.0,
+      "median_deliveries_today": 6.0,
+      "median_pickup_m": 1100.0,
+      "riders_in_drop_cell": 3.0
+    }
+  }
+}

@@ -1,0 +1,66 @@
+# Undal — nothing listed here may ever be committed.
+# Licensed under PASVL-1.0.
+#
+# One pattern per line: a space-separated line is a single literal pattern to git,
+# and that mistake is how node_modules got staged on the first attempt.
+
+# Build output
+build/
+.gradle/
+local.properties
+.cxx/
+.kotlin/
+node_modules/
+dist/
+.turbo/
+.vite/
+.wrangler/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage/
+test-results/
+playwright-report/
+.nyc_output/
+.artifacts/
+# ...except inside the guardrail fixtures. Seven rules exist to reject a bad
+# `.artifacts` report, so their fixtures have to *be* `.artifacts` reports. Git
+# will not re-include a file inside an excluded directory, so the directory is
+# negated first and the files second.
+!scripts/guardrails/fixtures/**/
+!scripts/guardrails/fixtures/**
+
+# Secrets and signing — never, under any circumstance
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+google-services.json
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Generated
+packages/tokens/dist/
+packages/contracts/src/generated/
+packages/contracts/openapi.json
+android/**/generated/
+web/*/public/sitemap*.xml
+web/*/public/.well-known/assetlinks.json
+
+# Artifacts
+*.apk
+*.aab
+*.log
+test-results.json
+
+# Editors
+.idea/
+.vscode/
+*.iml
+.DS_Store

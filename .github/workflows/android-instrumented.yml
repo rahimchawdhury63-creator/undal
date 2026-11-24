@@ -1,0 +1,63 @@
+# Undal — instrumented tests on real devices. Licensed under PASVL-1.0.
+#
+# Only one thing here cannot be tested on a JVM: the alarm. Whether a
+# full-screen intent actually wakes a locked phone, whether the shipped WAV
+# loops from t=0 at `USAGE_ALARM` volume, and whether a data-only, high-priority
+# message reaches a backgrounded app. Firebase Test Lab runs the matrix nightly
+# on the physical device profiles Android actually sells in Bangladesh.
+name: android-instrumented
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "Test Lab device model"
+        default: "redfin"
+  schedule:
+    - cron: "41 19 * * *"   # 01:41 Asia/Dhaka
+
+permissions:
+  contents: read
+
+jobs:
+    # The app modules arrive in their own responses (R17–R19). The gate is the module's own
+    # build file, so the job switches on the moment the module lands — it is not a date, a
+    # label or a switch somebody has to remember to flip.
+  instrumented:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          # No wrapper is committed: the distribution is pinned here so a runner cannot
+          # pick a Gradle version by accident and report a build nobody has run.
+          gradle-version: "8.10.2"
+      - name: Build the alarm test APKs
+        working-directory: android
+        # Gated on the module's build file: shared:alarm arrives with the alarm (R13).
+        run: |
+          set -euo pipefail
+          if [ ! -f "shared/alarm/build.gradle.kts" ]; then
+            echo "::notice::shared:alarm does not exist yet (it arrives in R13); nothing to build"
+            exit 0
+          fi
+          gradle :shared:alarm:assembleDebug :shared:alarm:assembleDebugAndroidTest --no-daemon
+      - uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Run on Test Lab
+        run: |
+          gcloud firebase test android run \
+            --type instrumentation \
+            --app android/shared/alarm/build/outputs/apk/debug/alarm-debug.apk \
+            --test android/shared/alarm/build/outputs/apk/androidTest/debug/alarm-debug-androidTest.apk \
+            --device model=${{ inputs.device || 'redfin' }},version=30,locale=bn,orientation=portrait \
+            --timeout 20m \
+            --results-dir "alarm-${GITHUB_RUN_ID}" \
+            --results-bucket "gs://undal-test-lab"

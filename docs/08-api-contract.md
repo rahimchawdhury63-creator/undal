@@ -302,15 +302,15 @@ charging more.
 | `GET` | `/v1/orders/{code}` | Customer, Vendor, Rider, Admin | Order detail, scoped to the caller's view |
 | `GET` | `/v1/orders/{code}/track` | Customer | Lightweight tracking payload |
 | `POST` | `/v1/orders/{code}/cancel` | Customer | Cancel |
-| `POST` | `/v1/orders/{code}/rate` | Customer | Rate vendor and rider |
+| `POST` | `/v1/orders/{code}/rate` | Customer | Rate vendor and rider. Implemented (D137) |
 | `POST` | `/v1/orders/{code}/dispute` | Customer | Open a dispute |
 | `POST` | `/v1/orders/{code}/accept` | Vendor | Accept with a prep time |
 | `POST` | `/v1/orders/{code}/reject` | Vendor | Reject with a reason |
 | `PATCH` | `/v1/orders/{code}/prep-time` | Vendor | Extend before pickup |
 | `POST` | `/v1/orders/{code}/ready` | Vendor | Mark ready early |
 | `GET` | `/v1/orders/{code}/qr` | Vendor | The pickup QR payload |
-| `POST` | `/v1/orders/{code}/offer/{offerId}/accept` | Rider | Claim an offer |
-| `POST` | `/v1/orders/{code}/offer/{offerId}/reject` | Rider | Decline with a reason |
+| `POST` | `/v1/orders/{code}/offer/{offerId}/accept` | Rider | Claim an offer. Implemented (D113) |
+| `POST` | `/v1/orders/{code}/offer/{offerId}/reject` | Rider | Decline with a reason. Implemented (D114) |
 | `POST` | `/v1/orders/{code}/pickup` | Rider | Submit the scanned QR |
 | `POST` | `/v1/orders/{code}/arrive` | Rider | Mark arrived |
 | `POST` | `/v1/orders/{code}/deliver` | Rider | Complete with cash collected |
@@ -480,24 +480,76 @@ completely transparent about how position is earned, and that transparency is it
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/v1/rider/shift/start` | Begin a shift; requires a verified selfie |
+| `POST` | `/v1/rider/shift/start` | Begin a shift; requires a selfie. Implemented (D109) — see below |
 | `POST` | `/v1/rider/shift/selfie` | Upload the shift selfie (proxied to imgbb) |
-| `POST` | `/v1/rider/shift/end` | End a shift; triggers the cash lock if owing |
-| `POST` | `/v1/rider/shift/break` | Enter/leave break |
-| `GET` | `/v1/rider/shift/current` | Current shift state and totals |
+| `POST` | `/v1/rider/shift/end` | End a shift; triggers the cash lock if owing. Implemented (D110) |
+| `POST` | `/v1/rider/shift/break` | Enter/leave break. Implemented (D111) |
+| `GET` | `/v1/rider/shift/current` | Current shift state and totals. Implemented (D111) |
 | `POST` | `/v1/rider/presence/heartbeat` | Presence ping |
-| `GET` | `/v1/rider/offers` | Pending offers (the FCM payload is authoritative; this is reconciliation) |
+| `GET` | `/v1/rider/offers` | Pending offers (the FCM payload is authoritative; this is reconciliation). Implemented (D115) |
 | `GET` | `/v1/rider/orders/active` | Active order(s), batched if applicable |
 | `GET` | `/v1/rider/earnings` | Today / week / custom window with per-order breakdown |
 | `GET` | `/v1/rider/invoices` | Weekly invoices |
 | `GET` | `/v1/rider/invoices/{id}/pdf` | Signed URL |
-| `GET` | `/v1/rider/cash` | Cash in hand, settlement status, deadline |
-| `POST` | `/v1/rider/cash/settle` | Submit a settlement (see [`25`](25-rider-cash-settlement.md)) |
+| `GET` | `/v1/rider/cash` | Cash in hand, settlement status, deadline. Implemented (D140) |
+| `POST` | `/v1/rider/cash/settle` | Submit a settlement, full or `partial: true` (see [`25`](25-rider-cash-settlement.md)). Implemented (D141, partial D151) |
+| `GET` | `/v1/rider/cash/breakdown` | The deliveries behind `cash_in_hand`, with the arithmetic that proves it (see [`25 §8`](25-rider-cash-settlement.md)). Implemented (D150) |
+| `POST` | `/v1/rider/cash/declare` | Declare an emergency (24 h lift), a robbery or a dispute (case, lift with no expiry) (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D148–D149, D153) |
+| `POST` | `/v1/finance/cash/settlements/{id}/escalate` | Release the rider, keep the debt, hand the claim to a senior reviewer (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D146) |
+| `GET` | `/v1/finance/cash/declarations` | The cases awaiting a human: `?kind=`, `?state=open\|resolved\|all`, `?riderId=`, `?cursor=`, `?limit=`, newest first, keyset-paged (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D154, filtered and paged D157) |
+| `POST` | `/v1/finance/cash/riders/{id}/write-off` | Adjust outstanding cash; an optional declaration must belong to this rider. Step-up. Implemented (D155/D162), **not production-safe** until the multi-statement financial operation is atomic (see [`25 §7`](25-rider-cash-settlement.md)).  **Blocked by safety gate outside explicitly opted-in isolated test/staging (D163).** |
+| `GET` | `/v1/finance/cash/declarations/{id}` | One case whole: the rider, what was claimed then and now, and how it ended (see [`25 §7`](25-rider-cash-settlement.md)). Implemented (D156) |
+| `POST` | `/v1/finance/cash/declarations/{id}/claim` | Claim an unassigned open review case for the caller (D159); no body, permission `finance.cash.reject_settlement` |
+| `POST` | `/v1/finance/cash/declarations/{id}/release` | Release the caller's own open case (D159); no body, same permission |
+| `GET` | `/v1/finance/cash/settlements` | The reviewer's queue: pending claims by default, oldest first, with evidence — `?state=pending\|decided\|all`, `?method=`, `?partial=`, `?riderId=`, `?breach=true`, `?cursor=`, `?limit=` (see [`25 §8`](25-rider-cash-settlement.md)). Implemented (D145, filtered and paged D158) |
+| `POST` | `/v1/finance/cash/settlements/{id}/approve` | Reviewer's decision on a settlement, full or partial amount (see [`25 §6.1`](25-rider-cash-settlement.md)). Step-up. Implemented (D143, partial D147)  **Blocked by safety gate outside explicitly opted-in isolated test/staging (D163).** |
+| `POST` | `/v1/finance/cash/settlements/{id}/reject` | Refuse a settlement, reason from the register (see [`25 §6.2`](25-rider-cash-settlement.md)). Implemented (D144) |
 | `GET` | `/v1/rider/heatmap` | Demand surface for positioning |
 | `GET` | `/v1/rider/stats` | Acceptance, completion, rating, on-time |
 | `GET`/`PATCH` | `/v1/rider/profile` | Profile and payout details |
 | `GET` | `/v1/rider/penalties` | Penalties with appeal status |
 | `POST` | `/v1/rider/penalties/{id}/appeal` | Appeal |
+
+`/v1/rider/shift/start` (D109) is the route every live-tracking promise hangs from, so its contract is worth
+stating exactly. The body is `{ selfieUrl, point: { lat, lon }, zoneId? }`: the selfie must be an https URL of
+at most 512 characters (it is the imgbb link from `26`, and the on-device checks in `19 §3.1` are the
+verification), and `point` is where the rider is standing. The zone defaults to the rider's home zone; any other
+zone needs a live `rider_zone_assignments` row. The refusals are each a screen in the app: `SHIFT_KYC_PENDING`
+(409) while the application is under review, `AUTH_ACCOUNT_SUSPENDED` (451) when it is suspended,
+`SHIFT_ALREADY_OPEN` (409, with `shift_id`) for a second tap, `SHIFT_ZONE_NOT_ASSIGNED` (409) for a zone the
+rider does not hold, and `SHIFT_SELFIE_REQUIRED` (422) when the selfie is missing or not https.
+
+`/v1/rider/shift/end` (D110) is its pair and closes the loop the brief cares about most. The body is
+`{ point?, reason? }` — both optional, because a rider who has lost location still gets to end their shift — and
+the answers are the shift's own totals: `{ shiftId, shiftState, endedAt, onlineSeconds, cashOutstandingPaisa,
+settlementRequired, liveLocationErased }`. Three refusals: `SHIFT_NOT_FOUND` (404) when nothing is open,
+`SHIFT_ORDERS_ACTIVE` (409, with `active_orders`) when food is still in the rider's hands, and
+`SHIFT_ALREADY_CLOSED` (409) when two ends race and this one lost. A rider who owes cash ends in
+`CASH_LOCKED`, which is the state that refuses their next shift with `SHIFT_CASH_OVERDUE`; one who does not ends
+in `OFFLINE`. The live channel is erased **before** the response (`07 §6.1`), and an erasure that fails does not
+fail the end: it is logged and reported as `{ positions: 0, current: 0 }`, with the zone sweep (D107) as the
+one-minute fuse. Trapping a rider online because realtime is cold is a worse bug than a trail that outlives its
+shift by a minute.
+
+`GET /v1/rider/shift/current` (D111) is the screen both of those write to and the app reads on every launch. It
+answers `{ shiftState, shift, cashOutstandingPaisa, settlementRequired }`, where `shift` is `null` when nothing is
+open — **a `200` with `null`, not a `404`** — because an offline rider is the normal case and a client that has
+learned "error means go to the shift screen" is a client that shows the wrong screen to most of its users. When a
+shift is open it carries `{ shiftId, zoneId, vehicle, startedAt, onlineSeconds, ordersCompleted, distanceM }`.
+
+`POST /v1/rider/shift/break` (D111) takes `{ onBreak: boolean }` and answers `{ shiftId, shiftState, onBreak }`.
+It exists as a route rather than a `PATCH` because the button appears on two screens and the audit trail wants to
+say which one was pressed: `rider.shift.break.start` or `rider.shift.break.end`. No open shift is
+`SHIFT_NOT_FOUND` (404) and writes nothing. The cadence that a break implies is not in this answer — the device
+pushes `state: "BREAK"` with its flush and realtime answers with the profile (`07 §3.3`), so the two systems agree
+on one flag rather than two.
+
+The answer to a start is `{ shiftId, riderId, zoneId, vehicle, shiftState: "ONLINE", startedAt }`. Opening a shift writes
+`rider_shifts` **and** the rider's live D1 row, and the second write is synchronous: a shift that exists in TiDB
+but not in D1 is a rider dispatch can see and the map cannot, whose every flush is refused. If that write fails
+the shift is undone (`DELETE` the row, put `shift_state` back to `OFFLINE`) and the caller gets
+`503 SERVICE_DEGRADED { component: "realtime", reason: "live_position_unavailable" }` — a shift that cannot be
+tracked does not exist, and the rider taps again.
 | `GET` | `/v1/rider/diagnostics` | Location uploads, FCM health, battery posture |
 
 ---
@@ -526,6 +578,27 @@ data: {"riderId":"…","lat":24.8951,"lon":91.8702,"bearing":84,"speed":5.2,"t":
 A `: keepalive` comment every 20 seconds keeps intermediaries from closing the connection. The
 client reconnects with `Last-Event-ID` and the hub replays from its in-memory ring (last 200
 events, 5-minute window); beyond that the client does a full reconciling fetch.
+
+Between the opening replay and the keepalive, the response **tails** each of its channels (`sse/stream.ts`,
+D103): once a second the route asks the ring for frames after that channel's cursor and writes them. Without
+it the response was a replay followed by keepalives — a customer who connected during a quiet minute never
+learned the vendor had accepted, because nothing pulled the frames recorded after the response began. Each
+channel keeps its own cursor, since each numbers its own frames (D101), and a gap is admitted with one
+`: gap: reconcile` comment per episode rather than one per tick.
+
+Two rules make that replay honest (`sse/ring.ts`, D100). A frame whose id arrives **after** a higher id
+— two requests for one order can be in flight at once — is recorded where its id belongs rather than
+appended, so `Last-Event-ID` replay stays in the order a client can apply. And a cursor the ring has
+never reached answers `complete: false` rather than "nothing was missed": a fresh isolate, an evicted
+room and a lost snapshot are indistinguishable from a channel that never spoke, so the client is told to
+reconcile instead of being shown a silence it will read as "nothing happened".
+
+A third rule is about where a sequence comes from (`sse/fanout.ts`, D101). Core numbers an order's events
+with that order's own log sequence, and on the **order** channel that number is the frame id — so a
+`Last-Event-ID` is also a row in `order_state_events`. The **zone** channel carries every order in the zone,
+where per-order numbers repeat; it is numbered by its own ring instead. Copying the order's sequence onto it
+would make two orders' frames share an id, and the ring replaces a duplicate id rather than refusing it, so
+the admin map would silently lose one of them.
 
 ### 9.1 Event catalogue (46 events)
 
@@ -565,8 +638,10 @@ Not internet-routable. Reachable only via service binding from Core and Realtime
 
 ## 11. Error code registry
 
-184 codes. The complete list lives in `packages/api-types/src/errors.ts` and is generated into both
-clients. The groups and representative members:
+187 codes. The complete list lives in `packages/api-types/src/errors.ts` and is generated into both
+clients. The groups and representative members (the count is 187 rather than 184 because `SHIFT_ORDERS_ACTIVE`
+was added by D110 — `25 §2` blocks ending a shift with deliveries live and the table had no code for it — and
+`CASH_DECLARATION_NOT_FOUND` by D156, for a case id that names nothing, and `CASH_CASE_UNAVAILABLE` by D159 for an unavailable claim or release):
 
 | Prefix | Count | Examples |
 | --- | --- | --- |
@@ -578,8 +653,8 @@ clients. The groups and representative members:
 | `ORDER_` | 31 | `ORDER_NOT_ACCEPTABLE` `ORDER_ALREADY_CANCELLED` `ORDER_PREP_TIME_OUT_OF_RANGE` `ORDER_NOT_YOURS` |
 | `OFFER_` | 11 | `OFFER_EXPIRED` `OFFER_CLAIMED` `OFFER_REJECT_NOT_ALLOWED` `OFFER_REASON_REQUIRED` |
 | `QR_` | 6 | `QR_INVALID` `QR_WRONG_ORDER` `QR_EXPIRED` `QR_TOO_FAR` `QR_WRONG_RIDER` |
-| `SHIFT_` | 12 | `SHIFT_SELFIE_REQUIRED` `SHIFT_CASH_OVERDUE` `SHIFT_ALREADY_OPEN` `SHIFT_ZONE_INACTIVE` |
-| `CASH_` | 9 | `CASH_TRXID_DUPLICATE` `CASH_AMOUNT_MISMATCH` `CASH_SELFIE_REQUIRED` |
+| `SHIFT_` | 13 | `SHIFT_SELFIE_REQUIRED` `SHIFT_CASH_OVERDUE` `SHIFT_ALREADY_OPEN` `SHIFT_ZONE_INACTIVE` `SHIFT_ORDERS_ACTIVE` |
+| `CASH_` | 11 | `CASH_TRXID_DUPLICATE` `CASH_AMOUNT_MISMATCH` `CASH_SELFIE_REQUIRED` `CASH_DECLARATION_NOT_FOUND` |
 | `MONEY_` | 13 | `MONEY_INVOICE_UNBALANCED` `MONEY_PERIOD_CLOSED` `MONEY_ALREADY_PAID` |
 | `KYC_` | 10 | `KYC_DOCUMENT_REQUIRED` `KYC_ALREADY_SUBMITTED` `KYC_REJECTED` |
 | `MEDIA_` | 8 | `MEDIA_TOO_LARGE` `MEDIA_UNSUPPORTED_TYPE` `MEDIA_UPLOAD_FAILED` |

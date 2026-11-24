@@ -205,6 +205,13 @@ customer who is watching the map.
 The cadence profile is pushed from the server in the shift-start response and updated via SSE when
 the order state changes, so tuning does not require an app release.
 
+The gate and the table above are implemented as a reference in `workers/realtime/src/d1/cadence.ts`
+(`cadenceFor`, `phaseFor`, `shouldSend`, D96), and the suite drives a synthetic rider along the legs of
+§8.1 to check the budget rather than re-derive it: at 1 Hz fixes the documented delivery costs **53**
+writes, a five-minute idle street costs **two**, and a phone at 6% battery costs fewer than the same leg
+at 80%. The Kotlin app port must match this module rule for rule, including the battery multipliers
+being applied inside `cadenceFor` rather than by its callers.
+
 ### 3.4 Why the last kilometre gets a tighter gate
 
 The budget arithmetic in §8 shows that tightening to 40 m within 200 m of the drop costs
@@ -225,7 +232,31 @@ Positions are not sent one HTTP request at a time. They are queued in Room and f
 - otherwise when the queue holds 3 positions or 25 seconds have passed, whichever comes first.
 
 A flush is one `POST /rt/location/batch` carrying up to 12 positions. Typical flush: 2 positions,
-~180 bytes of body after delta encoding.
+~180 bytes of body after delta encoding. The route is `workers/realtime/src/routes/location.ts` (D97): it
+authenticates a `RIDER` token, parses the flush (`d1/batch.ts`), judges it (`d1/ingest.ts`), writes the
+survivors with `d1/store.ts`, and returns the cadence the device should use for its next flush — the push
+`§3.3` describes, in the same round trip. A flush is refused whole when it is not a flush: a body past
+2 048 bytes, more than twelve positions, a delta that is not three finite integers. Half a trail is a
+marker that jumps, which is worse than a client that knows its upload failed.
+
+**The first row of a shift is written by core, through `POST /internal/shift/open` (D108).** A flush is judged
+against the `rider_current` row — zone, vehicle, state — so a rider with no row is refused with
+`SHIFT_NOT_OPEN`, correctly: a position with no shift cannot be judged. That leaves exactly one gap to close,
+and it is the shift's start: core opens the shift in TiDB (`/v1/rider/shift/start`) and tells realtime to seed
+the live row with the rider's `shift_state = ONLINE`, the zone and vehicle from the shift, and the start point
+the selfie step already collected. The seed's `accuracy_m` is 100 m — a selfie's location is a coarse "I am
+here", and it must not look like a fix — and its `stale_after` is the idle ceiling twice over, so a seed that
+never receives a flush goes grey like anything else. Opening a shift clears the rider's ring and row first, in
+the same batch: a new shift's trail is that shift's, and a first fix judged against the last fix of the
+previous shift would make every rider a teleporter on their own doorstep.
+
+**The map's own question reaches dispatch through one call (D117).** A candidate for an offer is judged on four
+things that only exist here: the age of a rider's fix against its own deadline, and the position the distance to
+the vendor is measured from. `POST /internal/candidates { zoneId }` answers with every live `rider_current` row in
+that zone — `riderId`, state, position, accuracy, battery, `updatedAtMs`, `staleAfterMs` — and nothing else. It
+does not filter or rank: deciding that an expired row is not a candidate is dispatch's filter 4 to apply, and a
+store that answered "these are the good ones" would be a second opinion about freshness, which this document has
+been careful to keep single.
 
 ### 4.2 Delta encoding
 
@@ -316,6 +347,13 @@ anti-spoofing layer:
 A rider accumulating `teleport_count` is surfaced in the admin panel. Three distinct shifts with
 teleports triggers a manual review. Mock-location detection is immediate and automatic.
 
+The gate is implemented in `workers/realtime/src/d1/ingest.ts` (`judgeBatch`, D95): it refuses with a
+named reason rather than a boolean, counts teleports for the caller to add to `teleport_count`, and
+returns `suspendShift` / `raiseException` for the two cases that are a person's problem rather than a
+dataset's. One refinement the table does not state: a backfilled fix older than the newest stored one
+is stored **without** a speed verdict, because the fix that precedes it in time has already been
+pruned — refusing it would refuse a number nobody can compute.
+
 ---
 
 ## 5. The ring buffer
@@ -364,11 +402,37 @@ when the rider goes offline or ends their shift.
 | Admin force-ends a shift | < 1 s | Synchronous |
 | App uninstalled / token invalid | next zone sweep, < 60 s | `ZoneHub`'s 60 s housekeeping alarm |
 
+The presence-declared row is implemented (D99): `PresenceHub` publishes an absence at its alarm, and the room
+turns that publication into a deletion through `absenceEraser` (`workers/realtime/src/d1/on-absence.ts`) wired
+in `hubs/zone-hub.ts`. The erasure happens **at the instant of publication**, so the five seconds are D91's
+detection budget (2 000 ms at the top) plus the alarm's own latency — not a second job's.
+
+The trigger with no actor is implemented too (D107). *App uninstalled / token invalid* is the one erasure
+nobody can request: an uninstalled app sends no end-shift, and a revoked token cannot authenticate one. So the
+room's alarm does two things in order — the presence sweep first, then `sweepStale(cutoff)` from
+`d1/sweep.ts`, which deletes every `rider_current` row whose own `stale_after` passed more than a minute ago.
+`stale_after` is already `updated_at + 2 × ceiling` and it is recomputed on every flush, so the sweep is D1
+answering "who is not live" rather than a second liveness engine disagreeing with the first. The grace minute
+is four retries at D91's ceiling: a sweep at `stale_after` exactly would race a flush that is in flight. A
+sweep that matches nothing is a silent tick; one that removes riders logs both counts; one that fails is
+logged and retried by the next alarm, because the same tick has presence promises with a five-second budget
+and this rider has already been gone a minute. A failed erasure is
+reported and swallowed: the absence is already published and the rest of the alarm still has work, and a stale
+trail is a wrong answer to "where is my rider", not a permanent one.
+
 ```sql
 -- Both statements in one D1 batch. Two writes, once per shift. Negligible.
 DELETE FROM rider_positions WHERE rider_id = ?1;
 DELETE FROM rider_current   WHERE rider_id = ?1;
 ```
+
+Both are implemented in `workers/realtime/src/d1/store.ts` (`erase`, D98) and reached through two doors in
+`routes/erase.ts`: `POST /rt/location/erase`, authenticated by the rider's own token and erasing the token's
+`sub` and nothing else, and `POST /internal/erase`, behind the shared internal token, for an admin force-end
+or a sweep. Erasure is **idempotent** — a shift end, a presence timeout and a force-end can all fire within a
+second of each other, and the second caller gets `200` with zero counts rather than a `404` claiming the trail
+is still there. The route answers with counts (`{positions: 37, current: 1}`), because that is a claim an
+operator can check against the ring's bound.
 
 ### 6.2 What survives, and where
 

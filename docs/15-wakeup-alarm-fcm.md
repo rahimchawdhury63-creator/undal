@@ -156,6 +156,10 @@ export async function getAccessToken(env: Env): Promise<string> {
 environment variable by the deploy workflow. It never appears in the repository, in a log, or in
 any client.
 
+The implementation lives in `workers/realtime/src/fcm/` (`payload.ts`, `token.ts`, `send.ts`,
+`from-env.ts`). Two details differ from the sketches above and are recorded in D83: the signature is
+lowercase hex over the sorted data map, and the access token is cached in the isolate rather than KV.
+
 ### 2.3 Sending
 
 Only `undal-realtime` may call FCM. Core and Brain have no FCM binding at all, which makes the
@@ -169,7 +173,7 @@ Only `undal-realtime` may call FCM. Core and Brain have no FCM binding at all, w
 | `SENDER_ID_MISMATCH` | Token deleted, error logged — means a config mistake |
 | `QUOTA_EXCEEDED` | Exponential backoff, admin exception; FCM's free quota is effectively unlimited for this volume but the handler exists |
 | Latency budget | p95 FCM accept ≤ 400 ms; breaches are logged and charted |
-| Delivery proof | Every send stores `(message_id, token, sent_at)` in `fcm_dispatches`; the device ACKs receipt over the socket, closing the loop and producing a real measured delivery rate per device model |
+| Delivery proof | Every send stores `(message_id, token, sent_at)` in `fcm_dispatches` — reported by `undal-realtime` to `POST /internal/fcm/dispatches` and written by `undal-core`, because only core may write TiDB (D86); the device ACKs receipt over the socket (`ZoneHub` forwards an `alarm_received` frame to `POST /internal/fcm/receipts`, D87), closing the loop and producing a real measured delivery rate per device model |
 
 ---
 
@@ -564,6 +568,13 @@ device:   onMessageReceived   → ws "alarm_received" {orderId, latencyMs, path}
 device:   alarm audible       → ws "alarm_playing"  {orderId, volume, stream}
 device:   user responded      → accept/reject
 ```
+
+`alarm_received` is written as three columns on the dispatch row: `received_at`, the moment the
+frame reached the socket; `device_latency_ms`, the device's own measurement; and `device_path`, the
+channel the device says woke it (`FCM`, `SOCKET` or `BOTH`). The median below is
+`received_at − sent_at` — both ends are the platform's clock, on Workers with the same time source —
+so a phone with a wrong clock can add a data point to the matrix but cannot move the number that
+decides whether a device is flagged. See D88.
 
 | Metric | Target | Action when breached |
 | --- | --- | --- |

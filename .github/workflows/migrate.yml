@@ -1,0 +1,67 @@
+# Undal — forward-only schema migrations. Licensed under PASVL-1.0.
+#
+# DDL in TiDB auto-commits, so a migration that fails halfway leaves the schema
+# in a state no rollback can describe. The runner applies statements in filename
+# order and records each in a `schema_migrations` ledger. DDL commits independently
+# of that ledger: a lost acknowledgement or crash requires schema inspection, not
+# blind replay; some ALTER statements are not idempotent.
+name: migrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type MIGRATE to run against production"
+        required: true
+      dry_run:
+        description: "Print the statements without executing them"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migrate
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Refuse an unconfirmed migration
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: test "$CONFIRM" = "MIGRATE"
+
+  migrate:
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install pinned database driver
+        run: |
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/db/requirements.txt
+      - name: Guardrails must be green first
+        run: python3 scripts/guardrails/run.py
+      - name: Apply pending migrations
+        env:
+          TIDB_MIGRATION_URL: ${{ secrets.TIDB_MIGRATION_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 scripts/db/migrate.py --dir db/migrations --ledger schema_migrations
+      - name: Summarise the resulting schema
+        env:
+          TIDB_MIGRATION_URL: ${{ secrets.TIDB_MIGRATION_URL }}
+        run: |
+          python3 scripts/db/expected.py
+          python3 scripts/db/check_schema_parity.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: expected-schema
+          path: db/expected.json
+          retention-days: 30

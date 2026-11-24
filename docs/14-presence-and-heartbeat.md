@@ -81,15 +81,19 @@ async webSocketClose(ws: WebSocket, code: number, reason: string, clean: boolean
 window, the absence is cancelled and nothing is published — no state flap, no spurious alert, no
 noise in the audit log. This is what makes the system usable on a real mobile network.
 
-With grace, the worst-case detection is `200 ms + 1 500 ms = 1.7 s`, inside the two-second
-requirement.
+With grace, the worst-case detection is `200 ms + 1 500 ms + 100 ms = 1.8 s`, inside the
+two-second requirement. The third term is the database (D91): publishing an absence on the free
+path costs two store operations — the row that marks the device gone and the read that proves it —
+and a budget that ignored them would be promising a number the store cannot keep.
 
 ### 2.2 Why the grace is not longer
 
 A longer grace would reduce flapping further, but it would eat the budget. 1 500 ms is the measured
 95th percentile of a tower handoff reconnect on a 4G network in Sylhet with the reconnect strategy
-in §5. It is a tuned value in `platform_config.presence_grace_ms`, range-limited to `[0, 1800]` so
-no operator can accidentally break the two-second contract.
+in §5. It is a tuned value in `platform_config.presence_grace_ms`, range-limited to `[0, 1700]` so
+no operator can accidentally break the two-second contract. The range's top is derived rather than
+chosen: 2 000 ms minus the transport's 200 ms estimate minus the database's 100 ms allowance (D91),
+and at 1 700 ms the worst case is exactly 2 000 ms.
 
 ---
 
@@ -147,8 +151,15 @@ devices there is no alarm and the DO is evicted from memory entirely. The `no-cr
 
 Without Durable Objects, `undal-realtime` keeps the WebSocket inside the Worker invocation and the
 deadline inside a plain `setTimeout`. The Worker lives as long as the socket does, which is exactly
-what is needed. Absence is written to `presence_sessions` in TiDB and published through a
-`LISTEN`-style poll on the SSE fan-out path.
+what is needed. Absence is written to `presence_sessions` in TiDB and published through the SSE
+fan-out path.
+
+A beat is a frame; a row write is a stamp, and they are not the same event (D89). The `sql` backend
+writes the device's row at most once per 15 s of beating, so 38 400 beats over an eight-hour shift cost
+1 921 writes rather than 76 800 store operations — and a stamped row is read as alive for
+`presenceWindowMs` (the stamp interval plus the heartbeat deadline), not for the two seconds a
+per-beat row would allow. The two-second deadline itself is unchanged: it is enforced by the process
+holding the socket, and expiry is an explicit `markAbsent`, never a row silently missing from a list.
 
 The measured difference: p50 detection 1.7 s (DO) versus 1.9 s (free). Both inside two seconds.
 Both are implemented, both are tested, and `COORDINATION_MODE` selects between them
@@ -194,6 +205,13 @@ An order reaches `PLACED` and the vendor must accept it.
 
 At every step, a single `order.seen` or `order.accept` from the vendor **stops the whole ladder**
 and restores `open_state` to its prior value.
+
+The implementation is `VendorAlarm` (`workers/realtime/src/hubs/vendor-alarm.ts`) — one Durable
+Object per order, one alarm armed at the next unfired rung, and the ladder's record in that room's
+storage rather than in an isolate's memory (D84). The terminal rung is a request to `undal-core`
+(`POST /internal/orders/auto-cancel`), because the order's state is core's to write; a room with no
+sender refuses to begin rather than keeping a ladder it cannot ring, and a room with no canceller
+records that it could not cancel instead of claiming it did.
 
 ### 4.2 The cancellation
 

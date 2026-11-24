@@ -1,0 +1,22 @@
+{
+  "name": "@undal/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The contract both sides of every Undal call share: envelope, error registry, pagination, locale.",
+  "license": "LicenseRef-PASVL-1.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test"
+  },
+  "dependencies": {
+    "@undal/money": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.7.4"
+  }
+}

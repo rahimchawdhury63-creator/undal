@@ -1,0 +1,14 @@
+# Undal — undal-brain. Licensed under PASVL-1.0.
+#
+# Python on Workers, for the parts of dispatch that are arithmetic over features
+# rather than SQL: travel-time estimation, the fourteen weighted factors, and the
+# demand surface. Anything that must be exactly consistent with the order
+# lifecycle stays in undal-core (TypeScript); the Brain never writes an order.
+name = "undal-brain"
+main = "src/worker.py"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["python_workers"]
+
+[vars]
+BRAIN_ENGINE_VERSION = "0.0.0"
+PUBLIC_API_BASE = "https://api.undal.app"

@@ -18,9 +18,11 @@ Built for Bangladesh. Built on a 100% free tier. Built to be measured against Fo
 
 ## What is in this repository right now
 
-This repository currently contains **the specification** — the complete, implementation-grade blueprint
-for building Undal. No application code has been written yet. That is deliberate: the build is driven
-entirely by the document corpus in [`docs/`](docs/), and the corpus is the contract.
+This repository contains the specification and partially implemented backend, database, shared money
+and Android money components. The customer, partner and rider applications and the web/admin apps
+are not yet present. **Undal is not production-ready.** See the [production readiness register](docs/_plan/PRODUCTION-READINESS.md)
+for known blockers, safeguards and required launch evidence. The architecture below describes the
+intended platform, not a claim that every component has been delivered or deployed.
 
 | Path | What it is |
 | --- | --- |

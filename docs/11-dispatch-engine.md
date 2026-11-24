@@ -109,6 +109,210 @@ rider who fails any one of them is not ranked at all.
 | 13 | Not in a **rejection cooldown** for this vendor (§9) | |
 | 14 | Device reports `notifications_allowed = true` | A rider who cannot receive the alarm cannot take the order; they are told why, prominently, in the app |
 
+> **Where these numbers live (D118).** Filters 8 and 9 are the two whose thresholds had no column and no
+> constant, so they now sit in `domain/order/dispatch-policy.ts` as `VEHICLE_POLICY`, with the cash ceiling in
+> `DEFAULT_CASH_LIMIT_PAISA` and the T+112 s relaxation in `FALLBACK_RELAXATION`. The rule and its number are
+> deliberately in different files: `assignment.ts` decides *whether* a filter passes, the policy file decides
+> *what* it passes against, and a wave writer joins them rather than writing `12_000` at a call site. The
+> relaxation loosens exactly three things — radius, cash cap, zone-edge allowance — and nothing about trust.
+
+> **The zone-edge distance is computed, not read (D119).** Filters 7 and its fallback both compare a rider's
+> position against their zone's edge, and `zones.polygon` is a GeoJSON ring of E7 pairs — TiDB has no spatial types
+> (`002_geography.sql`), so there is no `ST_Distance` to lean on. `domain/geo/zone-shape.ts` answers it: zero for a
+> rider inside their zone with the boundary counting as inside, and otherwise the distance to the nearest point of
+> the ring in a local equirectangular frame. Filter 7's 1 500 m allowance and the fallback's 3 000 m are
+> comparisons the caller makes against that one number. A ring with no interior — collinear or duplicated
+> vertices — is refused when it is parsed rather than silently making every rider eligible, and `ringExtentM`
+> flags a shape too wide for the planar frame to be honest about.
+
+> **The two halves are joined once, by a pure function (D120).** A `RiderSnapshot` is written by three places —
+> TiDB (approval, shift, verification, cash, load), D1 (position and its deadline) and the policy table (what the
+> vehicle may carry) — so the seam is `domain/order/dispatch-assembly.ts`: `assembleSnapshots` takes both candidate
+> lists, the zone polygons, the vendor's point and the signals that live outside both stores, and returns snapshots
+> plus refusals. The join is on the **user id** (what D1 is keyed by) while the snapshot carries the **row id** (what
+> an offer points at); joining on the wrong one leaves every wave empty with nothing in the logs, so there is a test
+> that fails if it changes. A rider with no live row is not dropped: they carry an infinite age and filter 4 refuses
+> them by name. Only two things are refused before the filters — a vehicle the policy cannot describe, and a zone
+> with no polygon — because both are data errors, and a filter refusal would be a judgement about a rider nobody
+> could judge.
+
+> **A wave is one statement and one instant (D121).** `insertOfferWave` writes every offer of a wave in a single
+> `INSERT`, because a wave is one act: eight separate writes would let a rider refreshing mid-write see half of it,
+> and eight separate `now`s would give wave 1 eight different deadlines when `11 §7`'s twenty-five seconds is a
+> promise about the wave. The same instinct refuses two things before the database sees them — the same rider twice
+> in one wave, and an offer that expires when it was written. The reader that feeds filter 12 is
+> `rejectedWavesForOrder`: **only** `REJECTED` counts, because an expiry is silence and a withdrawal is a change of
+> plan, and filter 12's sentence is "no re-offering after an explicit no".
+
+> **The verdict is observable before the wave exists (D122).** `POST /internal/dispatch/eligibility {orderCode}`
+> reads the order, its zone's polygon, the live riders in that zone, and the signals outside both stores, then answers
+> with one row per rider: `{riderId, eligible, filter, reason}`, plus `unjudgeable` for the candidates the assembly
+> could not describe (a data error, not a verdict). It **writes nothing**, deliberately: ranking a wave needs §8's
+> acceptance model, and a route that invented a probability would produce waves nobody could explain. What it can do
+> honestly today is name the filter that refused each rider — the same vocabulary the rider's app uses — which is
+> what makes an empty wave a diagnosis instead of a mystery.
+
+> **Ranking and confidence are two numbers, and were one (D124).** `planWaves` now ranks on `ScoredCandidate.score`
+> — the fourteen-factor weighted sum — while its `pNone` still multiplies `(1 − acceptanceProbability)`. They were the
+> same field before this rung, which made the planner sort by who tends to tap *accept* and multiply a weighted sum
+> as though it were a probability. With no score supplied it falls back to acceptance, which is correct only when no
+> score exists. `domain/order/dispatch-plan.ts` then turns the chosen wave into the rows the writer inserts: ranks
+> from the planner's own order, one expiry from `WAVE_SCHEDULE`, the order's payout on every offer, and the score the
+> decision used — so the audit trail can be re-derived.
+
+> **The history the factors 3–8 need comes from three statements (D125).** `repositories/dispatch-stats.ts`
+> `riderHistory` reads today's `rider_stats` row, the lifetime offer totals and the rider's delivered orders (split by
+> whether they were for this vendor, with the most recent) — one `IN` list each, never one query per candidate. Every
+> rate is turned into a **Wilson lower bound** (`wilsonLowerBound` in `scoring.ts`), which is why a rider with one
+> accepted offer does not outrank one with four hundred. Two factors have no data behind them and score zero: there is
+> no delivery-cell column on `orders` (factor 8) and no ratings table (factor 6). A rider on their first shift scores
+> zero on all three rate factors and gets the full `fairness` load term — a visible disadvantage rather than a padded
+> default.
+
+> **One route plans and writes wave 1 (D126).** `POST /internal/dispatch/plan {orderCode}` is the composition the
+> previous nine rungs were for: lock → order still searching → no live wave → zone shape → live riders → snapshots →
+> filter verdicts → history → scores → `planWaves` → `planWaveWrite` → one `INSERT` → audit → release. Three guards
+> before any work, and each one has a reason: `dispatch_locks` (unique on `order_id`, and the claim steals an *expired*
+> lock so a crashed planner cannot block an order) stops a retried trigger writing wave 1 twice; an assigned order is a
+> race the claim route won; a **live** wave means wave 1's phones are still ringing and writing wave 2 would tell eight
+> riders the order is gone. It writes **wave 1 only** — the rest of the cascade is planned and returned, and the caller
+> comes back when this one expires. Nothing rings yet: the alarm is the FCM binding's job.
+
+> **And then it rings (D127).** Each offer is announced on its rider's own channel — `offer.new` (the catalogue's
+> name; D127 spelled it `order.offer` and realtime's ring refused it, corrected in D132), audienced to
+> that rider's **user id**, since the rider channel is keyed by `sub` while the offer row carries the rider row id —
+> with a data-only payload from `domain/order/offer-alarm.ts`: order code, offer id, payout, pickup distance and the
+> seconds remaining, computed from the offer's own expiry rather than a caller's arithmetic. Both languages travel
+> together and no platform alert object is used, because on several Android builds letting the OS draw the alert means
+> the full-screen alarm never appears (`fcm-payload-purity`). The send is handed to `waitUntil`: an alarm that fails
+> is not a reason to lose a wave that was written.
+
+> **And reaches a phone in a pocket (D128).** The SSE ring needs an open app; most riders, most of the time, do not
+> have one. So each offered rider's valid device tokens get one push through `bindings/fcm.ts`: the v1 endpoint, a
+> **data-only** message with `android.priority: "high"` (a normal-priority data message can doze past the offer's
+> 25 s), the same copy in both languages as data fields, and one `fcm_dispatches` row per token recording `SENT` or
+> `FAILED` with the status. The sends are queued on `waitUntil` — eight phones are eight round trips and an offer's
+> seconds belong to the rider — and absent credentials mean **no push and no dispatch row**, never a row claiming a
+> send that did not happen.
+
+> **A second call advances, and the fifth ends the ladder (D129).** The wave written is the order's *next* number, not
+> wave 1: `planWaves` numbers a fresh cascade 1..5, so the route takes its first wave's riders — the best remaining
+> candidates — and renumbers them under `lastWave + 1`, with that wave's own TTL. Without this, the second planning
+> call would rewrite wave 1 and `uq_offers_order_rider_wave` would reject it. Past wave 5 the route answers
+> `{wave: null, reason: "LADDER_EXHAUSTED"}` and writes nothing: `11 §11`'s escalation (expansion, then refund) is the
+> caller's business, and a sixth wave is not one of the options. `POST /internal/dispatch/advance` is the same handler
+> under the name the driver calls by.
+
+> **And something finally calls it (D130).** Realtime's zone alarm is the only thing running while riders are
+> connected, so the tick ends there: expire what has timed out, then advance **each order the sweep emptied** — the
+> `orders` array is why D116's sweep answers with codes and not only counts. It runs last, after the presence sweep,
+> because an offer belonging to a rider whose row is about to be erased is not worth ringing; it runs even when there
+> is no live-position database, because offers expire whether or not anybody can be seen; and its failure is logged
+> and forgotten, because the next tick retries with the same state. A `null` wave — nobody eligible, or the ladder
+> exhausted — is an answer, not an advance.
+
+> **And a phone that did not wake gets a second call (D131).** A `FAILED` send used to be the end of the story: Google
+> answered 503, the socket timed out at 1 500 ms, and the rider stayed dark for the whole offer. Most of those failures
+> are transient and the offer is still live, so `POST /internal/dispatch/pushes/retry` re-sends it — once a failure is
+> at least 2 s old, and only while the offer has 3 s or more left, because a retry that lands after the deadline is a
+> phone ringing for somebody else's order. The policy lives in one statement: an unanswered, unexpired offer, a token
+> still `valid`, no later row for that token, and **attempts left** (three sends per token per offer). A **404 prunes**
+> — the token is retired in `device_tokens` and drops out of the retry and of every later wave — while a 5xx, a 429 or
+> a silence is left valid for the next tick. The tick's order is expire → advance → retry: the wave that was just
+> planned is the one whose pushes are worth repeating. Two things were wrong in D128 and are fixed here: the alarm
+> named the **rider** where the deep link needs the **offer row**, and `attempt` counted a device's position in the list
+> rather than the tries that phone had, which would have made "third attempt" mean nothing.
+
+> **And a zone with no riders in it still ticks (D132).** D130's tick lives in the zone alarm, and that alarm belongs
+> to a room that only exists while that zone has sockets — so an order placed where every rider is in their pocket had
+> nothing to advance it. The fix needs no cron and no global sweeper: the announcement of a wave is itself a request to
+> the zone room, so the room exists for at least that moment, and `/internal/wake` is what the broadcast now also does.
+> It arms the room's alarm for **two instants** per wave — a retry pass three seconds out (D131 needs one while the
+> offer is live) and the offer's expiry plus a second of slack — and the room's single alarm becomes the earliest of
+> those and every presence deadline. The loop then sustains itself: alarm fires, tick expires and advances, core
+> announces the next wave, the announcement arms the next wake; when the ladder ends nothing re-arms and the object is
+> a candidate for eviction, which is what keeps this legal under the no-cron rule. Fired instants are spent, an earlier
+> instant is never postponed, and a wake that cannot reach its room is a missed wake rather than a failed broadcast.
+>
+> Finding that hole exposed a second one. Realtime's ring carries a **closed** set of event names and D127's alarm used
+> `order.offer`, which is not in `08 §9.1`'s catalogue — so every offer announcement was refused as `unknown_event` and
+> treated as a degraded notification: the alarm reached no socket at all, and the quiet-zone wake would have had
+> nothing to wake for. The catalogue's name is `offer.new`, and the map now carries it.
+
+> **And factor 3 stops being blind to the offer (D133).** The acceptance factor used to be a rate: everything that rider
+> had ever answered, Wilson-bounded, identical for a ৳40 errand at 23:00 and a ৳180 run at noon. `09 §7.4`'s model is
+> now in the scorer: eight normalised features — payout, pickup distance, trip distance, idle time, the sine and cosine
+> of the hour, weather severity, batch flag — a logistic prediction, and a blend with the rider's own rate weighted by
+> how many outcomes trained the zone (`samples / 50`, so a zone's first fifty offers do not lurch from one estimator to
+> another). The weights live in `platform_config` under `dispatch.propensity`, per zone with the all-zero sentinel as the
+> global default, versioned and audited like every other number an operator edits; a row shaped like nothing degrades to
+> the record rather than failing a dispatch. Nothing is trained yet — the learning step exists as `learnStep` and the
+> rung that calls it is next — so every zone currently scores with the prior, whose signs an operator can check by eye.
+
+> **And the offer carries the evidence (D134).** A model can only be trained on the facts it saw, and three of the eight
+> are facts about a moment: a rider's idle time at 12:04, the routing snapshot that measured their distance, the weather
+> that minute. None is recoverable afterwards. So each offer row now records its own eight-number vector
+> (`order_offers.propensity_features`, JSON), taken from the same call that produced its factor 3 — a vector rebuilt
+> later would be a different vector, and a model trained on it would learn from an offer that never existed. `null` when
+> the zone had no model: an offer judged without one must not later train one, and a row of zeroes would read as an
+> ordinary sample whose offer had nothing to recommend it. The outcome sits next door in `response`, so one offer row is
+> one training sample and the loop reads `offered_at` to know how far it has got.
+
+> **And the loop closes where outcomes become final (D135).** The trigger needed no cron and no new endpoint: the
+> expiry sweep already runs on every alarm tick in every zone, and it is the instant `EXPIRED` becomes the final answer
+> for the offers nobody took. So the sweep, after its `UPDATE`, trains the zones it emptied. A zone inherits the global
+> row's **weights** but not its sample count — a new district starts from what the network has learned and factor 3
+> remains the rider's own record until this zone has outcomes — reads at most 200 answered offers that carry a vector
+> and are newer than its cursor, folds them in `responded_at` order, and writes **one new `platform_config` version**.
+> A row per sweep would be a history nobody can read, so a pass with nothing to read writes nothing at all.
+>
+> The cursor rides inside the model rather than beside it: `trainedThroughMs` is the `responded_at` of the last outcome
+> folded in, so a five-second tick does the same work once instead of re-learning the same lunch hour forever. Two rows
+> could disagree about what has been seen and there is no transaction between them. `null` vectors stay skipped, which
+> is what makes D134's "no model, no sample" decision load-bearing rather than tidy.
+>
+> **And silence is not a refusal, even to a gradient (D136).** `§9.3` above already says an expired offer counts at half
+> the strength of an explicit no, and D135's trainer counted it at full strength — a plain `y = 0` — so the loop was
+> quietly contradicting the sentence it was built to serve. A training sample now carries a **weight**: 1 for a decision
+> the rider actually made, `EXPIRY_WEIGHT` (0.5) for an offer nobody answered, and the weight multiplies the loss's
+> gradient rather than the sample count. Silence therefore moves the coefficients half as far, and a zone that goes
+> quiet because the alarm is broken moves them half as far as one whose riders are saying no.
+>
+> The same change is where the denylist lives. The trainer takes its labels as a **map** — `ACCEPTED`/`REJECTED` at 1,
+> `EXPIRED` at a half — and a response the map does not know is not evidence at all. `WITHDRAWN` (the vendor closed, an
+> admin reassigned) and `CANCELLED` say nothing about this rider's preference, and folding them in as refusals would
+> have taught the model that a rider declines orders the customer cancelled before anybody was asked. `null` in the map
+> is why `sampleFromRow` can answer `null` for a row that has a perfectly good vector.
+>
+> **And the rating factor finally has rows to read (D137).** Factor 6 is `09 §2`'s Wilson lower bound of four- and
+> five-star *delivery* ratings, and until now `order_ratings` had no writer, so the loader answered `rating: null` and
+> the scorer returned a plausible zero. The customer's sheet now writes it: one row per `(order, target)` — food or
+> delivery, never both in one row, because `17 §8.1` refuses to punish a rider for a cold kitchen — inside a seven-day
+> window that opens at `delivered_at`. The rider a delivery rating is about is joined through `order_assignments` where
+> `end_reason = 'DELIVERED'`: `orders.rider_id` moves when an order is reassigned, and a rating must follow the rider
+> who actually carried the food.
+>
+> **And factor 6 was wired the next rung (D138), because a tally nobody reads is a table again.** The ranking query now
+> carries a fourth statement: the same `IN (...)` list of candidates, the same one round trip, `SUM(stars >= 4)` and
+> `COUNT(*)` grouped by the rider the delivery assignment names. Factor 6 is `wilsonLowerBound(good, total)` — the
+> arithmetic factors 3 and 4 already use — so a rider with forty-seven good ratings out of fifty-two scores about 0.79
+> and a rider with four hundred and seventy out of five hundred and twenty scores about 0.88: same rate, more evidence,
+> more trust. Nobody rated is **zero**, not a neutral half; a middling default would quietly reward the rider who has
+> never delivered, which is the opposite of what the factor is for.
+>
+> Four statements now cover a wave of any size, and the module's own comment said "three" for three rungs — a number in
+> a docstring is a claim, and this one had been false since the rating landed.
+>
+> **And the cell factor had the evidence all along (D139).** Factor 8 (`area_familiarity`) was the last factor with no
+> input, on the record that `orders` has no delivery-cell column. It had the coordinates: `delivery_lat_e7` and
+> `delivery_lon_e7` are snapshotted at placement so an address edit cannot rewrite history, and the cell is a pure
+> function of them — the same `FLOOR(lat/44920) * 1e6 + FLOOR(lon/49520)` that `addresses` and `vendors` already use.
+> So `018` adds `orders.delivery_cell` as a **generated stored column** with an index, and the ranking's fifth statement
+> asks it a question the index can answer. The order being dispatched is located with the same expression inside the
+> query rather than with a TypeScript copy of the divisors, because a second copy of a grid is a second chance for the
+> two to disagree about where a cell ends. Five deliveries into that cell is five twelfths of the way to knowing which
+> gate, which is what the factor says; a `PICKUP` order has no cell, so the statement is not run at all.
+
 Filter 14 deserves a note. A rider with notifications disabled is invisible to dispatch, which looks
 like a bug from their side. The rider app therefore shows a **blocking banner** — not a dismissible
 toast — saying "You will not receive orders until notifications are enabled", with a one-tap deep
@@ -176,7 +380,14 @@ Lab.
 | 13 | `freshness` | Falls as the rider's position fix ages, so a rider last seen 4 minutes ago ranks below an equivalent one seen 10 seconds ago | **0.010** |
 | 14 | `vehicle_fit` | Suitability of the vehicle for this order: trip length, item count, whether the order includes a large or hot-soup item that a bicycle handles badly | **0.010** |
 
-**Sum: 1.000.**
+**Sum: 1.005** — not 1.000, and the discrepancy is real (D123). The fourteen individual weights above are the
+authoritative numbers: they are what Brain Lab shows, what the benchmark reports and what any conversation about
+dispatch quotes. Their arithmetic does not close. `workers/core/src/domain/order/scoring.ts` implements them
+verbatim, `weightSum()` returns 1.005 so the admin panel can surface it, and a total score may therefore reach
+1.005. Deliberately not normalised: dividing every weight by 1.005 would change numbers an operator believes they
+set, invisibly, and could reorder two candidates. The implementation, its anchors (`eta_fit` = 1 in the two minutes
+before ready, `fairness` saturating at twenty idle minutes, `cash_headroom` exactly zero at the limit) and the
+clamping contract are all in that module.
 
 ### 5.1 Why `eta_fit` is not just "sooner is better"
 

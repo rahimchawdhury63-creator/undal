@@ -5,6 +5,11 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
 
 # 06 — Data Model (TiDB)
 
+> **Schema verification limitation (D168):** The extractor now includes quoted and unquoted
+> columns and the verifier detects missing, unexpected and type-drifted columns. This has not
+> been verified against live TiDB and does not check keys, indexes, constraints, nullability,
+> defaults or generated expressions. Inventory parity is not full schema verification.
+
 > The system of record. 96 tables, serializable isolation, integer-paisa money, spatial types for
 > zones and proximity. Migrations are numbered SQL files applied by a GitHub Actions workflow — no
 > CLI, no ORM migration runner, no drift.
@@ -43,8 +48,14 @@ SPDX-License-Identifier: LicenseRef-PASVL-1.0
    > TiDB has no triggers at all — and because this document already banned them, the schema loses
    > nothing. **`DATETIME(6)`, never `TIMESTAMP`.** MySQL's `TIMESTAMP` is a 32-bit epoch that ends
    > in 2038 and silently rewrites values according to the session time zone. `DATETIME(6)` stores
-   > exactly what is written, which makes correctness depend on every connection pinning
-   > `time_zone = '+00:00'`. That pin is a connection-level invariant with its own test (§10).
+   > exactly what is written, which makes database-generated defaults depend on the session time zone.
+   > **D161:** The core worker explicitly sets `time_zone = '+00:00'` and reads it back on each
+   > request-local TiDB connection before application SQL. Setup fails closed if verification fails.
+   > The driver does not apply the DSN's query parameter. The session-token behavior is tested with
+   > a simulated gateway; run the opt-in live staging check before production. This does not alter
+   > timestamps already stored or configure external database clients.
+   > **D164:** An experimental transaction adapter now creates its own UTC-verified session, but is
+   > not yet used by cash routes or proven against live TiDB. `Db.batch` alone is not a transaction.
 
 4. **Soft delete only where it is needed.** `deleted_at DATETIME(6)` exists on vendors, menu items,
    and addresses, because those are referenced by historical orders. Everything else is hard
@@ -221,16 +232,42 @@ actually checked" is not a state the platform can be in.
 
 | Group | Tables | Count |
 | --- | --- | --- |
-| Identity and access | `users`, `user_profiles`, `sessions`, `devices`, `device_tokens`, `password_history`, `login_attempts`, `oauth_identities`, `totp_secrets`, `recovery_codes`, `admin_roles`, `admin_role_permissions`, `admin_user_roles`, `permissions` | 14 |
+| Identity and access | `users`, `user_profiles`, `sessions`, `devices`, `device_tokens`, `password_history`, `login_attempts`, `oauth_identities`, `totp_secrets`, `recovery_codes`, `admin_roles`, `admin_role_permissions`, `admin_user_roles`, `permissions`, `refresh_tokens`, `security_events` | 16 |
 | Geography | `zones`, `zone_polygons`, `zone_pricing`, `zone_hours`, `addresses`, `address_labels`, `geocode_cache`, `cell_zone` | 8 |
 | Vendors | `vendors`, `vendor_profiles`, `vendor_documents`, `vendor_hours`, `vendor_holidays`, `vendor_contacts`, `vendor_bank_accounts`, `vendor_categories`, `categories`, `vendor_stats`, `vendor_pause_log`, `vendor_commission_overrides` | 12 |
 | Catalogue | `menus`, `menu_sections`, `menu_items`, `item_variants`, `modifier_groups`, `modifiers`, `item_modifier_groups`, `item_availability`, `item_tags`, `tags`, `item_stats`, `item_media` | 12 |
-| Riders | `riders`, `rider_profiles`, `rider_documents`, `rider_vehicles`, `rider_shifts`, `rider_shift_selfies`, `rider_stats`, `rider_penalties`, `rider_suspensions`, `rider_cash_balances`, `rider_cash_settlements`, `rider_zone_assignments` | 12 |
+| Riders | `riders`, `rider_profiles`, `rider_documents`, `rider_vehicles`, `rider_shifts`, `rider_shift_selfies`, `rider_stats`, `rider_penalties`, `rider_suspensions`, `rider_cash_balances`, `rider_cash_settlements`, `rider_cash_declarations`, `rider_zone_assignments` | 13 |
 | Orders | `orders`, `order_items`, `order_item_modifiers`, `order_state_events`, `order_fees`, `order_discounts`, `order_assignments`, `order_offers`, `order_batches`, `order_batch_members`, `order_proofs`, `order_cancellations`, `order_ratings`, `order_disputes`, `order_dispute_messages` | 15 |
-| Money | `ledger_accounts`, `ledger_entries`, `ledger_postings`, `payout_periods`, `invoices`, `invoice_lines`, `invoice_documents`, `payout_transactions`, `platform_config`, `config_audit`, `tax_records`, `rounding_adjustments` | 12 |
+| Money | `ledger_accounts`, `ledger_entries`, `ledger_postings`, `payout_periods`, `invoices`, `invoice_lines`, `invoice_documents`, `payout_transactions`, `platform_config`, `config_audit`, `tax_records`, `rounding_adjustments`, `cash_financial_operations` | 13 |
 | Marketing | `promo_codes`, `promo_redemptions`, `campaigns`, `campaign_budgets`, `campaign_redemptions`, `referrals`, `loyalty_tiers`, `customer_loyalty`, `reminders`, `reminder_sends` | 10 |
-| Operations | `audit_log`, `audit_verifications`, `ops_errors`, `ops_metrics`, `ops_logs`, `effect_dead_letters`, `brain_traces`, `dispatch_locks`, `generation_locks`, `exceptions`, `support_tickets`, `support_messages`, `weather_observations`, `notification_log` | 14 |
-| **Total** | | **99** |
+| Operations | `audit_log`, `audit_verifications`, `ops_errors`, `ops_metrics`, `ops_logs`, `effect_dead_letters`, `brain_traces`, `dispatch_locks`, `generation_locks`, `exceptions`, `support_tickets`, `support_messages`, `weather_observations`, `notification_log`, `fcm_dispatches`, `coordination_state` | 16 |
+| **Total** | | **115** |
+
+> The rows above sum to 109, not the 99 this table used to claim: the per-group counts were
+> always right and the total was an arithmetic slip, recorded as D43 in `_plan/DECISIONS.md`.
+> The migrations implement the 112 names, and `check_schema_parity` fails the build if the two
+> lists ever disagree again. `refresh_tokens` and `security_events` joined the identity group with
+> the auth foundation (D48): the specification requires rotation with family reuse detection and
+> the event reuse raises, and neither behaviour is implementable without a row to hold it.
+> `fcm_dispatches` joined Operations with the push log (D86): `15 §8` requires a row per send so the
+> delivery matrix is built from data rather than from the absence of complaints, and the rows are
+> written by `undal-core` on `undal-realtime`'s behalf because only core may write TiDB.
+> `rider_cash_declarations` joined Riders with `25 §7`'s four buttons (D148): a rider who was robbed or has an emergency
+> needs to be heard before they are unblocked, and "limited to once per 30 days" is a query over declarations rather than
+> a column that can only remember the last one.
+> Migration `026` gave it an ending (D155): `resolved_at`, `resolved_by` and `resolution_note`, so a case written off or
+> otherwise settled can say who decided and why, and the reviewer's list can filter on `resolved_at IS NULL` instead of
+> guessing from a balance that happens to be zero.
+> Migration `027` added `idx_cash_declaration_queue (resolved_at, routed_to_review, created_at DESC)` for the statement
+> that filter made (D157): the column order follows the query, and `kind` is deliberately outside the index because a
+> filter applied occasionally should not be paid for by every write.
+> Migration `028` did the same for the settlement queue (D158): `idx_cash_settlement_queue (status, created_at, id)`.
+> `005`'s `idx_cash_settlement_rider` is rider-first because support asks by rider; the reviewer does not know the
+> rider, so the queue's statement had no usable prefix — every page was a scan and a sort of a table that only grows.
+> `coordination_state` joined Operations with the free coordination backend (D90): the wave plan, the
+> zone counter and the presence row need a key, a value and an expiry, and D89's arithmetic rules out
+> Workers KV for them. Its rows are written by core on realtime's behalf for the same single-writer
+> reason — the coordinator composes the statement, and `POST /internal/coordination/statements` runs it.
 
 Three tables are new, and all three exist because a database mechanism went away rather than
 because a feature arrived:
@@ -241,7 +278,7 @@ because a feature arrived:
 | `audit_verifications` | Nothing — it is new. It records every run of the audit-chain verifier so that a **gap in verification** is itself detectable, which matters more now that the WORM trigger is gone | [`27 §4.2`](27-security-rbac-audit.md) |
 | `generation_locks` | `pg_advisory_lock`, used by invoice generation. MySQL's `GET_LOCK()` is session-scoped and the HTTP driver has no durable session, so the lock becomes a row with a lease | [`24 §4.1`](24-finance-payouts-invoices.md) |
 
-No business table was added, renamed or removed. The 96 tables that modelled the platform still
+No business table was added, renamed or removed. The 106 tables that modelled the platform still
 model the platform.
 
 ---
@@ -1010,6 +1047,14 @@ specification.
 Every transition writes an `order_state_events` row, emits an SSE event, and may emit FCM. The
 effects table is in [`08 §6`](08-api-contract.md).
 
+`seq` is allocated per order (`MAX(seq) + 1`) and the row is appended by `appendEvent`
+(`workers/core/src/repositories/orders.ts`, D102). Two transitions on one order can read the same maximum,
+and `uq_order_events_seq (order_id, seq)` then refuses the second insert — *after* its `UPDATE … WHERE
+state = ?` already won and moved the order. A `DUPLICATE` is therefore retried with the next number (up to
+five attempts) instead of failing: the index saying "somebody took that number" is a reason to take another,
+not a reason to hand a customer an error about a change that happened. Any other database error is rethrown
+on its first attempt.
+
 ### 7.4 Offers and assignments
 
 ```sql
@@ -1289,7 +1334,7 @@ Rules:
    `TIDB_MIGRATION_URL` secret, reads `schema_migrations`, and applies what is missing **one
    statement at a time**, recording each as it succeeds.
 5. **Verified.** After applying, the workflow runs `scripts/db/verify_schema.py`, which compares the
-   live schema against `docs/schema/expected.json` (generated from this document) and fails on
+   live schema against `db/expected.json` (generated from migrations) and fails on
    drift.
 
 ```sql
@@ -1509,3 +1554,5 @@ Next: [`07-d1-live-tracking.md`](07-d1-live-tracking.md) — the ephemeral chann
 ---
 
 *Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.*
+
+Migration `029_cash_case_owner.sql` adds nullable `owner_id` and `claimed_at` to cash declarations; existing review cases remain unclaimed.

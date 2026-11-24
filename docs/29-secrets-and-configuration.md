@@ -95,6 +95,8 @@ entry.
 | `GOOGLE_OAUTH_CLIENT_ID` | `undal-core`, clients | None — public |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | `undal-core` | High |
 | `ADMIN_OIDC_*` | `undal-core` | High, when SSO is configured |
+| `JWT_PUBLIC_KEY` | `undal-realtime` | None — the public half. `undal-realtime` verifies a session and cannot mint one. An optional secret: absent, realtime refuses rather than trusting (D79) |
+| `INTERNAL_TOKEN` | `undal-core` → `undal-realtime` | Medium — reaches the internal surface (`/internal/presence`, `/internal/broadcast`, `/internal/coordination/statements`). Optional: absent, that surface answers `403`. Rotating it degrades presence, not money |
 
 ### 2.7 Finance
 
@@ -154,7 +156,7 @@ and TOTP enrolment before it can do anything else, and the secret is then meanin
 
 ## 3. Total count
 
-**43 secrets**, of which **11 are mandatory** for a working deployment:
+**45 secrets**, of which **11 are mandatory** for a working deployment:
 
 ```
 TIDB_DATABASE_URL           TIDB_MIGRATION_URL         CLOUDFLARE_API_TOKEN
@@ -187,16 +189,20 @@ Business rules live in the database so they can be changed without a deploy — 
 browser-only developer, is the difference between a 10-second change and an 11-minute one.
 
 ```sql
-CREATE TABLE platform_config (
-  key          STRING NOT NULL,
-  zone_id      UUID,                   -- NULL = global default
-  value        JSONB NOT NULL,
-  version      STRING NOT NULL,        -- 'r10.3.1'
-  effective_at TIMESTAMPTZ NOT NULL,
-  created_by   UUID NOT NULL,
-  reason       STRING NOT NULL,
-  PRIMARY KEY (key, zone_id, effective_at DESC)
-);
+CREATE TABLE `platform_config` (
+  `key`          VARCHAR(120) NOT NULL,
+  `zone_id`      BINARY(16)   NOT NULL DEFAULT 0x00000000000000000000000000000000,
+                               -- all-zero UUID = the global default. MySQL keys cannot
+                               -- hold NULL, so the sentinel replaces the old nullable row.
+  `value`        JSON         NOT NULL,
+  `version`      VARCHAR(32)  NOT NULL,      -- 'r10.3.1'
+  `effective_at` DATETIME(6)  NOT NULL,      -- UTC; connections pin time_zone='+00:00'
+  `created_by`   BINARY(16)   NOT NULL,
+  `reason`       VARCHAR(255) NOT NULL,
+  -- Ascending, because a primary key column cannot be DESC. "Latest value for this key"
+  -- is a backward index scan on the same key, which TiDB serves without a second index.
+  PRIMARY KEY (`key`, `zone_id`, `effective_at`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 ```
 
 | Property | Rule |
@@ -324,3 +330,8 @@ Next: [`30-testing-and-verification.md`](30-testing-and-verification.md).
 ---
 
 *Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.*
+
+
+### Temporary cash-write test gate (D163)
+
+`ALLOW_UNSAFE_CASH_WRITES` is an optional non-secret development setting, absent by default. Only the exact value `true` together with `ENVIRONMENT=test` or `ENVIRONMENT=staging` enables the currently non-atomic settlement approval and cash write-off paths. It must only be used with isolated, non-production databases. An environment labelled `production`, `preview`, missing, or unknown cannot enable those routes with this flag. Do not label a live deployment as test/staging or point an opted-in worker at production data. Remove this temporary opt-in only after the financial paths have transactional, durable idempotency and have been validated on real staging.

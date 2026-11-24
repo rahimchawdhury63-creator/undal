@@ -23,6 +23,13 @@ The mechanism is social and procedural rather than technical: the rider sends th
 submits proof, and the app does not let them do anything else until an admin confirms it arrived.
 It works because it is unambiguous.
 
+The two figures the screen is built from are now readable without being blocked on (D140). `GET /v1/rider/cash`
+answers `{ cashInHandPaisa, dueAt, locked, settlementRequired, shiftState }`, and the `SHIFT_CASH_OVERDUE` refusal that
+starts the next shift carries the same pair — `{ outstanding, due_at }`, which is the shape `08 §6` fixes for it.
+`due_at` is **not a future deadline**: this document sets none, because the block is immediate. It is the moment the
+obligation began — the `ended_at` of the shift that collected the cash — which is what lets the screen say "you have been
+carrying ৳2 140 since 22:14" instead of "settle your cash".
+
 ---
 
 ## 2. The design constraints this screen must respect
@@ -206,6 +213,28 @@ foreground lock, which would be both hostile and impossible to guarantee.
 | Selfie | Required. Face detected on-device. Uploaded to **imgbb**, per the brief |
 | Amount | Pre-filled, read-only. A partial settlement requires an explicit "I'm settling less" path with a reason (§7) |
 
+> **What the API now does with those five fields (D141).** `POST /v1/rider/cash/settle` takes
+> `{ trxId, bkashNumber, accountName, screenshotUrl, selfieUrl, amountPaisa, method? }` and writes one `PENDING` row.
+> The transaction ID is uppercased before anything else, because `9h5k2m8p1q` and `9H5K2M8P1Q` are one transfer and
+> `uq_cash_settlement_trx` can only enforce uniqueness over one spelling. The two comparisons in §6 are made at
+> submission and stored beside the claim — `number_matches` against the rider's `payout_number`, `name_matches` as the
+> Dice similarity of character bigrams against the payout or legal name, at a 0.75 threshold — so a reviewer sees what
+> the platform saw, and so a later change to the rules cannot rewrite history. **Neither comparison refuses the rider**,
+> which §6 already says: a flag is a hint for a human. Null means *not checked* — a rider who never gave a payout number
+> is not accused of a mismatch.
+>
+> The refusals are the six states the screen has a message for: `CASH_TRXID_INVALID` for ten characters that are not
+> ten bKash characters, `CASH_SELFIE_REQUIRED` for the missing selfie, `CASH_TRXID_DUPLICATE` when the ID belongs to
+> somebody else's claim (one payment must not settle two debts), `CASH_ALREADY_SETTLED` when nothing is owed or a claim
+> is already under review, and `CASH_OVERPAYMENT` / `CASH_UNDERPAYMENT` (+`short_by`) because the amount is pre-filled
+> and read-only. **A retry is not a refusal**: the same claim from the same rider answers with the first one and writes
+> nothing, which is what makes the offline outbox safe.
+>
+> **Nothing unlocks at submission.** §5 has the rider's state become `CASH_SUBMITTED`; `riders.shift_state` has six
+> values and none of them is that, and the block is released by *approval*, not by a claim. A rider who could pass the
+> gate by typing ten characters would make the gate decorative. What changes is that the screen stops asking, and
+> `GET /v1/rider/cash` starts reporting the submission with its status.
+
 Submission is **idempotent** and queued in the outbox if offline, with the screen showing
 *"Waiting for connection — your settlement is saved and will be sent automatically."* The rider is
 never trapped by their own network.
@@ -244,6 +273,12 @@ not on living their life.
   └───────────────────────────────────────────────────────────────────┘
 ```
 
+> **The list is a route now (D145).** `GET /v1/finance/cash/settlements` returns the pending claims **oldest first**,
+> each with the two automated flags and both evidence URLs, plus the three numbers the header shows: how many are waiting,
+> how old the oldest is, and how many are past the two-hour deadline they will be released at anyway. Oldest first is not
+> a display preference — it is the fairness rule, because the top of the list is the claim closest to auto-lifting
+> unreviewed. The ceiling is 100 rows: a queue longer than that is an incident, not a page to scroll.
+
 The review screen puts everything side by side: the selfie, the bKash screenshot (zoomable), the
 typed TrxID, the amount expected versus claimed, the rider's recent settlement history, and the
 orders that generated the cash.
@@ -263,11 +298,57 @@ orders that generated the cash.
 | Decision | Effect |
 | --- | --- |
 | **Approve** | `RIDER_CASH −amount`, `PLATFORM:BANK +amount`. `shift_state = OFFLINE`. Screen releases. Notification. The rider can go online again immediately |
-| **Approve a different amount** | For a partial or over-payment. Requires a reason. The difference stays in `RIDER_CASH` and the rider is told clearly what remains |
+| **Approve a different amount** | For a partial or over-payment. Requires a reason. The difference stays in `RIDER_CASH` and the rider is told clearly what remains. **Implemented (D147)**, partial only |
 | **Reject** | Reason required from a controlled list. The rider returns to the blocking screen with the specific reason displayed and a correction path |
 | **Escalate** | Routes to a senior reviewer; the rider is released from the block and told a human is looking into it — because an escalation is the platform's problem, not the rider's |
 
 Every decision is audited with the reviewer, the evidence they saw, and the reason.
+
+> **Production safety gate (D163).** Settlement approval and cash write-off return `503 SERVICE_DEGRADED`
+> (`component: cash_financial_writes`) before replay or financial queries unless `ENVIRONMENT` is `test` or `staging`
+> **and** `ALLOW_UNSAFE_CASH_WRITES=true`. This opt-in is exclusively for isolated, non-production data. Production,
+> preview, missing/unknown environment, and absent opt-in remain blocked; production is not overridable by that flag.
+> Deployment must not mislabel a live environment as test/staging or point a test/staging instance at live data.
+> This guard does not establish the safety of rejection, escalation, or other financial operations. Pending claims
+> remain pending; no manual approval or accounting reconciliation is provided by the gate.
+
+> **Approve is built; the other three are not (D143).** `POST /v1/finance/cash/settlements/{id}/approve` is the row
+> above with a route attached: it requires `finance.cash.approve_settlement`, which is one of the twenty-three step-up
+> keys, so a reviewer must have entered a TOTP code within the last five minutes. It takes the claim with
+> `UPDATE ... WHERE status = 'PENDING'` — one affected row, one poster — credits `deposited_paisa`, posts
+> `CASH_SETTLED` to the ledger, releases the rider to `OFFLINE` if the balance is now zero, and writes one audit row that
+> carries the ledger entry's id. A clean approval cites **no** reason code, because the register has none for "the money
+> arrived as claimed"; a reviewer who is approving despite a discrepancy may cite `CASH_COUNTED_SHORT` or
+> `CASH_NOT_HANDED_OVER`, and anything outside the register is refused before a row is read. **Reject, escalate and
+> approve-a-different-amount are still screens with no route behind them.**
+>
+> **Reject is built, and its reason has a reader (D144).** `POST /v1/finance/cash/settlements/{id}/reject` requires one
+> of the nine codes above, stores it on the settlement (`020` adds `rejection_reason` and `rejection_note`), and
+> `GET /v1/rider/cash` returns both under the rejected row — because the reason exists for a rider who cannot read the
+> audit log. `OTHER` must arrive with a sentence: the one code that explains nothing is the one that cannot be sent
+> bare. The refusal posts no ledger entry, credits no deposit and leaves the rider `CASH_LOCKED`, because "not this
+> evidence" is not "never mind". The audit row records the *register's* nearest word instead — `CASH_COUNTED_SHORT` for
+> `AMOUNT_MISMATCH`, `SETTLEMENT_DISPUTED` otherwise — so the audit list groups on one closed vocabulary rather than
+> nine that only this route uses.
+>
+> **Escalate is built, and it is the one decision that forgives nothing (D146).**
+> `POST /v1/finance/cash/settlements/{id}/escalate` sets `escalated_at`, keeps the claim `PENDING` and the debt
+> outstanding, and releases the rider from that moment — because the escalation is the platform's problem. The release is
+> *computed*, not written: `liftStateOf` treats an escalated pending claim the way it treats a two-hour-old one, so
+> `GET /v1/rider/cash` answers `locked: false, escalated: true` and `POST /v1/rider/shift/start` opens the door on the
+> rider's next request. It takes the approver's key and therefore the approver's step-up code: releasing a rider against
+> cash the platform has not seen is precisely the consequence step-up exists to guard, and a lesser permission for the
+> same consequence would be the wrong direction. The end of a *later* shift does not re-block an escalated rider either,
+> so the door does not make them prove the same promise twice.
+>
+> **Approve-a-different-amount is built, for the partial case only (D147).** Approval takes an optional `amountPaisa`;
+> when it differs from the claim it **must** arrive with a reason, it cannot exceed what the rider claimed
+> (`MONEY_REFUND_EXCEEDS_PAID`) and it cannot be zero — accepting nothing is a refusal wearing an approval's clothes. The
+> accepted figure is stored in `approved_paisa` (`022`), and the ledger entry and the deposit credit are both built from
+> it, so the books and the claim cannot disagree about how much moved. The difference stays in `RIDER_CASH` and
+> `GET /v1/rider/cash` returns both numbers, because "confirmed" beside an unchanged balance is exactly the confusion
+> `§6.1` promises to prevent. Over-payment is *not* built: a claim cannot exceed what was owed in the first place, so
+> there is nothing above it to accept until `§7`'s disputed paths exist.
 
 ### 6.2 Rejection reasons
 
@@ -277,6 +358,12 @@ Every decision is audited with the reviewer, the evidence they saw, and the reas
 Each carries a bilingual explanation and a specific instruction. `PAYMENT_NOT_RECEIVED` triggers a
 support call rather than a silent rejection, because the most likely explanation is a delay at
 bKash rather than dishonesty.
+
+> **Why these nine are not the audit register's codes (D144).** The register in `audit/reasons.ts` holds two words for
+> settlements — `CASH_COUNTED_SHORT` and `SETTLEMENT_DISPUTED` — and both describe the *reviewer's* situation rather than
+> the rider's. A rider refused for `SELFIE_UNCLEAR` needs to be told to retake a photo; "settlement disputed" tells them
+> nothing they can act on. So the settlement row carries the borrower's word and the audit row carries the platform's,
+> and the mapping between them lives in one function (`auditReasonFor`) rather than in a reviewer's memory.
 
 ---
 
@@ -298,11 +385,91 @@ accounting disagreement.
 | --- | --- |
 | **Robbed / lost** | Immediate escalation to a human, the block is **lifted**, a case is opened, and a police-report upload is offered. The amount stays outstanding as a debt, handled case by case. Nobody is locked out of their livelihood over a theft at 11 pm |
 | **Emergency** | The block is lifted for 24 hours with a single tap. Logged. Limited to once per 30 days. A second use in the window routes to a human instead of being refused |
-| **Disagree** | A dispute is opened with the order list shown line by line; the block is lifted while the dispute is open; the amount stays outstanding |
-| **Partial** | The rider settles what they can; the remainder stays in `RIDER_CASH`; the rider can go online with a reduced cash limit equal to their remaining headroom |
+| **Disagree** | A dispute is opened with the order list shown line by line; the block is lifted while the dispute is open; the amount stays outstanding. **Implemented (D153)** — the list is `GET /rider/cash/breakdown` and the arithmetic is snapshotted |
+| **Partial** | The rider settles what they can; the remainder stays in `RIDER_CASH`; the rider can go online with a reduced cash limit equal to their remaining headroom. **Implemented (D151–D152)** |
 
 Every one of these paths lifts the block. The block exists to collect money from people who have
 it and are about to go home — not to punish people who do not.
+
+> **"I'll settle part of it now" is the fourth button, and it is a flag rather than a number (D151).**
+> `POST /v1/rider/cash/settle` still refuses a figure below the balance with `CASH_UNDERPAYMENT`, because the commonest
+> cause of a short amount is a mistyped one and accepting it silently would forgive a thousand taka. `partial: true` is
+> how the rider says this one is a choice: the claim is stored with `is_partial`, the remainder stays in `RIDER_CASH`, the
+> reviewer's queue shows it as a part-payment, and approving it **releases the rider** — `§7` promises they may go online.
+> The remainder is collected the slower way, by the weekly invoice gate ([`24 §6`](24-finance-payouts-invoices.md)).
+> **The reduced ceiling is real (D152).** A dispatch candidate's cash in hand is now both halves of what the rider is
+> carrying: this shift's `cash_collected_paisa` *plus* `rider_cash_balances.outstanding_paisa`, read in the same statement
+> that builds the candidate list. The ৳3 500 ceiling (`DEFAULT_CASH_LIMIT_PAISA`) is unchanged; what shrinks is the
+> headroom, which is exactly what the sentence above promises — a rider who still owes ৳1 140 is offered work against
+> ৳2 360 of room, and one filter 8 refusal later they are told why.
+
+> **All four buttons are built (D148–D153).** `POST /v1/rider/cash/declare` with
+> `{kind:"EMERGENCY", note?}` writes a `rider_cash_declarations` row with `lifted_until = now + 24 h` and **lifts the
+> block for a day**; the debt is untouched, and the rider's next request opens the door the same way an escalation does.
+> A second use inside thirty days still lifts — `§7` says it "routes to a human instead of being refused" — and marks the
+> row `routed_to_review` with a `WARNING` audit so the morning's list has it first. `kind:"ROBBED"` and `kind:"DISPUTE"`
+> `kind:"ROBBED"` is the same route with the opposite expiry (D149): the lift has **no end** (`lifted_until` null, which
+> the read treats as "lifted" rather than "not lifted"), it always routes to a human, its audit row is `CRITICAL`, and it
+> requires a sentence — somebody will ring the rider back, and "robbed" alone says nothing about when or where.
+> `kind:"DISPUTE"` is the third (D153): it lifts with no expiry, routes to a human, and **freezes the arithmetic it
+> disputes** — `025` stores `snapshot_lines_paisa` and `snapshot_difference_paisa`, taken from the breakdown `§8`
+> describes (D150), because the delivery list is live and a reviewer opening the dispute a day later must not read
+> yesterday's objection against today's numbers. The response hands the rider the same figure the reviewer will see. A
+> rider who owes nothing gets `409` rather than a lift, because there is nothing to be unable to settle.
+>
+> The fourth button is not a declaration at all: "I'll settle part of it now" is `POST /rider/cash/settle` with
+> `partial: true` (D151), and the reduced ceiling it promises is D152.
+>
+> **The other half of these buttons is a list (D154).** `GET /v1/finance/cash/declarations` returns the declarations
+> marked `routed_to_review` — every robbery and every dispute, plus a repeated emergency — **newest first**, because a
+> declaration has already lifted the block and nothing gets worse by waiting an hour, while a robbery reported ten
+> minutes ago is more urgent than one being handled since yesterday. Each row carries the rider, their sentence, the
+> balance **now**, and, for a dispute, the arithmetic as it stood when they objected. The two figures are shown side by
+> side on purpose: a queue that showed only one would let a fixed bug look unfixed, or the reverse.
+>
+> **And now a case can be closed (D155).** `POST /v1/finance/cash/riders/{id}/write-off` takes an amount, a reason from
+> the register and an optional `declarationId`, and does the one thing a reviewer could not do before: it makes the debt
+> smaller without anybody paying. The balance drops by `collected_paisa`, an adjustment entry posts `CASH_WRITE_OFF`
+> against the rider and the platform's compensation expense, the declaration is stamped `resolved_at`/`resolved_by`/
+> `resolution_note`, and the whole decision lands in the audit log as `CRITICAL`. The step-up key is
+> `finance.cash.write_off`, not `finance.cash.adjust`, because `24 §6` already names a written-off shortfall and a
+> reviewer pressing this button is spending the platform's money, not moving a rider's.
+>
+> **D162 safeguards and remaining blocker.** A write-off above outstanding cash (collected minus deposited) is refused;
+> the database update repeats the check against the current row. A declaration must belong to this rider: a missing or
+> other rider's case returns `CASH_DECLARATION_NOT_FOUND`, and an already resolved case returns `CASH_ALREADY_SETTLED`.
+> These checks do **not** make the multi-statement write-off atomic. Concurrent requests for one case can both adjust
+> money before one loses the case-close race; a ledger failure or lost response can also leave partial effects despite
+> best-effort compensation. Do not enable financial writes in production until transactionality, durable idempotency,
+> reconciliation and real TiDB staging tests address these risks (D160/D162).
+>
+> **The settlement queue answers the same four questions now (D158).** `GET /v1/finance/cash/settlements` was
+> `PENDING` only, so "did anybody decide the settlement this rider is ringing about?" had no route; `?state=decided`
+> lists the `CONFIRMED` and `REJECTED` half with the reason, the amount actually released and when, and `?state=all`
+> spans both. `?method=` narrows to one rail, `?partial=` to the part-payments of `§7`, `?riderId=` to one rider, and
+> `?breach=true` to the claims already past D142's two-hour deadline — the supervisor's question at nine, which used to
+> be answered by reading a page and counting. Paging is keyset like D157's, but **upward**: this queue is oldest first,
+> so the next page is greater than the cursor. Migration `028` adds the index the statement reads, because `005`'s
+> index is rider-first and every page of this queue was a scan plus a sort.
+>
+> **And the list is a query, not a dump (D157).** `GET /v1/finance/cash/declarations` now asks three questions and
+> answers them with an index: `?state=` picks the half — `open` (the default, `resolved_at IS NULL`, which is the fix
+> that matters, because D155's write-off was leaving decided cases on the morning's list), `resolved` for the history, or
+> `all`; `?kind=` narrows to one of the three buttons; `?riderId=` answers what support actually asks. Paging is keyset,
+> not offset: `nextCursor` appears only when the page came back full, and resumes after that row's `(created_at, id)`,
+> so a robbery declared while somebody pages cannot be shown twice or skipped. `026`'s resolution columns are why the
+> filter is possible and migration `027` is the index that makes it cheap.
+>
+> **The record is readable (D156).** `GET /v1/finance/cash/declarations/{id}` returns one case whole: the rider (name,
+> code, phone — `§7` promises somebody rings them back after a robbery, and a record that cannot produce a number stalls
+> at the first step), what they said, the lift it granted, the arithmetic they disputed beside what the platform claims
+> **now**, and — once somebody has finished with it — who closed it, when, and in their own words. `open` is read from
+> `resolved_at` rather than from the balance, because a debt written off and a case closed without one are two different
+> endings and a zero cannot tell them apart. It declares the queue's permission, `finance.cash.list_outstanding`: a
+> reviewer who may read the list may read a row of it.
+>
+> Still open on this path: the **police-report upload** `§7` offers beside a robbery. D159 adds voluntary reviewer
+> ownership to the declaration row; D155 closes it and D156 reads it back.
 
 ---
 
@@ -316,6 +483,28 @@ it and are about to go home — not to punish people who do not.
 | The app crashes on the screen | State is persisted; it re-presents on relaunch with everything the rider already typed still filled in |
 | A bug produces a wrong `cash_in_hand` | The "I disagree" path exists precisely for this, and the order-by-order list makes the error visible to both sides |
 
+> **The "I disagree" path has its fuel (D150).** `GET /v1/rider/cash/breakdown` lists the deliveries that produced
+> `cash_in_hand` — newest first, attributed by `order_assignments.end_reason = 'DELIVERED'` rather than by
+> `orders.rider_id`, which is whoever holds the order *now* — and reports three numbers: `linesPaisa` (the deliveries,
+> over the whole history), `collectedPaisa` (the balance) and `differencePaisa`. A non-zero difference is `§8`'s "a bug
+> produces a wrong `cash_in_hand`", and it is shown to the rider rather than hidden: a screen that conceals a
+> disagreement it already knows about is how a support call becomes an accusation. The declaration button for `DISPUTE`
+> is still `501` — this route is what it will read from.
+
+> **The two-hour rule is a rule about state, and the door applies it (D142).** There is no cron in this platform, so a
+> deadline cannot *fire* anything: what a deadline can do is change what a door decides. `riders.shift_state` stays
+> `CASH_LOCKED` until the rider next presents themselves, and at that moment `POST /v1/rider/shift/start` asks whether
+> their pending claim has waited `AUTO_LIFT_MS`. If it has, the block lifts on the spot — one state write, one audit row
+> with actor `SYSTEM` and the action `rider.cash.auto_lift`, severity `WARNING`, and the start proceeds. If it has not,
+> the refusal is the ordinary `SHIFT_CASH_OVERDUE`. A rider who never submitted is blocked however long it has been,
+> because the rule is about the platform's slowness and not about the rider's.
+>
+> `GET /v1/rider/cash` applies the same rule **without writing**: it answers `locked: false` and `autoLiftDue: true`, so
+> the blocking screen never shows a rider a wall the platform has already dropped. Reads compute, doors write, and the
+> first request after the deadline is the moment the lift becomes a fact. An unparseable `created_at` is treated as *not*
+> due: releasing a block on the strength of a clock nobody could read is the one mistake this rule must not make, since
+> the block is the platform's only collection mechanism and a rider's livelihood is on the other side of it.
+
 The 2-hour auto-lift is the most important rule in this document. It converts the block from an
 open-ended detention into a bounded procedure with the platform carrying the cost of its own
 slowness.
@@ -327,7 +516,7 @@ slowness.
 | Event | Postings |
 | --- | --- |
 | Order delivered | `RIDER_CASH:{id} +total` ([`24 §2.2`](24-finance-payouts-invoices.md)) |
-| Settlement approved | `RIDER_CASH:{id} −amount`, `PLATFORM:BANK +amount` |
+| Settlement approved | `RIDER_CASH:{id} −amount`, `PLATFORM:BANK +amount`. Implemented (D143) — the first live caller of `postEntry` |
 | Cash-out charge reimbursed | `PLATFORM:EXPENSE_PAYOUT_FEES +charge`, `RIDER:{id} −charge` |
 | Shortfall written off | `PLATFORM:EXPENSE_CASH_LOSS +amount`, `RIDER_CASH:{id} −amount`. Requires `SUPER_ADMIN` and a reason |
 | Shortfall recovered from a payout | `RIDER:{id} +amount`, `RIDER_CASH:{id} −amount`. Capped at 25% of a single payout, so a recovery never takes somebody's whole week |
@@ -349,9 +538,15 @@ collection mechanism behind the blocking screen.
 | Outstanding cash across the fleet | < ৳15 000 at any time |
 | Settlements per rider with a mismatch | tracked; 3 in 30 days triggers a conversation |
 | Auto-lifts | tracked as a **platform failure metric**, not a rider metric |
+| Emergency declarations | counted, and *two per rider per 30 days* is a conversation rather than a statistic |
 
 The last row matters: an auto-lift means admin review was too slow, and it is counted against the
 operations team.
+
+> **An escalation is not an auto-lift (D146).** Both release the rider, and only one is a failure. `autoLiftDue` is
+> counted because nobody answered in two hours; `escalated` is a reviewer who answered and said "I need to look closer",
+> which is the system working. The two are separate fields on the read for exactly that reason, and an escalated claim is
+> never also counted as a breach even when it is three hours old.
 
 ---
 
@@ -383,3 +578,8 @@ Next: [`26-media-pipeline.md`](26-media-pipeline.md).
 ---
 
 *Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.*
+
+
+> **Case ownership (D159).** Reviewers with `finance.cash.reject_settlement` may claim an unassigned, open, routed declaration with `POST /v1/finance/cash/declarations/{id}/claim`, or release their own with `/release`. Both take no body; an atomic conditional update refuses a competing claim, a release by another reviewer, or a closed/unrouted case with `CASH_CASE_UNAVAILABLE`. Queue and case reads expose `ownerId` and `claimedAt`. Ownership coordinates work; it does not restrict the separate write-off decision, change the balance, or automatically assign a reviewer. There is no administrator reassignment or recovery if the owner cannot release it yet.
+>
+> **Police reports remain unimplemented.** The sensitive upload pipeline described in `26` has no implementation or media asset table yet. An arbitrary HTTPS link is not a private, verified upload, so this route does not accept one. Private storage, validated upload, audited access and retention must be built before offering this feature.
