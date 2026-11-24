@@ -36,6 +36,24 @@ function constant(path) {
 
 const publicRoutes = SURFACE.entries.filter((entry) => entry.scope === "PUBLIC");
 
+/**
+ * `/v1/orders` is read with GET and created with POST: same path, two routes. Naming both `ORDERS`
+ * is a duplicate property and a compile error — found by the first CI run, which is exactly what CI
+ * is for. Colliding names take the method as a suffix so the file stays readable.
+ */
+const names = new Map();
+{
+  const counts = new Map();
+  for (const entry of publicRoutes) {
+    const base = constant(entry.path);
+    counts.set(base, (counts.get(base) ?? 0) + 1);
+  }
+  for (const entry of publicRoutes) {
+    const base = constant(entry.path);
+    names.set(entry, (counts.get(base) ?? 0) > 1 ? `${base}_${entry.method}` : base);
+  }
+}
+
 const body = [
   "/*",
   " * Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.",
@@ -60,7 +78,7 @@ const body = [
   "public object ApiRoutes {",
   ...publicRoutes.map(
     (entry) =>
-      `  public val ${constant(entry.path)}: ApiRoute = ApiRoute(` +
+      `  public val ${names.get(entry)}: ApiRoute = ApiRoute(` +
       `"${entry.method}", "${template(entry.path)}", ${entry.write === true}, "${entry.permission}")`,
   ),
   "",
