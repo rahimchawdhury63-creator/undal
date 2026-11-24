@@ -20,6 +20,7 @@ import { NotFoundPage } from "./pages/not-found.tsx";
 import { OrdersPage } from "./pages/orders.tsx";
 import { SettlementsPage } from "./pages/settlements.tsx";
 import { SignInPage } from "./pages/sign-in.tsx";
+import { VendorsPage } from "./pages/vendors.tsx";
 
 /** Draw the console for a signed-in reviewer, or the door for anybody else. */
 function Gate(): ReactNode {
@@ -52,6 +53,7 @@ const routes = [
       { index: true, element: <DashboardPage /> },
       { path: "cash/settlements", element: <SettlementsPage /> },
       { path: "cash/declarations", element: <DeclarationsPage /> },
+      { path: "vendors", element: <VendorsPage /> },
       { path: "orders", element: <OrdersPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],

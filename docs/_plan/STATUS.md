@@ -10,7 +10,7 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 
 | Area | Command | Result |
 |---|---|---|
-| `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 896 tests, 894 pass, 0 fail |
+| `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 916 tests, 914 pass, 0 fail |
 | `workers/core` types | `npx tsc --noEmit -p workers/core/tsconfig.json` | exit 0 |
 | `packages/tokens` | `pnpm --filter @undal/tokens test` | 6/6 |
 | `packages/i18n` | `pnpm --filter @undal/i18n test` | 15/15 |
@@ -25,6 +25,12 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 | Admin deploy gate | `node web/admin/scripts/verify-csp.mjs` | policy scoped to `/admin/*`, publishable |
 | Repository guardrails | `python3 scripts/guardrails/run.py` | 31 rules, 0 errors, 0 warnings |
 
+The vendor surface, end to end: `GET /v1/vendors` (filtered, keyset-paged), `GET /v1/vendors/{id}`,
+`POST /v1/vendors/{id}/pause` and `POST /v1/vendors/{id}/resume`, each behind its own permission
+(`vendor.list`, `vendor.read`, `vendor.pause`, `vendor.resume`) and each switch writing an audit row
+with the state before and after. A pause must carry a reason and an end — at most one day — because
+an indefinite pause is a suspension wearing the wrong name. `web/admin` reads and drives all four.
+
 What the storefront does today, end to end and against the real API contract: browse by area,
 category and sort; open a kitchen and build a cart with per-item steppers; sign in with a phone
 number and password; quote a cart server-side; place an order; track it by its human code; read the
@@ -33,10 +39,10 @@ available, Asia/Dhaka timestamps, dark theme from a second; token set, 44 px tar
 
 ## Not built yet
 
-- **Admin coverage** — `web/admin` ships the cash queue, the exception queue, the order board and
-  the dashboard, with the four decisions the reviewer role can make. The remaining admin domains
-  in `docs/21` (vendors, riders, zones, growth, system) have no screens yet; their APIs are
-  partially present and their absence is visible, not simulated.
+- **Admin coverage** — `web/admin` ships the cash queue, the exception queue, the vendor list with
+  pause/resume, the order board and the dashboard. Riders, zones, growth and system have no screens
+  yet, and there is no rider-list route for a screen to call: their absence is visible, not
+  simulated.
 - **Android** — `android/shared/money` is the only module. Customer, partner and rider apps are not
   written. No JDK exists in the build sandbox, so anything written there cannot be compiled here.
 - **`workers/realtime` and `workers/brain`** — present, not exercised by any test that runs in CI.
@@ -58,8 +64,9 @@ ticket:
 
 ## The next four things, in order
 
-1. The rest of `web/admin`: the vendor list with pause/resume, the rider list with shift state,
-   and the audit register reader. Each needs a route check before a screen exists.
+1. The rider list: `GET /v1/riders` with shift state and cash balance, then the screen. The route
+   does not exist, so the screen cannot honestly exist either — route first, the way the vendor
+   slice was done.
 2. Run the prerender against a live `undal-core` (`wrangler dev`) so vendor, area and category
    pages exist, and assert one of them in a test.
 3. Tests for `workers/realtime` (auth handshake, room broadcast, reconnect) and `workers/brain`

@@ -360,6 +360,55 @@ export async function writeOffRider(token: string, riderId: string, reason: stri
   });
 }
 
+/** One vendor as the console reads it. Amounts are absent; finance is its own permission. */
+export interface AdminVendor {
+  readonly id: string;
+  readonly kind: string;
+  readonly slug: string;
+  readonly name: string;
+  readonly nameBn: string | null;
+  readonly tagline: string | null;
+  readonly phone: string;
+  readonly zoneId: string;
+  readonly status: string;
+  readonly openState: string;
+  readonly busyLevel: number;
+  readonly pausedUntil: string | null;
+  readonly pauseReason: string | null;
+  readonly commissionBps: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** A page of vendors. */
+export interface VendorPage {
+  readonly vendors: readonly AdminVendor[];
+  readonly nextCursor: string | null;
+}
+
+/** The vendor list, filtered and paged. */
+export async function listVendors(
+  token: string,
+  query: { status?: string | null; q?: string | null; zoneId?: string | null; limit?: number; cursor?: string | null } = {},
+): Promise<VendorPage> {
+  return apiCall<VendorPage>("/v1/vendors", { token, query });
+}
+
+/**
+ * Pause a kitchen until a known moment.
+ *
+ * `minutes` is bounded by the server at one day: an indefinite pause is a suspension wearing the
+ * wrong name, and the console cannot express one.
+ */
+export async function pauseVendor(token: string, id: string, minutes: number, reason: string): Promise<{ readonly vendor: AdminVendor; readonly pausedUntil: string }> {
+  return apiCall(`/v1/vendors/${encodeURIComponent(id)}/pause`, { method: "POST", token, body: { minutes, reason } });
+}
+
+/** Clear a pause. */
+export async function resumeVendor(token: string, id: string): Promise<{ readonly vendor: AdminVendor }> {
+  return apiCall(`/v1/vendors/${encodeURIComponent(id)}/resume`, { method: "POST", token, body: {} });
+}
+
 /** The order board. */
 export async function listOrders(token: string, limit = 50): Promise<{ readonly orders: readonly OrderRow[] }> {
   return apiCall<{ readonly orders: readonly OrderRow[] }>("/v1/orders", { token, query: { limit } });

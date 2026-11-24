@@ -38,6 +38,7 @@ import { DISPATCH_ROUTES } from "./routes/dispatch.ts";
 import { OFFER_ROUTES } from "./routes/offers.ts";
 import { PUSH_RETRY_ROUTES } from "./routes/push-retry.ts";
 import { PUBLIC_ROUTES } from "./routes/public.ts";
+import { VENDOR_ROUTES } from "./routes/vendors.ts";
 
 /**
  * The pipeline, in the order a request meets it: identify, throttle, parse, authenticate,
@@ -72,6 +73,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   ...OFFER_ROUTES,
   ...DISPATCH_ROUTES,
   ...PUSH_RETRY_ROUTES,
+  ...VENDOR_ROUTES,
   ...PUBLIC_ROUTES,
 ];
 
