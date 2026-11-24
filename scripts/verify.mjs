@@ -49,6 +49,13 @@ const STEPS = [
     cwd: ROOT,
   },
   {
+    name: "migration-policy",
+    summaries: [/^Ran \d+ tests?/u, /^OK$/u],
+    why: "every migration is idempotent, additive and shaped the way the rest of the schema is",
+    command: "python3 scripts/db/test_migration_policy.py",
+    cwd: ROOT,
+  },
+  {
     name: "sql-lint",
     why: "every statement the Workers build names a table and a column that exist",
     command: "python3 scripts/db/lint_sql.py --strict",

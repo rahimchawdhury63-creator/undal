@@ -10,7 +10,7 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 
 `pnpm verify` (or `node scripts/verify.mjs`) runs every check in this file, in dependency order,
 stops at the first red one and prints the tail of what failed. `--list` names the steps, `--only
-<step>` runs one, `--from <step>` resumes from one. Nineteen steps, 65 seconds, and it is the only
+<step>` runs one, `--from <step>` resumes from one. Twenty steps, 58 seconds, and it is the only
 command a reviewer needs to run.
 
 It has been watched failing: with `orders.status` put back into the zone guard it stops on
@@ -38,6 +38,7 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | Schema vs specification | `python3 scripts/db/check_schema_parity.py` | 115 tables, inventory and migrations agree |
 | Schema snapshot | `python3 scripts/db/expected.py` then `git diff --exit-code db/expected.json` | current: 117 tables, 1158 columns, 151 inline checks |
 | Migration runner | `python3 scripts/db/test_migrate.py` | 15 tests, 15 pass |
+| Migration policy | `python3 scripts/db/test_migration_policy.py` | 11 tests, 11 pass |
 | Workers' SQL vs schema | `python3 scripts/db/lint_sql.py` | 181 statements, 0 findings, 0 unparseable |
 | SQL linter itself | `python3 scripts/db/test_lint_sql.py` | 12 tests, 12 pass, four of them requiring the gate to go red |
 
@@ -70,6 +71,19 @@ silence — the second silent-skip bug of the same shape in two days.
 What it cannot do, plainly: it does not execute anything, so a wrong join predicate, a missing
 index and a value that violates a CHECK are all invisible to it. It is a spelling check with a
 schema.
+
+Migration policy, checked without a database. The runner resumes at statement level after a
+failure, which means a file is re-executed from the top when it is retried — and that is only safe
+if every statement is idempotent. Eleven tests enforce what "safe to retry" means: filenames are
+`NNN_snake_case.sql` and contiguous from 000, every CREATE carries `IF NOT EXISTS`, nothing is
+dropped, no ALTER rewrites or removes a column, every table has a primary key, InnoDB and utf8mb4,
+ids are `BINARY(16)`, money is `BIGINT` named `*_paisa`, timestamps keep microseconds, and reserved
+words are backticked.
+
+Writing it turned up a real inconsistency, recorded rather than exempted: `audit_log.request_id` is
+`BINARY(16)` while the brain's tables hold `VARCHAR(64)` request ids, because the brain logs
+correlation ids it did not mint. Two different types for the same concept is the kind of thing a
+join discovers at 02:00; the test names the two columns and leaves the decision to the schema owner.
 
 The error register, rendered from `@undal/contracts` rather than copied: 187 codes with the sentence
 a customer sees in both languages, the payload shape, the retry flag and the HTTP status, searchable
