@@ -409,6 +409,43 @@ export async function resumeVendor(token: string, id: string): Promise<{ readonl
   return apiCall(`/v1/vendors/${encodeURIComponent(id)}/resume`, { method: "POST", token, body: {} });
 }
 
+/** One rider as the console reads them. */
+export interface AdminRider {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly vehicle: string;
+  readonly zoneId: string;
+  readonly status: string;
+  readonly shiftState: string;
+  readonly payoutMethod: string;
+  readonly approvedAt: string | null;
+  readonly outstandingPayoutPaisa: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** A page of the fleet, with the header numbers the screen shows. */
+export interface RiderPage {
+  readonly riders: readonly AdminRider[];
+  readonly summary: {
+    readonly total: number;
+    readonly online: number;
+    readonly cashLocked: number;
+    readonly outstandingPaisa: number;
+    readonly limit: number;
+  };
+  readonly nextCursor: string | null;
+}
+
+/** The fleet list, filtered and paged. */
+export async function listRiders(
+  token: string,
+  query: { status?: string | null; shiftState?: string | null; q?: string | null; zoneId?: string | null; limit?: number; cursor?: string | null } = {},
+): Promise<RiderPage> {
+  return apiCall<RiderPage>("/v1/riders", { token, query });
+}
+
 /** The order board. */
 export async function listOrders(token: string, limit = 50): Promise<{ readonly orders: readonly OrderRow[] }> {
   return apiCall<{ readonly orders: readonly OrderRow[] }>("/v1/orders", { token, query: { limit } });

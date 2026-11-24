@@ -55,6 +55,7 @@ export function Shell(): ReactNode {
           {link("/cash/settlements", t("admin.cash.title"), settlementsWaiting ?? undefined)}
           {link("/cash/declarations", t("admin.exceptions"), declarationsOpen ?? undefined)}
           {link("/vendors", t("admin.vendors.title"))}
+          {link("/fleet", t("admin.fleet.title"))}
           {link("/orders", t("admin.orders.title"))}
         </nav>
         <div className={styles.sidebarFoot}>
