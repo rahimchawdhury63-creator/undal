@@ -20,7 +20,9 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 
 | Area | Command | Result |
 |---|---|---|
-| The whole gate | `pnpm verify` | 19 steps green in 54 s |
+| The whole gate | `pnpm verify` | 24 steps green in 55 s |
+| Android routes | `node scripts/gen-android-routes.mjs` | 58 routes generated from the surface, current |
+| Android build | Actions workflow `android` | green: Kotlin compiled, `money` and `api` tests passed |
 | `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 974 tests, 972 pass, 0 fail |
 | `workers/core` types | `npx tsc --noEmit -p workers/core/tsconfig.json` | exit 0 |
 | `packages/tokens` | `pnpm --filter @undal/tokens test` | 6/6 |
