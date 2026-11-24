@@ -79,6 +79,20 @@ async function getConfig(ctx: Ctx): Promise<Response> {
   return successResponse(PLATFORM_CONFIG, ctx.locale, ctx.requestId);
 }
 
+/**
+ * `GET /v1/public/categories` — the cuisines on their own.
+ *
+ * `areas` already carries them, but the storefront's category rail asks for the list by itself and
+ * does so on first paint; making it fetch every zone to render a rail of eight chips would be a
+ * heavier request for a smaller answer. Both routes read the same repository, so they cannot drift.
+ */
+async function getCategories(ctx: Ctx): Promise<Response> {
+  const categories = await listCategories(ctx.db);
+  return successResponse({ categories }, ctx.locale, ctx.requestId, {
+    "cache-control": "public, max-age=60",
+  });
+}
+
 /** `GET /v1/public/areas` — every live zone plus every active cuisine. */
 async function getAreas(ctx: Ctx): Promise<Response> {
   const [areas, categories] = await Promise.all([listAreas(ctx.db), listCategories(ctx.db)]);
@@ -196,6 +210,13 @@ export const PUBLIC_ROUTES: readonly RouteDefinition[] = [
     permission: "*",
     group: "CATALOGUE",
     run: (ctx) => getConfig(ctx),
+  },
+  {
+    method: "GET",
+    path: "/v1/public/categories",
+    permission: "*",
+    group: "CATALOGUE",
+    run: (ctx) => getCategories(ctx),
   },
   {
     method: "GET",

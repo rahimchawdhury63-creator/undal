@@ -1,6 +1,6 @@
 {
   "note": "Generated from workers/core/src/app.ts by scripts/api-surface.mjs — do not edit by hand.",
-  "routes": 67,
+  "routes": 68,
   "permissions": 33,
   "writes": 32,
   "entries": [
@@ -401,6 +401,15 @@
     {
       "method": "GET",
       "path": "/v1/public/areas",
+      "permission": "*",
+      "domain": "public",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/categories",
       "permission": "*",
       "domain": "public",
       "scope": "PUBLIC",

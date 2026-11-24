@@ -10,7 +10,7 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 
 `pnpm verify` (or `node scripts/verify.mjs`) runs every check in this file, in dependency order,
 stops at the first red one and prints the tail of what failed. `--list` names the steps, `--only
-<step>` runs one, `--from <step>` resumes from one. Twenty-two steps, 55 seconds, and it is the only
+<step>` runs one, `--from <step>` resumes from one. Twenty-three steps, 57 seconds, and it is the only
 command a reviewer needs to run.
 
 It has been watched failing: with `orders.status` put back into the zone guard it stops on
@@ -39,7 +39,8 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | Schema snapshot | `python3 scripts/db/expected.py` then `git diff --exit-code db/expected.json` | current: 117 tables, 1158 columns, 151 inline checks |
 | Migration runner | `python3 scripts/db/test_migrate.py` | 15 tests, 15 pass |
 | Migration policy | `python3 scripts/db/test_migration_policy.py` | 11 tests, 11 pass |
-| API surface | `node scripts/api-surface.mjs` | 67 routes, 32 writes, 33 permissions, current |
+| API surface | `node scripts/api-surface.mjs` | 68 routes, 32 writes, 33 permissions, current |
+| Client calls | `node scripts/check-client-calls.mjs` | 40 call sites across both clients, all routes |
 | Operational SQL + fixtures | `python3 scripts/db/integration.py --self-check` | 20 queries and 9 seed statements, 0 findings |
 | Integration harness | `python3 scripts/db/integration.py --run` | **needs `UNDAL_TEST_DATABASE_URL`; exits 1 without one** |
 | Workers' SQL vs schema | `python3 scripts/db/lint_sql.py` | 181 statements, 0 findings, 0 unparseable |
@@ -74,6 +75,13 @@ silence — the second silent-skip bug of the same shape in two days.
 What it cannot do, plainly: it does not execute anything, so a wrong join predicate, a missing
 index and a value that violates a CHECK are all invisible to it. It is a spelling check with a
 schema.
+
+Every path the two clients call is checked against the published surface: 40 call sites, their
+methods, and their dynamic segments. This is the failure a type system cannot catch — `apiCall("/v1/…")`
+is a string, and a typo in one compiles, builds, deploys and 404s in front of the person who needed
+it. Its first run found `/v1/public/categories`, called by the storefront's category rail and served
+by nothing; the route now exists and reads the same repository `/v1/public/areas` does, so the two
+cannot drift.
 
 The integration harness exists in two halves and only one of them has been run. `--self-check` parses
 every allowlisted query in `db/queries` and the seed against the schema, offline, and it is step five

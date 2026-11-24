@@ -61,6 +61,12 @@ const STEPS = [
     cwd: ROOT,
   },
   {
+    name: "client-calls",
+    why: "every path the shop and the console call is a route the Worker serves",
+    command: "node scripts/check-client-calls.mjs",
+    cwd: ROOT,
+  },
+  {
     name: "migration-policy",
     summaries: [/^Ran \d+ tests?/u, /^OK$/u],
     why: "every migration is idempotent, additive and shaped the way the rest of the schema is",
