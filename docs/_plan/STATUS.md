@@ -20,7 +20,7 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 
 | Area | Command | Result |
 |---|---|---|
-| The whole gate | `pnpm verify` | 19 steps green in 58 s |
+| The whole gate | `pnpm verify` | 19 steps green in 56 s |
 | `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 966 tests, 964 pass, 0 fail |
 | `workers/core` types | `npx tsc --noEmit -p workers/core/tsconfig.json` | exit 0 |
 | `packages/tokens` | `pnpm --filter @undal/tokens test` | 6/6 |
@@ -32,7 +32,7 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | Storefront deploy gate | `node web/storefront/scripts/verify-prerender.mjs` | 17 pages, 124 KB JS gzipped, deployable |
 | `web/admin` types | `npx tsc --noEmit` in `web/admin` | exit 0 |
 | `web/admin` tests | `node --experimental-strip-types --test test/*.test.ts` | 11 tests, 11 pass |
-| `web/admin` build | `pnpm --filter @undal/admin build` | 396 KB, 128 KB JS gzipped |
+| `web/admin` build | `pnpm --filter @undal/admin build` | 411 KB, 130 KB JS gzipped |
 | Admin deploy gate | `node web/admin/scripts/verify-csp.mjs` | policy scoped to `/admin/*`, publishable |
 | Repository guardrails | `python3 scripts/guardrails/run.py` | 31 rules, 0 errors, 0 warnings |
 | Schema vs specification | `python3 scripts/db/check_schema_parity.py` | 115 tables, inventory and migrations agree |
@@ -125,8 +125,8 @@ available, Asia/Dhaka timestamps, dark theme from a second; token set, 44 px tar
 
 - **Admin coverage** — `web/admin` ships the cash queue, the exception queue, the vendor list with
   pause/resume, the fleet board, the zone board with close/reopen, the order board, the audit
-  register and the dashboard. Growth and system have no screens yet; their absence is visible, not
-  simulated.
+  register, the growth board (campaign budgets, referral tally) and the dashboard. System has no
+  screen yet, and no route behind it; its absence is visible, not simulated.
 - **Android** — `android/shared/money` is the only module. Customer, partner and rider apps are not
   written. No JDK exists in the build sandbox, so anything written there cannot be compiled here.
 - **`workers/realtime` and `workers/brain`** — present, not exercised by any test that runs in CI.
@@ -148,8 +148,8 @@ ticket:
 
 ## The next four things, in order
 
-1. The growth screen: campaigns and referrals in `web/admin`, over the two readers that now exist.
-2. System: a screen over `platform_config` and the error registry.
+1. System: a reader over `platform_config` and a screen over the error registry, so the last silent
+   surface has a way in.
 2. Run the prerender against a live `undal-core` (`wrangler dev`) so vendor, area and category
    pages exist, and assert one of them in a test.
 3. Tests for `workers/realtime` (auth handshake, room broadcast, reconnect) and `workers/brain`

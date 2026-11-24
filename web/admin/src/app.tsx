@@ -22,6 +22,7 @@ import { SettlementsPage } from "./pages/settlements.tsx";
 import { RidersPage } from "./pages/riders.tsx";
 import { AuditPage } from "./pages/audit.tsx";
 import { ZonesPage } from "./pages/zones.tsx";
+import { GrowthPage } from "./pages/growth.tsx";
 import { SignInPage } from "./pages/sign-in.tsx";
 import { VendorsPage } from "./pages/vendors.tsx";
 
@@ -60,6 +61,7 @@ const routes = [
       { path: "fleet", element: <RidersPage /> },
       { path: "audit", element: <AuditPage /> },
       { path: "zones", element: <ZonesPage /> },
+      { path: "growth", element: <GrowthPage /> },
       { path: "orders", element: <OrdersPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
