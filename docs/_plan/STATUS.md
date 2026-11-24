@@ -10,7 +10,7 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 
 | Area | Command | Result |
 |---|---|---|
-| `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 937 tests, 935 pass, 0 fail |
+| `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 954 tests, 952 pass, 0 fail |
 | `workers/core` types | `npx tsc --noEmit -p workers/core/tsconfig.json` | exit 0 |
 | `packages/tokens` | `pnpm --filter @undal/tokens test` | 6/6 |
 | `packages/i18n` | `pnpm --filter @undal/i18n test` | 15/15 |
@@ -21,9 +21,18 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 | Storefront deploy gate | `node web/storefront/scripts/verify-prerender.mjs` | 17 pages, 124 KB JS gzipped, deployable |
 | `web/admin` types | `npx tsc --noEmit` in `web/admin` | exit 0 |
 | `web/admin` tests | `node --experimental-strip-types --test test/*.test.ts` | 11 tests, 11 pass |
-| `web/admin` build | `pnpm --filter @undal/admin build` | 389 KB, 126 KB JS gzipped |
+| `web/admin` build | `pnpm --filter @undal/admin build` | 396 KB, 128 KB JS gzipped |
 | Admin deploy gate | `node web/admin/scripts/verify-csp.mjs` | policy scoped to `/admin/*`, publishable |
 | Repository guardrails | `python3 scripts/guardrails/run.py` | 31 rules, 0 errors, 0 warnings |
+
+The zone surface: `GET /v1/zones` (with live kitchen and rider counts per zone),
+`GET /v1/zones/{id}` (plus the ring), `POST /v1/zones/{id}/pause` and `POST /v1/zones/{id}/activate`,
+behind `zone.list`, `zone.read`, `zone.deactivate` and `zone.activate`. A pause must cite a reason
+the register accepts for `zone.deactivate` — `ZONE_UNSAFE`, `WEATHER_EMERGENCY`, or an operational
+code — and is refused with `ZONE_HAS_ACTIVE_ORDERS` while any order in the zone is still moving,
+carrying the count. Both switches write an audit row with the status before and after; both are
+idempotent, so a second click writes nothing and claims nothing. There is no cursor on the list: a
+country has tens of zones, and paging ceremony a caller can get wrong is worse than one screen.
 
 The audit register: `GET /v1/audit`, filtered by action, resource, actor class, severity and a
 sequence cursor, returning each entry's before and after, its reason, its request id and the two
@@ -59,8 +68,9 @@ available, Asia/Dhaka timestamps, dark theme from a second; token set, 44 px tar
 ## Not built yet
 
 - **Admin coverage** — `web/admin` ships the cash queue, the exception queue, the vendor list with
-  pause/resume, the fleet board, the order board, the audit register and the dashboard. Zones,
-  growth and system have no screens yet; their absence is visible, not simulated.
+  pause/resume, the fleet board, the zone board with close/reopen, the order board, the audit
+  register and the dashboard. Growth and system have no screens yet; their absence is visible, not
+  simulated.
 - **Android** — `android/shared/money` is the only module. Customer, partner and rider apps are not
   written. No JDK exists in the build sandbox, so anything written there cannot be compiled here.
 - **`workers/realtime` and `workers/brain`** — present, not exercised by any test that runs in CI.
@@ -82,9 +92,8 @@ ticket:
 
 ## The next four things, in order
 
-1. Zone coverage: `GET /v1/zones` for the operator (the table and its reader exist in
-   `repositories/`; there is no admin list route), then growth (referrals, campaigns) and system
-   (config flags, error registry) screens.
+1. Growth and system: referral and campaign readers over their tables, plus a system screen over the
+   error registry and the config flags, so the last two silent surfaces have a way in.
 2. Run the prerender against a live `undal-core` (`wrangler dev`) so vendor, area and category
    pages exist, and assert one of them in a test.
 3. Tests for `workers/realtime` (auth handshake, room broadcast, reconnect) and `workers/brain`

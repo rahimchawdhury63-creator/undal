@@ -489,3 +489,49 @@ export async function listAudit(
 ): Promise<AuditPage> {
   return apiCall<AuditPage>("/v1/audit", { token, query });
 }
+
+/** One zone as the console reads it. */
+export interface AdminZone {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly nameBn: string;
+  readonly city: string;
+  readonly country: string;
+  readonly currency: string;
+  readonly timezone: string;
+  readonly status: string;
+  readonly areaSqKm: number;
+  readonly polygonVersion: number;
+  readonly centre: { readonly latE7: number; readonly lonE7: number };
+  readonly counts: { readonly vendors: number; readonly riders: number };
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** The zone board: every zone that fits the filter, with its counts. */
+export async function listZones(
+  token: string,
+  query: { status?: string | null; q?: string | null; limit?: number } = {},
+): Promise<{ readonly zones: readonly AdminZone[]; readonly limit: number }> {
+  return apiCall<{ readonly zones: readonly AdminZone[]; readonly limit: number }>("/v1/zones", { token, query });
+}
+
+/** Close an area: the reason code is one the audit register accepts for a deactivation. */
+export async function pauseZone(
+  token: string,
+  id: string,
+  reasonCode: string,
+  note: string | null,
+): Promise<{ readonly zone: AdminZone; readonly changed: boolean }> {
+  return apiCall(`/v1/zones/${encodeURIComponent(id)}/pause`, {
+    method: "POST",
+    token,
+    body: note === null ? { reasonCode } : { reasonCode, note },
+  });
+}
+
+/** Reopen an area. */
+export async function activateZone(token: string, id: string): Promise<{ readonly zone: AdminZone; readonly changed: boolean }> {
+  return apiCall(`/v1/zones/${encodeURIComponent(id)}/activate`, { method: "POST", token, body: {} });
+}

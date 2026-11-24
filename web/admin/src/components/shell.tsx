@@ -56,6 +56,7 @@ export function Shell(): ReactNode {
           {link("/cash/declarations", t("admin.exceptions"), declarationsOpen ?? undefined)}
           {link("/vendors", t("admin.vendors.title"))}
           {link("/fleet", t("admin.fleet.title"))}
+          {link("/zones", t("admin.zones.title"))}
           {link("/audit", t("admin.audit.title"))}
           {link("/orders", t("admin.orders.title"))}
         </nav>
