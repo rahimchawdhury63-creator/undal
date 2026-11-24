@@ -1,0 +1,654 @@
+{
+  "note": "Generated from workers/core/src/app.ts by scripts/api-surface.mjs — do not edit by hand.",
+  "routes": 67,
+  "permissions": 33,
+  "writes": 32,
+  "entries": [
+    {
+      "method": "POST",
+      "path": "/internal/coordination/statements",
+      "permission": "*",
+      "domain": "(unversioned)",
+      "scope": "INTERNAL",
+      "anonymous": true,
+      "write": true,
+      "maxBodyBytes": 8192
+    },
+    {
+      "method": "POST",
+      "path": "/internal/dispatch/advance",
+      "permission": "*",
+      "domain": "(unversioned)",
+      "scope": "INTERNAL",
+      "anonymous": true,
+      "write": true,
+      "maxBodyBytes": 512
+    },
+    {
+      "method": "POST",
+      "path": "/internal/dispatch/eligibility",
+      "permission": "*",
+      "domain": "(unversioned)",
+      "scope": "INTERNAL",
+      "anonymous": true,
+      "write": false,
+      "maxBodyBytes": 512,
+      "readOnly": true
+    },
+    {
+      "method": "POST",
+      "path": "/internal/dispatch/plan",
+      "permission": "*",
+      "domain": "(unversioned)",
+      "scope": "INTERNAL",
+      "anonymous": true,
+      "write": true,
+      "maxBodyBytes": 512
+    },
+    {
+      "method": "POST",
+      "path": "/internal/dispatch/pushes/retry",
+      "permission": "*",
+      "domain": "(unversioned)",
+      "scope": "INTERNAL",
+      "anonymous": true,
+      "write": true,
+      "maxBodyBytes": 64
+    },
+    {
+      "method": "POST",
+      "path": "/internal/fcm/dispatches",
+      "permission": "*",
+      "domain": "(unversioned)",
+      "scope": "INTERNAL",
+      "anonymous": true,
+      "write": true,
+      "maxBodyBytes": 8192
+    },
+    {
+      "method": "POST",
+      "path": "/internal/fcm/receipts",
+      "permission": "*",
+      "domain": "(unversioned)",
+      "scope": "INTERNAL",
+      "anonymous": true,
+      "write": true,
+      "maxBodyBytes": 4096
+    },
+    {
+      "method": "POST",
+      "path": "/internal/offers/expire",
+      "permission": "*",
+      "domain": "(unversioned)",
+      "scope": "INTERNAL",
+      "anonymous": true,
+      "write": false,
+      "maxBodyBytes": 512
+    },
+    {
+      "method": "POST",
+      "path": "/internal/orders/auto-cancel",
+      "permission": "*",
+      "domain": "(unversioned)",
+      "scope": "INTERNAL",
+      "anonymous": true,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "POST",
+      "path": "/internal/stream/watches",
+      "permission": "*",
+      "domain": "(unversioned)",
+      "scope": "INTERNAL",
+      "anonymous": true,
+      "write": false,
+      "maxBodyBytes": 1024,
+      "readOnly": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/audit",
+      "permission": "admin.audit.read",
+      "domain": "audit",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth/login",
+      "permission": "*",
+      "domain": "auth",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false,
+      "maxBodyBytes": 8192
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth/logout-all",
+      "permission": "customer.read",
+      "domain": "auth",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth/logout",
+      "permission": "customer.read",
+      "domain": "auth",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "GET",
+      "path": "/v1/auth/me",
+      "permission": "customer.read",
+      "domain": "auth",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth/password",
+      "permission": "customer.read",
+      "domain": "auth",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 8192
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth/refresh",
+      "permission": "*",
+      "domain": "auth",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false,
+      "maxBodyBytes": 4096
+    },
+    {
+      "method": "GET",
+      "path": "/v1/auth/sessions",
+      "permission": "customer.view_sessions",
+      "domain": "auth",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/campaigns",
+      "permission": "promo.campaign.list",
+      "domain": "campaigns",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/finance/cash/declarations/{id}/claim",
+      "permission": "finance.cash.reject_settlement",
+      "domain": "finance",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 0
+    },
+    {
+      "method": "POST",
+      "path": "/v1/finance/cash/declarations/{id}/release",
+      "permission": "finance.cash.reject_settlement",
+      "domain": "finance",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 0
+    },
+    {
+      "method": "GET",
+      "path": "/v1/finance/cash/declarations/{id}",
+      "permission": "finance.cash.list_outstanding",
+      "domain": "finance",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/finance/cash/declarations",
+      "permission": "finance.cash.list_outstanding",
+      "domain": "finance",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/finance/cash/riders/{id}/write-off",
+      "permission": "finance.cash.write_off",
+      "domain": "finance",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "POST",
+      "path": "/v1/finance/cash/settlements/{id}/approve",
+      "permission": "finance.cash.approve_settlement",
+      "domain": "finance",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "POST",
+      "path": "/v1/finance/cash/settlements/{id}/escalate",
+      "permission": "finance.cash.approve_settlement",
+      "domain": "finance",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "POST",
+      "path": "/v1/finance/cash/settlements/{id}/reject",
+      "permission": "finance.cash.reject_settlement",
+      "domain": "finance",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "GET",
+      "path": "/v1/finance/cash/settlements",
+      "permission": "finance.cash.list_outstanding",
+      "domain": "finance",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/orders/{code}/offer/{offerId}/accept",
+      "permission": "order.deliver",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 512
+    },
+    {
+      "method": "POST",
+      "path": "/v1/orders/{code}/offer/{offerId}/reject",
+      "permission": "order.deliver",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "POST",
+      "path": "/v1/orders/{id}/accept",
+      "permission": "order.accept",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 4096
+    },
+    {
+      "method": "POST",
+      "path": "/v1/orders/{id}/pickup",
+      "permission": "order.pickup",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 4096
+    },
+    {
+      "method": "POST",
+      "path": "/v1/orders/{id}/rate",
+      "permission": "order.rating.create",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 4096
+    },
+    {
+      "method": "POST",
+      "path": "/v1/orders/{id}/reject",
+      "permission": "order.reject",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 4096
+    },
+    {
+      "method": "GET",
+      "path": "/v1/orders/{id}",
+      "permission": "order.read",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/orders/code/{code}",
+      "permission": "order.read",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/orders/quote",
+      "permission": "*",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false,
+      "maxBodyBytes": 8192,
+      "readOnly": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/orders/validate",
+      "permission": "order.create",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false,
+      "maxBodyBytes": 8192,
+      "readOnly": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/orders",
+      "permission": "order.list",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/orders",
+      "permission": "order.create",
+      "domain": "orders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 16384
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/areas",
+      "permission": "*",
+      "domain": "public",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/config",
+      "permission": "*",
+      "domain": "public",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/search",
+      "permission": "*",
+      "domain": "public",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/sitemap-data",
+      "permission": "*",
+      "domain": "public",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/vendors/{slug}/menu",
+      "permission": "*",
+      "domain": "public",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/vendors/{slug}",
+      "permission": "*",
+      "domain": "public",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/vendors",
+      "permission": "*",
+      "domain": "public",
+      "scope": "PUBLIC",
+      "anonymous": true,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/referrals",
+      "permission": "promo.referral.list",
+      "domain": "referrals",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/rider/cash/breakdown",
+      "permission": "rider.view_finance",
+      "domain": "rider",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/rider/cash/declare",
+      "permission": "rider.view_finance",
+      "domain": "rider",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "POST",
+      "path": "/v1/rider/cash/settle",
+      "permission": "rider.view_finance",
+      "domain": "rider",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 4096
+    },
+    {
+      "method": "GET",
+      "path": "/v1/rider/cash",
+      "permission": "rider.view_finance",
+      "domain": "rider",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/rider/offers",
+      "permission": "order.read",
+      "domain": "rider",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/rider/shift/break",
+      "permission": "rider.shift.break",
+      "domain": "rider",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "GET",
+      "path": "/v1/rider/shift/current",
+      "permission": "rider.shift.read",
+      "domain": "rider",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/rider/shift/end",
+      "permission": "rider.shift.end",
+      "domain": "rider",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 1024
+    },
+    {
+      "method": "POST",
+      "path": "/v1/rider/shift/start",
+      "permission": "rider.shift.start",
+      "domain": "rider",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 4096
+    },
+    {
+      "method": "GET",
+      "path": "/v1/riders",
+      "permission": "rider.list",
+      "domain": "riders",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/system/config",
+      "permission": "admin.config.edit",
+      "domain": "system",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/vendors/{id}/pause",
+      "permission": "vendor.pause",
+      "domain": "vendors",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 4096
+    },
+    {
+      "method": "POST",
+      "path": "/v1/vendors/{id}/resume",
+      "permission": "vendor.resume",
+      "domain": "vendors",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 2048
+    },
+    {
+      "method": "GET",
+      "path": "/v1/vendors/{id}",
+      "permission": "vendor.read",
+      "domain": "vendors",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/vendors",
+      "permission": "vendor.list",
+      "domain": "vendors",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/zones/{id}/activate",
+      "permission": "zone.activate",
+      "domain": "zones",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 2048
+    },
+    {
+      "method": "POST",
+      "path": "/v1/zones/{id}/pause",
+      "permission": "zone.deactivate",
+      "domain": "zones",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": true,
+      "maxBodyBytes": 2048
+    },
+    {
+      "method": "GET",
+      "path": "/v1/zones/{id}",
+      "permission": "zone.read",
+      "domain": "zones",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/zones",
+      "permission": "zone.list",
+      "domain": "zones",
+      "scope": "PUBLIC",
+      "anonymous": false,
+      "write": false
+    }
+  ]
+}

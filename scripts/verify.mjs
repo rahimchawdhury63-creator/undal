@@ -49,6 +49,12 @@ const STEPS = [
     cwd: ROOT,
   },
   {
+    name: "api-surface",
+    why: "docs/api/surface.json is the route table, and every route names a real permission",
+    command: "node scripts/api-surface.mjs",
+    cwd: ROOT,
+  },
+  {
     name: "migration-policy",
     summaries: [/^Ran \d+ tests?/u, /^OK$/u],
     why: "every migration is idempotent, additive and shaped the way the rest of the schema is",
