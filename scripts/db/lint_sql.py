@@ -27,13 +27,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED = ROOT / "db" / "expected.json"
-SOURCES = ["workers/core/src"]
+#: Where the statements live. Overridable so the linter can be pointed at a fixture in a test:
+#: a gate nobody has watched fail is a gate nobody should trust.
+SOURCES = os.environ.get("UNDAL_LINT_SOURCES", "workers/core/src").split(":")
 
 STATEMENT_START = ("SELECT", "UPDATE", "INSERT", "DELETE", "WITH", "REPLACE")
 
@@ -211,6 +214,14 @@ def literals_with_interpolation(text: str) -> list[tuple[str | None, str]]:
     return marked
 
 
+def label(path: Path) -> str:
+    """A short name for a file, whether or not it lives inside the repository."""
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
 def schema_of(document: dict[str, object]) -> dict[str, dict[str, str]]:
     """The catalog sqlglot resolves against: table -> column -> a type it need not read."""
     tables = document["tables"]
@@ -252,6 +263,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Lint the Workers' SQL against the migrations.")
     parser.add_argument("--strict", action="store_true", help="fail when sqlglot is absent")
     parser.add_argument("--verbose", action="store_true", help="list every statement checked")
+    parser.add_argument(
+        "--allow-unparsed",
+        action="store_true",
+        help="do not fail on a statement the parser could not read (a statement nobody checked)",
+    )
     arguments = parser.parse_args()
 
     try:
@@ -287,13 +303,13 @@ def main() -> int:
                 try:
                     tree = sqlglot.parse_one(prepared, read="mysql")
                 except Exception:  # noqa: BLE001 - a parse failure is a finding, not a crash
-                    unparsed.append(f"{path.relative_to(ROOT)}: {statement[:90]}")
+                    unparsed.append(f"{label(path)}: {statement[:90]}")
                     continue
                 checked += 1
                 if arguments.verbose:
-                    print(f"  {path.relative_to(ROOT)}: {statement[:90]}")
+                    print(f"  {label(path)}: {statement[:90]}")
                 for problem in findings_for(statement, schema, mapping):
-                    problems.append(f"{path.relative_to(ROOT)}: {problem} :: {statement[:110]}")
+                    problems.append(f"{label(path)}: {problem} :: {statement[:110]}")
 
     for problem in sorted(set(problems)):
         print(f"lint-sql: {problem}", file=sys.stderr)
@@ -304,6 +320,10 @@ def main() -> int:
         f"lint-sql: {checked} statements checked against {len(schema)} tables, "
         f"{len(set(problems))} findings, {len(unparsed)} unparseable"
     )
+    # An unparseable statement is not a statement that passed; it is one nobody read. The gate
+    # fails on it unless the caller says out loud that they are exploring rather than verifying.
+    if unparsed and not arguments.allow_unparsed:
+        return 1
     return 1 if problems else 0
 
 

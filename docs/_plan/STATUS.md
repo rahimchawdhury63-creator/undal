@@ -6,10 +6,21 @@ This file exists because a status line in a chat is not a source of truth and a 
 claim. It records what runs, what is verified, and what is still missing, at the commit named at the
 bottom. Update it whenever the answer changes; never let it drift from the checks it names.
 
+## The gate
+
+`pnpm verify` (or `node scripts/verify.mjs`) runs every check in this file, in dependency order,
+stops at the first red one and prints the tail of what failed. `--list` names the steps, `--only
+<step>` runs one, `--from <step>` resumes from one. Nineteen steps, 65 seconds, and it is the only
+command a reviewer needs to run.
+
+It has been watched failing: with `orders.status` put back into the zone guard it stops on
+`sql-lint` and quotes the column. A gate nobody has seen go red is a gate nobody should trust.
+
 ## Verified green
 
 | Area | Command | Result |
 |---|---|---|
+| The whole gate | `pnpm verify` | 19 steps green in 65 s |
 | `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 954 tests, 952 pass, 0 fail |
 | `workers/core` types | `npx tsc --noEmit -p workers/core/tsconfig.json` | exit 0 |
 | `packages/tokens` | `pnpm --filter @undal/tokens test` | 6/6 |
@@ -28,7 +39,7 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 | Schema snapshot | `python3 scripts/db/expected.py` then `git diff --exit-code db/expected.json` | current: 117 tables, 1158 columns, 151 inline checks |
 | Migration runner | `python3 scripts/db/test_migrate.py` | 15 tests, 15 pass |
 | Workers' SQL vs schema | `python3 scripts/db/lint_sql.py` | 169 statements, 0 findings, 0 unparseable |
-| SQL linter itself | `python3 scripts/db/test_lint_sql.py` | 8 tests, 8 pass |
+| SQL linter itself | `python3 scripts/db/test_lint_sql.py` | 11 tests, 11 pass, three of them requiring the gate to go red |
 
 ## The SQL linter, and the bug it found
 
@@ -46,6 +57,10 @@ It found a real one on its first run: the zone pause guard counting live orders 
 `orders.status`, a column that does not exist — the column is `state`. The zone route's own tests
 would never have caught it, because the stub never reads the statement. It now counts the seven
 terminal states by name.
+
+An unparseable statement counts as a failure, not as a line in a log: the first version of the
+linter exited 0 when it could not read a statement, which meant a typo turned the check into
+silence — the second silent-skip bug of the same shape in two days.
 
 What it cannot do, plainly: it does not execute anything, so a wrong join predicate, a missing
 index and a value that violates a CHECK are all invisible to it. It is a spelling check with a

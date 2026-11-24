@@ -12,7 +12,9 @@ a column no migration created and require it to say so.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -99,6 +101,39 @@ class SchemaValidation(unittest.TestCase):
             self.check("SELECT `rider_id` FROM `rider_stats` WHERE `rider_id` IN (IDS) GROUP BY `rider_id`"),
             [],
         )
+
+
+@unittest.skipIf(MappingSchema is None, "sqlglot is not installed")
+class TheGateCanGoRed(unittest.TestCase):
+    """The linter, run as the gate runs it, over a file that is wrong on purpose."""
+
+    def lint(self, source: str) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "sample.ts").write_text(source, encoding="utf-8")
+            return subprocess.run(
+                [sys.executable, str(lint_sql.__file__), "--strict"],
+                capture_output=True,
+                text=True,
+                env={**__import__("os").environ, "UNDAL_LINT_SOURCES": directory},
+                check=False,
+            )
+
+    def test_fails_on_a_column_that_does_not_exist(self) -> None:
+        result = self.lint('const a = db.query("SELECT `status` FROM `orders` WHERE `id` = ?");')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("could not be resolved", result.stderr)
+
+    def test_fails_on_a_statement_it_could_not_read(self) -> None:
+        # A statement nobody parsed is a statement nobody checked, so it is a failure and not a
+        # line in a log that goes by.
+        result = self.lint('const a = db.query("SELECT `id` FROM `zones` WHERE = = =");')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("could not parse", result.stderr)
+
+    def test_passes_on_a_statement_the_schema_allows(self) -> None:
+        result = self.lint('const a = db.query("SELECT `state` FROM `orders` WHERE `id` = ?");')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("0 findings", result.stdout)
 
 
 if __name__ == "__main__":
