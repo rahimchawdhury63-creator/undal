@@ -13,7 +13,7 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, isSsrBuild }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const apiBase = env["PUBLIC_API_BASE"] ?? "https://api.undal.app";
   return {
@@ -22,13 +22,18 @@ export default defineConfig(({ mode }) => {
       target: "es2022",
       cssCodeSplit: true,
       sourcemap: true,
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            react: ["react", "react-dom", "react-router"],
+      // Chunking is a browser concern. The SSR bundle keeps React external, so asking Rollup to
+      // put it in a manual chunk there is an error rather than an optimisation.
+      rollupOptions: isSsrBuild
+        ? {}
+        : {
+            output: {
+              manualChunks: {
+                react: ["react", "react-dom", "react-router"],
+                state: ["zustand"],
+              },
+            },
           },
-        },
-      },
     },
     server: {
       host: "0.0.0.0",

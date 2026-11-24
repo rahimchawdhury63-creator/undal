@@ -38,11 +38,11 @@ export function EmptyState({
 }: {
   readonly title: string;
   readonly body: string;
-  readonly actionLabel?: string;
-  readonly onAction?: () => void;
-  readonly to?: string;
-  readonly artwork?: ReactNode;
-  readonly compact?: boolean;
+  readonly actionLabel?: string | undefined;
+  readonly onAction?: (() => void) | undefined;
+  readonly to?: string | undefined;
+  readonly artwork?: ReactNode | undefined;
+  readonly compact?: boolean | undefined;
 }): ReactNode {
   return (
     <Card className={compact ? styles.compact : styles.wide}>
@@ -86,8 +86,8 @@ export function ErrorState({
   compact = false,
 }: {
   readonly error: ApiError;
-  readonly onRetry?: () => void;
-  readonly compact?: boolean;
+  readonly onRetry?: (() => void) | undefined;
+  readonly compact?: boolean | undefined;
 }): ReactNode {
   const t = useT();
   const unreachable = error.code === "NETWORK" || error.code === "ABORTED";

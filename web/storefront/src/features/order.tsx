@@ -14,7 +14,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 
-import { ApiError, getOrderByCode, type Order } from "../lib/api.ts";
+import { ApiError, getOrderByCode, type Order, toApiError } from "../lib/api.ts";
 import { useT } from "../lib/locale.tsx";
 import { accessToken } from "../lib/session.ts";
 import { Money } from "../components/Money.tsx";
@@ -24,18 +24,19 @@ import { Skeleton } from "../components/ui.tsx";
 import { CheckIcon, ScooterIcon } from "../components/icons.tsx";
 import styles from "./feature.module.css";
 
-/** The states an order passes through, in order, with the step's catalogue key. */
+/** The states an order passes through, in the order the platform moves them. */
 const STEPS = [
-  { state: "PLACED", label: "order.state.placed", note: "order.state.placed.note" },
-  { state: "CONFIRMED", label: "order.state.confirmed", note: "order.state.confirmed.note" },
-  { state: "PREPARING", label: "order.state.preparing", note: "order.state.preparing.note" },
-  { state: "READY", label: "order.state.ready", note: "order.state.ready.note" },
-  { state: "PICKED_UP", label: "order.state.pickedUp", note: "order.state.pickedUp.note" },
-  { state: "DELIVERED", label: "order.state.delivered", note: "order.state.delivered.note" },
+  { state: "PLACED", label: "order.state.PLACED", note: "order.stateNote.PLACED" },
+  { state: "ACCEPTED", label: "order.state.ACCEPTED", note: "order.stateNote.ACCEPTED" },
+  { state: "RIDER_SEARCH", label: "order.state.RIDER_SEARCH", note: "order.stateNote.RIDER_SEARCH" },
+  { state: "RIDER_ASSIGNED", label: "order.state.RIDER_ASSIGNED", note: "order.stateNote.RIDER_ASSIGNED" },
+  { state: "PICKED_UP", label: "order.state.PICKED_UP", note: "order.stateNote.PICKED_UP" },
+  { state: "ARRIVED", label: "order.state.ARRIVED", note: "order.stateNote.ARRIVED" },
+  { state: "DELIVERED", label: "order.state.DELIVERED", note: "order.stateNote.DELIVERED" },
 ] as const;
 
-/** The terminal states that end the happy path. */
-const TERMINAL = new Set(["DELIVERED", "CANCELLED", "REJECTED", "EXPIRED", "REFUNDED", "FAILED"]);
+/** The states that end the happy path. */
+const TERMINAL = new Set(["DELIVERED", "SETTLED", "CANCELLED", "DISPUTED"]);
 
 /** Where a step sits relative to the order's current state. */
 function stepStatus(state: string, step: string): "done" | "active" | "pending" {
@@ -68,7 +69,7 @@ export function OrderPage({ mode = "order" }: { readonly mode?: "order" | "track
         if (!TERMINAL.has(result.order.state)) timer = setTimeout(() => setTick((value) => value + 1), 20_000);
       } catch (failure) {
         if (cancelled) return;
-        setError(failure instanceof ApiError ? failure : new ApiError("NETWORK", 0, null));
+        setError(toApiError(failure));
       }
     };
     void load();
@@ -94,7 +95,7 @@ export function OrderPage({ mode = "order" }: { readonly mode?: "order" | "track
     );
   }
 
-  const active = stepStatus(order.state, "CONFIRMED") !== "pending";
+  const active = stepStatus(order.state, "ACCEPTED") !== "pending";
   const done = order.state === "DELIVERED";
 
   return (

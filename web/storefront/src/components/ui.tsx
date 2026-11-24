@@ -30,14 +30,14 @@ export function Button({
   fullWidth = false,
 }: {
   readonly children: ReactNode;
-  readonly onClick?: () => void;
+  readonly onClick?: (() => void) | undefined;
   readonly variant?: ButtonVariant;
   readonly size?: "sm" | "md";
   readonly type?: "button" | "submit";
-  readonly disabled?: boolean;
-  readonly busy?: boolean;
-  readonly ariaLabel?: string;
-  readonly fullWidth?: boolean;
+  readonly disabled?: boolean | undefined;
+  readonly busy?: boolean | undefined;
+  readonly ariaLabel?: string | undefined;
+  readonly fullWidth?: boolean | undefined;
 }): ReactNode {
   const classes = [styles.button, styles[variant], size === "sm" ? styles.small : ""].filter(Boolean).join(" ");
   return (
@@ -127,8 +127,8 @@ export function Chip({
   onClick,
 }: {
   readonly children: ReactNode;
-  readonly active?: boolean;
-  readonly onClick?: () => void;
+  readonly active?: boolean | undefined;
+  readonly onClick?: (() => void) | undefined;
 }): ReactNode {
   return (
     <button type="button" className={styles.chip} aria-pressed={active} onClick={onClick}>
@@ -165,7 +165,7 @@ export function Field({
   readonly id: string;
   readonly label: string;
   readonly children: ReactNode;
-  readonly hint?: string;
+  readonly hint?: string | undefined;
   readonly error?: string | null;
 }): ReactNode {
   return (
@@ -193,7 +193,6 @@ export function Input({
   value,
   onChange,
   type = "text",
-  placeholder,
   autoComplete,
   inputMode,
   required = false,
@@ -204,12 +203,11 @@ export function Input({
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly type?: "text" | "tel" | "password" | "email" | "number";
-  readonly placeholder?: string;
-  readonly autoComplete?: string;
+  readonly autoComplete?: string | undefined;
   readonly inputMode?: "text" | "tel" | "numeric" | "decimal" | "email";
-  readonly required?: boolean;
-  readonly describedBy?: string;
-  readonly disabled?: boolean;
+  readonly required?: boolean | undefined;
+  readonly describedBy?: string | undefined;
+  readonly disabled?: boolean | undefined;
 }): ReactNode {
   return (
     <input
@@ -220,7 +218,6 @@ export function Input({
       onChange={(event) => onChange(event.target.value)}
       required={required}
       disabled={disabled}
-      {...(placeholder === undefined ? {} : { placeholder })}
       {...(autoComplete === undefined ? {} : { autoComplete })}
       {...(inputMode === undefined ? {} : { inputMode })}
       {...(describedBy === undefined ? {} : { "aria-describedby": describedBy })}
@@ -233,7 +230,6 @@ export function TextArea({
   id,
   value,
   onChange,
-  placeholder,
   rows = 3,
   maxLength,
   describedBy,
@@ -241,10 +237,9 @@ export function TextArea({
   readonly id: string;
   readonly value: string;
   readonly onChange: (value: string) => void;
-  readonly placeholder?: string;
-  readonly rows?: number;
-  readonly maxLength?: number;
-  readonly describedBy?: string;
+  readonly rows?: number | undefined;
+  readonly maxLength?: number | undefined;
+  readonly describedBy?: string | undefined;
 }): ReactNode {
   return (
     <textarea
@@ -253,7 +248,6 @@ export function TextArea({
       value={value}
       rows={rows}
       onChange={(event) => onChange(event.target.value)}
-      {...(placeholder === undefined ? {} : { placeholder })}
       {...(maxLength === undefined ? {} : { maxLength })}
       {...(describedBy === undefined ? {} : { "aria-describedby": describedBy })}
       style={{ paddingBlock: "var(--space-3)", resize: "vertical" }}
@@ -267,7 +261,7 @@ export function SectionTitle({
   action,
 }: {
   readonly children: ReactNode;
-  readonly action?: ReactNode;
+  readonly action?: ReactNode | undefined;
 }): ReactNode {
   return (
     <Between>
@@ -278,7 +272,7 @@ export function SectionTitle({
 }
 
 /** A shimmering block shown while a page's data is on its way. */
-export function Skeleton({ height = 96, style }: { readonly height?: number; readonly style?: CSSProperties }): ReactNode {
+export function Skeleton({ height = 96, style }: { readonly height?: number | undefined; readonly style?: CSSProperties }): ReactNode {
   return <div className={styles.skeleton} style={{ height, ...style }} aria-hidden="true" />;
 }
 

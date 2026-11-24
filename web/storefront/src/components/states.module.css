@@ -28,8 +28,8 @@
 .artwork {
   display: grid;
   place-items: center;
-  width: 80px;
-  height: 80px;
+  inline-size: var(--space-16);
+  block-size: var(--space-16);
   border-radius: var(--radius-full);
   background: var(--color-bg-panel);
   color: var(--color-brand-forest);

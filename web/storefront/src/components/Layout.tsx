@@ -93,7 +93,6 @@ export function Layout({
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("home.searchPlaceholder")}
               autoComplete="off"
             />
             <button type="submit" className={styles.iconButton} aria-label={t("action.search")}>

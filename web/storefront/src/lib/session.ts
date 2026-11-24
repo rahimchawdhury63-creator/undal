@@ -61,6 +61,9 @@ function writeStored(session: StoredSession | null): void {
 
 let current: StoredSession | null = readStored();
 
+/**
+ * The session store: `status`, the signed-in `user`, and the four operations.
+ */
 export const useSession = create<SessionState>((set, get) => ({
   status: current === null ? "anonymous" : "unknown",
   user: null,

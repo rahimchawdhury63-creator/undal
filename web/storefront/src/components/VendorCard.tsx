@@ -6,7 +6,7 @@
  *
  * One card carries what decides a hungry person's tap: the name they recognise, a rating with a
  * count behind it, the time to their door, and whether the kitchen is actually open right now.
- * The cover image is lazy, intrinsically sized and has a blurhash placeholder colour behind it, so
+ * The cover image is lazy, intrinsically sized and has the media block's token colour behind it, so
  * the card never reflows and never shows an empty grey rectangle.
  */
 
@@ -20,11 +20,11 @@ import styles from "./vendor-card.module.css";
 
 /** A kitchen's open state, as a badge a customer can read at a glance. */
 function openLabel(vendor: Vendor, t: ReturnType<typeof useT>): { readonly text: string; readonly tone: string } {
-  if (vendor.openState === "OPEN") return { text: t("vendor.open"), tone: styles.open };
-  if (vendor.openState === "BUSY") return { text: t("vendor.busy"), tone: styles.busy };
-  if (vendor.openState === "PAUSED") return { text: t("vendor.paused"), tone: styles.closed };
-  if (vendor.openState === "UNREACHABLE") return { text: t("vendor.unreachable"), tone: styles.closed };
-  return { text: t("vendor.closed"), tone: styles.closed };
+  if (vendor.openState === "OPEN") return { text: t("vendor.open"), tone: styles.open ?? "" };
+  if (vendor.openState === "BUSY") return { text: t("vendor.busy"), tone: styles.busy ?? "" };
+  if (vendor.openState === "PAUSED") return { text: t("vendor.paused"), tone: styles.closed ?? "" };
+  if (vendor.openState === "UNREACHABLE") return { text: t("vendor.unreachable"), tone: styles.closed ?? "" };
+  return { text: t("vendor.closed"), tone: styles.closed ?? "" };
 }
 
 /** One vendor, as a card in a grid or a row in a list. */

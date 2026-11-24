@@ -12,7 +12,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import { ApiError, listOrders, type Order } from "../lib/api.ts";
+import { ApiError, listOrders, type Order, toApiError } from "../lib/api.ts";
 import { useT } from "../lib/locale.tsx";
 import { useSession } from "../lib/session.ts";
 import { Money } from "../components/Money.tsx";
@@ -39,7 +39,7 @@ export function AccountPage(): ReactNode {
         const result = await listOrders();
         if (!cancelled) setOrders(result.orders);
       } catch (failure) {
-        if (!cancelled) setError(failure instanceof ApiError ? failure : new ApiError("NETWORK", 0, null));
+        if (!cancelled) setError(toApiError(failure));
       }
     })();
     return () => {

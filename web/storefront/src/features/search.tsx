@@ -53,7 +53,6 @@ export function SearchPage({ data }: { readonly data: SearchData }): ReactNode {
           name="q"
           type="search"
           defaultValue={params.get("q") ?? ""}
-          placeholder={t("home.searchPlaceholder")}
           className={styles.heroInput}
           style={{ background: "var(--color-bg-surface)", border: "1px solid var(--color-border-hairline)" }}
         />

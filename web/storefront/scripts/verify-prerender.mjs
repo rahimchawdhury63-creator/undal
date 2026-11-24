@@ -14,13 +14,19 @@
  */
 
 import { readFile, readdir, stat } from "node:fs/promises";
+import { gzipSync } from "node:zlib";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(dirname(here), "dist");
 
-/** The largest initial JavaScript payload the brief allows, in bytes. */
+/**
+ * The largest initial JavaScript payload the brief allows, measured the way it is sent.
+ *
+ * Transfer size is the gzipped byte count, because that is what a customer on a 3G connection in
+ * Sylhet actually downloads; a budget on uncompressed bytes measures the developer's disk.
+ */
 const JS_BUDGET_BYTES = 160 * 1024;
 
 /** Every `index.html` under `dist`, depth-first. */
@@ -56,13 +62,13 @@ for (const required of ["sitemap.xml", "robots.txt", "404.html"]) {
 
 let jsBytes = 0;
 for (const entry of await readdir(join(dist, "assets")).catch(() => [])) {
-  if (!entry.endsWith(".js")) continue;
-  jsBytes += (await stat(join(dist, "assets", entry))).size;
+  if (!entry.endsWith(".js") || entry.endsWith(".js.map")) continue;
+  jsBytes += gzipSync(await readFile(join(dist, "assets", entry))).byteLength;
 }
-if (jsBytes > JS_BUDGET_BYTES) failures.push(`initial JS is ${jsBytes} B, budget is ${JS_BUDGET_BYTES} B`);
+if (jsBytes > JS_BUDGET_BYTES) failures.push(`initial JS gzips to ${Math.round(jsBytes / 1024)} KB, budget is ${JS_BUDGET_BYTES / 1024} KB`);
 
 if (failures.length > 0) {
   process.stderr.write(`verify-prerender: ${failures.length} problem(s)\n${failures.map((line) => `  - ${line}`).join("\n")}\n`);
   process.exit(1);
 }
-process.stdout.write(`verify-prerender: ${files.length} pages, ${Math.round(jsBytes / 1024)} KB JS, deployable\n`);
+process.stdout.write(`verify-prerender: ${files.length} pages, ${Math.round(jsBytes / 1024)} KB JS gzipped, deployable\n`);

@@ -114,7 +114,13 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
   } catch (cause) {
-    const aborted = cause instanceof DOMException && cause.name === "AbortError";
+    // A cancellation is not a failure: a route change aborts the old request on purpose. Three
+    // signals mean the same thing across engines, and a false NETWORK would show an error state
+    // every time somebody taps a link quickly.
+    const aborted =
+      (options.signal !== undefined && options.signal.aborted) ||
+      (cause instanceof DOMException && cause.name === "AbortError") ||
+      (typeof cause === "object" && cause !== null && (cause as { name?: string }).name === "AbortError");
     throw new ApiError({
       code: aborted ? "ABORTED" : "NETWORK",
       status: 0,
@@ -512,4 +518,29 @@ export async function signOut(options: RequestOptions = {}): Promise<{ readonly 
 export function fingerprint(): string {
   if (typeof navigator === "undefined") return "undal-storefront-prerender";
   return [navigator.userAgent, navigator.language, screen.width, screen.height, screen.colorDepth].join("|");
+}
+
+/**
+ * Coerce anything a request threw into an `ApiError`.
+ *
+ * Loaders and effects catch `unknown`; this is the one place that decides what an unrecognised
+ * failure means, so no screen has to write `instanceof` and no failure can escape as a `TypeError`
+ * that blanks the page.
+ */
+export function toApiError(failure: unknown): ApiError {
+  if (failure instanceof ApiError) return failure;
+  if (failure instanceof DOMException && failure.name === "AbortError") {
+    return new ApiError({ code: "ABORTED", status: 0, message: "The request was cancelled." });
+  }
+  return new ApiError({
+    code: "NETWORK",
+    status: 0,
+    message: failure instanceof Error ? failure.message : "The request could not be completed.",
+    retryable: true,
+  });
+}
+
+/** The cuisine and category list, with how many kitchens each holds. */
+export async function getCategories(options: RequestOptions = {}): Promise<{ readonly categories: readonly Category[] }> {
+  return apiRequest("/v1/public/categories", options);
 }

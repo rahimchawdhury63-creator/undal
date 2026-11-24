@@ -75,7 +75,7 @@ export function HomePage({ data }: { readonly data: HomeData }): ReactNode {
             <label className="undal-visually-hidden" htmlFor="home-search">
               {t("action.search")}
             </label>
-            <input id="home-search" name="q" className={styles.heroInput} placeholder={t("home.searchPlaceholder")} type="search" />
+            <input id="home-search" name="q" className={styles.heroInput} type="search" />
             <button type="submit" className="undal-skip-link" style={{ position: "static", transform: "none" }}>
               {t("action.search")}
             </button>

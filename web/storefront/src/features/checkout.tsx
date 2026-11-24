@@ -14,7 +14,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, Link } from "react-router";
 
-import { ApiError, placeOrder, quoteCart, type Quote } from "../lib/api.ts";
+import { ApiError, placeOrder, quoteCart, type Quote, toApiError } from "../lib/api.ts";
 import { useCart, subtotalPaisa } from "../lib/cart.ts";
 import { useT } from "../lib/locale.tsx";
 import { useSession } from "../lib/session.ts";
@@ -70,7 +70,7 @@ export function CheckoutPage(): ReactNode {
           setError(null);
         }
       } catch (failure) {
-        if (!cancelled) setError(failure instanceof ApiError ? failure : new ApiError("NETWORK", 0, null));
+        if (!cancelled) setError(toApiError(failure));
       }
     })();
     return () => {
@@ -127,7 +127,7 @@ export function CheckoutPage(): ReactNode {
       cart.clear();
       navigate(`/o/${placed.order.code}`, { replace: true });
     } catch (failure) {
-      setError(failure instanceof ApiError ? failure : new ApiError("NETWORK", 0, null));
+      setError(toApiError(failure));
     } finally {
       setPlacing(false);
     }

@@ -108,6 +108,10 @@ function readPersisted(): Persisted {
 
 const initial = readPersisted();
 
+/**
+ * The cart store: read it with a selector, or call an action on it.
+ * `useCart.getState()` is how non-React code (the persistence subscriber) reads it.
+ */
 export const useCart = create<CartState>((set, get) => ({
   vendor: initial.vendor,
   lines: initial.lines,

@@ -13,7 +13,7 @@
 import { useEffect, type ReactNode } from "react";
 import { Outlet, useMatches, type LoaderFunctionArgs, type RouteObject } from "react-router";
 
-import { ApiError, getAreas, getCategories, getMenu, getVendor, getVendors, searchCatalogue, type Area, type Category, type Menu, type Vendor } from "./lib/api.ts";
+import { ApiError, getAreas, getCategories, getMenu, getVendor, getVendors, searchCatalogue, type Area, type Category, type Menu, type Vendor, toApiError } from "./lib/api.ts";
 import { LocaleProvider, pick } from "./lib/locale.tsx";
 import { usePrefs } from "./lib/prefs.ts";
 import { SITE_URL, useHead, type Meta } from "./lib/seo.ts";
@@ -93,7 +93,7 @@ async function loadHome({ request }: LoaderFunctionArgs): Promise<HomeData> {
     }).catch((failure: unknown) => ({
       vendors: [] as readonly Vendor[],
       nextCursor: null as string | null,
-      error: failure instanceof ApiError ? failure : new ApiError("NETWORK", 0, null),
+      error: toApiError(failure),
     })),
   ]);
   return {
@@ -180,7 +180,7 @@ export const routes: RouteObject[] = [
         loader: loadHome,
         element: <HomeRoute />,
         handle: {
-          meta: (data): Meta => ({
+          meta: (data: unknown): Meta => ({
             title: "Undal · Food delivery in Bangladesh",
             description: "Order from the kitchens near you. Live prices, honest ETAs, cash on delivery. খাবার পৌঁছে যাক আপনার দরজায়।",
             path: "/",
@@ -204,7 +204,7 @@ export const routes: RouteObject[] = [
         loader: loadVendor,
         element: <VendorRoute />,
         handle: {
-          meta: (data): Meta => {
+          meta: (data: unknown): Meta => {
             const vendor = (data as { vendor?: Vendor } | null)?.vendor;
             if (vendor === undefined) return { ...FALLBACK, title: "Restaurant · Undal", path: "/r" };
             return {
@@ -231,7 +231,7 @@ export const routes: RouteObject[] = [
         loader: loadSearch,
         element: <SearchRoute />,
         handle: {
-          meta: (data): Meta => ({
+          meta: (data: unknown): Meta => ({
             title: `Search · Undal`,
             description: `Search results for ${(data as { query?: string } | undefined)?.query ?? ""} on Undal.`,
             path: "/search",

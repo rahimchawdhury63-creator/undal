@@ -55,6 +55,9 @@ function localeFromUrl(): Locale | null {
 
 const stored = read();
 
+/**
+ * The preference store. Apply it once on boot; every setter applies the change itself.
+ */
 export const usePrefs = create<PrefsState>((set, get) => ({
   locale: localeFromUrl() ?? (isLocale(stored.locale) ? stored.locale : "bn"),
   theme: stored.theme === "light" || stored.theme === "dark" || stored.theme === "system" ? stored.theme : "system",
