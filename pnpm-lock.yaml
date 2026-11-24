@@ -64,6 +64,9 @@ importers:
       '@fontsource/poppins':
         specifier: 5.1.0
         version: 5.1.0
+      '@undal/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@undal/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n

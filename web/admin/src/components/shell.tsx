@@ -59,6 +59,7 @@ export function Shell(): ReactNode {
           {link("/zones", t("admin.zones.title"))}
           {link("/growth", t("admin.growth.title"))}
           {link("/system", t("admin.system.title"))}
+          {link("/errors", t("admin.errors.title"))}
           {link("/audit", t("admin.audit.title"))}
           {link("/orders", t("admin.orders.title"))}
         </nav>

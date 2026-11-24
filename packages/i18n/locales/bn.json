@@ -653,5 +653,20 @@
   "admin.system.effective": "কার্যকর",
   "admin.system.reason": "কারণ",
   "admin.system.redacted": "গোপন",
-  "admin.system.note": "গোপন সারিগুলো প্ল্যাটফর্ম স্ক্রিনে দেখায় না: সেগুলো আছে, আর পড়তে অন্য অনুমতি লাগে। এখানে সম্পাদনার কোনো নিয়ন্ত্রণ নেই — চালু ওজন বা সীমা বদলানো অডিট করা কাজ, নিজের রুট সহ।"
+  "admin.system.note": "গোপন সারিগুলো প্ল্যাটফর্ম স্ক্রিনে দেখায় না: সেগুলো আছে, আর পড়তে অন্য অনুমতি লাগে। এখানে সম্পাদনার কোনো নিয়ন্ত্রণ নেই — চালু ওজন বা সীমা বদলানো অডিট করা কাজ, নিজের রুট সহ।",
+  "admin.errors.title": "ত্রুটির কোড",
+  "admin.errors.intro": "প্ল্যাটফর্ম যে প্রতিটি কোড ফেরাতে পারে, গ্রাহক দুই ভাষায় যে বাক্য দেখেন তা সহ। এই তালিকাটি রেজিস্টারই, তার নকল নয়:",
+  "admin.errors.search": "কোড বা বার্তা খুঁজুন",
+  "admin.errors.status": "HTTP স্ট্যাটাস",
+  "admin.errors.anyStatus": "সব স্ট্যাটাস",
+  "admin.errors.showing": "দেখানো হচ্ছে",
+  "admin.errors.empty.title": "কোনো কোড মেলেনি",
+  "admin.errors.empty.body": "এই অবস্থায় ওই লেখা ধারণ করা কোনো কোড নেই। সার্চ মুছে দিন, বা স্ট্যাটাস আরও খুলে দিন।",
+  "admin.errors.code": "কোড",
+  "admin.errors.statusLabel": "স্ট্যাটাস",
+  "admin.errors.message": "বার্তা",
+  "admin.errors.details": "পেলোড",
+  "admin.errors.retry": "আবার চেষ্টা",
+  "admin.errors.retryable": "চেষ্টা করা যায়",
+  "admin.errors.final": "চূড়ান্ত"
 }

@@ -653,5 +653,20 @@
   "admin.system.effective": "In force since",
   "admin.system.reason": "Reason",
   "admin.system.redacted": "Redacted",
-  "admin.system.note": "Redacted rows are values the platform keeps out of a screen: they exist, and reading them is a different permission. There is no edit control here — changing a live weight or threshold is an audited action with its own route."
+  "admin.system.note": "Redacted rows are values the platform keeps out of a screen: they exist, and reading them is a different permission. There is no edit control here — changing a live weight or threshold is an audited action with its own route.",
+  "admin.errors.title": "Error codes",
+  "admin.errors.intro": "Every code the platform can return, with the sentence the customer sees in both languages. This table is the register itself, not a copy of it:",
+  "admin.errors.search": "Search code or message",
+  "admin.errors.status": "HTTP status",
+  "admin.errors.anyStatus": "Any status",
+  "admin.errors.showing": "Showing",
+  "admin.errors.empty.title": "No code matches",
+  "admin.errors.empty.body": "No code contains that text at that status. Clear the search, or widen the status.",
+  "admin.errors.code": "Code",
+  "admin.errors.statusLabel": "Status",
+  "admin.errors.message": "Message",
+  "admin.errors.details": "Payload",
+  "admin.errors.retry": "Retry",
+  "admin.errors.retryable": "Retryable",
+  "admin.errors.final": "Final"
 }

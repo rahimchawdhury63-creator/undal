@@ -16,6 +16,7 @@
   "dependencies": {
     "@fontsource/hind-siliguri": "5.1.0",
     "@fontsource/poppins": "5.1.0",
+    "@undal/contracts": "workspace:*",
     "@undal/i18n": "workspace:*",
     "@undal/tokens": "workspace:*",
     "react": "19.0.0",

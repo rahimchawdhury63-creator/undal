@@ -31,8 +31,8 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | `web/storefront` build | `pnpm --filter @undal/storefront build` | 17 pages prerendered |
 | Storefront deploy gate | `node web/storefront/scripts/verify-prerender.mjs` | 17 pages, 124 KB JS gzipped, deployable |
 | `web/admin` types | `npx tsc --noEmit` in `web/admin` | exit 0 |
-| `web/admin` tests | `node --experimental-strip-types --test test/*.test.ts` | 11 tests, 11 pass |
-| `web/admin` build | `pnpm --filter @undal/admin build` | 411 KB, 130 KB JS gzipped |
+| `web/admin` tests | `node --experimental-strip-types --test test/*.test.ts` | 15 tests, 15 pass |
+| `web/admin` build | `pnpm --filter @undal/admin build` | 470 KB, 149 KB JS gzipped |
 | Admin deploy gate | `node web/admin/scripts/verify-csp.mjs` | policy scoped to `/admin/*`, publishable |
 | Repository guardrails | `python3 scripts/guardrails/run.py` | 31 rules, 0 errors, 0 warnings |
 | Schema vs specification | `python3 scripts/db/check_schema_parity.py` | 115 tables, inventory and migrations agree |
@@ -70,6 +70,12 @@ silence — the second silent-skip bug of the same shape in two days.
 What it cannot do, plainly: it does not execute anything, so a wrong join predicate, a missing
 index and a value that violates a CHECK are all invisible to it. It is a spelling check with a
 schema.
+
+The error register, rendered from `@undal/contracts` rather than copied: 187 codes with the sentence
+a customer sees in both languages, the payload shape, the retry flag and the HTTP status, searchable
+in either language. The console depends on the same package the Worker throws from, so there is one
+table and not two. Four tests assert the screen's data is the contract's — including that no row's
+Bangla copy is its English copy, which is the cheapest way to catch an untranslated code.
 
 The system reader: `GET /v1/system/config` — the current value of every `platform_config` key,
 newest `effective_at` per key and zone, with its version and the reason it changed. It sits behind
@@ -137,8 +143,8 @@ available, Asia/Dhaka timestamps, dark theme from a second; token set, 44 px tar
 
 - **Admin coverage** — `web/admin` ships the cash queue, the exception queue, the vendor list with
   pause/resume, the fleet board, the zone board with close/reopen, the order board, the audit
-  register, the growth board (campaign budgets, referral tally), the system board (configuration)
-  and the dashboard.
+  register, the growth board (campaign budgets, referral tally), the system board (configuration),
+  the error register and the dashboard.
 - **Android** — `android/shared/money` is the only module. Customer, partner and rider apps are not
   written. No JDK exists in the build sandbox, so anything written there cannot be compiled here.
 - **`workers/realtime` and `workers/brain`** — present, not exercised by any test that runs in CI.
@@ -160,8 +166,9 @@ ticket:
 
 ## The next four things, in order
 
-1. The error-registry screen: 187 codes with their copy and statuses, rendered from
-   `@undal/contracts` — the last surface an operator cannot currently see from the console.
+1. Integration: a `wrangler dev` + TiDB harness that runs the migrations, seeds a zone and a vendor,
+   and drives the storefront's quote and place-order path end to end. Every "green" above is one
+   layer short of proof until that exists.
 2. Run the prerender against a live `undal-core` (`wrangler dev`) so vendor, area and category
    pages exist, and assert one of them in a test.
 3. Tests for `workers/realtime` (auth handshake, room broadcast, reconnect) and `workers/brain`

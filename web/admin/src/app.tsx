@@ -24,6 +24,7 @@ import { AuditPage } from "./pages/audit.tsx";
 import { ZonesPage } from "./pages/zones.tsx";
 import { GrowthPage } from "./pages/growth.tsx";
 import { SystemPage } from "./pages/system.tsx";
+import { ErrorsPage } from "./pages/errors.tsx";
 import { SignInPage } from "./pages/sign-in.tsx";
 import { VendorsPage } from "./pages/vendors.tsx";
 
@@ -64,6 +65,7 @@ const routes = [
       { path: "zones", element: <ZonesPage /> },
       { path: "growth", element: <GrowthPage /> },
       { path: "system", element: <SystemPage /> },
+      { path: "errors", element: <ErrorsPage /> },
       { path: "orders", element: <OrdersPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
