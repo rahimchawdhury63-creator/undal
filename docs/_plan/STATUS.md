@@ -39,7 +39,7 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | Schema snapshot | `python3 scripts/db/expected.py` then `git diff --exit-code db/expected.json` | current: 117 tables, 1158 columns, 151 inline checks |
 | Migration runner | `python3 scripts/db/test_migrate.py` | 15 tests, 15 pass |
 | Migration policy | `python3 scripts/db/test_migration_policy.py` | 11 tests, 11 pass |
-| API surface | `node scripts/api-surface.mjs` | 68 routes, 32 writes, 33 permissions, current |
+| API surface | `node scripts/api-surface.mjs` | 68 routes, 32 writes, 32 of 416 permissions, current |
 | Client calls | `node scripts/check-client-calls.mjs` | 40 call sites across both clients, all routes |
 | Operational SQL + fixtures | `python3 scripts/db/integration.py --self-check` | 20 queries and 9 seed statements, 0 findings |
 | Integration harness | `python3 scripts/db/integration.py --run` | **needs `UNDAL_TEST_DATABASE_URL`; exits 1 without one** |
@@ -75,6 +75,14 @@ silence — the second silent-skip bug of the same shape in two days.
 What it cannot do, plainly: it does not execute anything, so a wrong join predicate, a missing
 index and a value that violates a CHECK are all invisible to it. It is a spelling check with a
 schema.
+
+**How complete is it, measured rather than described:** `docs/api/surface.json` now publishes the
+permission coverage the route table implies — **32 of 416 permission keys have a route behind them
+(7.7%)**, and seven entire domains have none: `analytics`, `brain`, `catalogue`, `dispatch`, `kyc`,
+`pricing`, `support`. The Worker's 68 routes include 8 internal (cron and service bindings) and the
+anonymous public ones, which is why the route count is higher than the permission count. That number
+is the honest answer to how far from finished the platform is, and it belongs in a generated file
+rather than a paragraph somebody can soften.
 
 Every path the two clients call is checked against the published surface: 40 call sites, their
 methods, and their dynamic segments. This is the failure a type system cannot catch — `apiCall("/v1/…")`

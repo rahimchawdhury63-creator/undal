@@ -74,11 +74,36 @@ for (const route of ROUTES) {
   }
 }
 
+/**
+ * How much of the permission register the Worker actually implements.
+ *
+ * Published because it is the honest answer to "how complete is this": a register of 416 keys with
+ * routes behind 33 of them is a platform whose operator surfaces are sketched, not finished. A
+ * number that embarrassing belongs in the generated file rather than in a paragraph somebody can
+ * soften.
+ */
+function coverageOf() {
+  const used = new Set(ROUTES.map((route) => route.permission).filter((key) => key !== "*"));
+  const byDomain = {};
+  for (const key of ALL_PERMISSION_KEYS) {
+    const domain = key.slice(0, key.indexOf("."));
+    byDomain[domain] ??= { used: 0, total: 0 };
+    byDomain[domain].total += 1;
+    if (used.has(key)) byDomain[domain].used += 1;
+  }
+  return {
+    permissionsTotal: ALL_PERMISSION_KEYS.length,
+    permissionsUsed: used.size,
+    byDomain: Object.fromEntries(Object.entries(byDomain).sort(([left], [right]) => left.localeCompare(right))),
+  };
+}
+
 const surface = {
   note: "Generated from workers/core/src/app.ts by scripts/api-surface.mjs — do not edit by hand.",
   routes: ROUTES.length,
   permissions: new Set(ROUTES.map((route) => route.permission)).size,
   writes: ROUTES.filter((route) => route.write === true).length,
+  ...coverageOf(),
   entries: [...ROUTES]
     .map((route) => ({
       method: route.method,
@@ -103,7 +128,10 @@ const serialised = `${JSON.stringify(surface, null, 2)}\n`;
 if (process.argv.includes("--write")) {
   mkdirSync(dirname(TARGET), { recursive: true });
   writeFileSync(TARGET, serialised, "utf8");
-  console.log(`api-surface: wrote ${surface.routes} routes, ${surface.writes} writes, ${surface.permissions} permissions`);
+  console.log(
+    `api-surface: wrote ${surface.routes} routes, ${surface.writes} writes, ` +
+      `${surface.permissionsUsed} of ${surface.permissionsTotal} permissions implemented`,
+  );
 } else {
   let current = "";
   try {
@@ -116,5 +144,8 @@ if (process.argv.includes("--write")) {
     console.error("api-surface: docs/api/surface.json is behind the route table — run with --write");
     process.exit(1);
   }
-  console.log(`api-surface: ${surface.routes} routes, ${surface.writes} writes, ${surface.permissions} permissions, current`);
+  console.log(
+    `api-surface: ${surface.routes} routes, ${surface.writes} writes, ` +
+      `${surface.permissionsUsed} of ${surface.permissionsTotal} permissions implemented, current`,
+  );
 }

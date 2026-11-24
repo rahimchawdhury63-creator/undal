@@ -3,6 +3,70 @@
   "routes": 68,
   "permissions": 33,
   "writes": 32,
+  "permissionsTotal": 416,
+  "permissionsUsed": 32,
+  "byDomain": {
+    "admin": {
+      "used": 2,
+      "total": 12
+    },
+    "analytics": {
+      "used": 0,
+      "total": 16
+    },
+    "brain": {
+      "used": 0,
+      "total": 6
+    },
+    "catalogue": {
+      "used": 0,
+      "total": 40
+    },
+    "customer": {
+      "used": 2,
+      "total": 28
+    },
+    "dispatch": {
+      "used": 0,
+      "total": 32
+    },
+    "finance": {
+      "used": 4,
+      "total": 56
+    },
+    "kyc": {
+      "used": 0,
+      "total": 20
+    },
+    "order": {
+      "used": 8,
+      "total": 45
+    },
+    "pricing": {
+      "used": 0,
+      "total": 16
+    },
+    "promo": {
+      "used": 2,
+      "total": 22
+    },
+    "rider": {
+      "used": 6,
+      "total": 39
+    },
+    "support": {
+      "used": 0,
+      "total": 30
+    },
+    "vendor": {
+      "used": 4,
+      "total": 40
+    },
+    "zone": {
+      "used": 4,
+      "total": 14
+    }
+  },
   "entries": [
     {
       "method": "POST",
