@@ -48,9 +48,9 @@ jobs:
         run: |
           # Every line becomes an annotation, because that is the only channel this environment
           # can read back. Truncated by GitHub, so the first errors and the last words both go in.
-          { grep -m 6 -E "^(e: |What went wrong|Caused by|> |\* )" build.log || true
+          { awk '/What went wrong/{flag=1} flag && lines<14 {print; lines++}' build.log || true
             echo "---"
-            tail -12 build.log; } | sed 's/^/::error::/' 
+            grep -m 4 -E "^e: |Caused by:" build.log || true; } | sed 's/^/::error::/' 
       - name: upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
