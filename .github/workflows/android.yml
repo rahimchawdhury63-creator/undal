@@ -1,0 +1,58 @@
+# Licensed under PASVL-1.0. Source is public. Deployment requires a LOSDA.
+# SPDX-License-Identifier: LicenseRef-PASVL-1.0
+#
+# The Android build, on a runner that has what this repository's sandbox does not: a JDK, the
+# Android SDK and a network. It exists because Kotlin that has never been compiled is a claim, and
+# this project does not ship claims.
+
+name: android
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+      - "docs/api/surface.json"
+  pull_request:
+    paths:
+      - "android/**"
+
+permissions:
+  contents: read
+
+jobs:
+  jvm:
+    name: shared modules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      # `money` and `api` are plain JVM libraries: no SDK, no emulator, seconds per run.
+      - name: test
+        working-directory: android
+        run: gradle :shared:money:test :shared:api:test --no-daemon --stacktrace
+      - name: upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jvm-test-reports
+          path: android/shared/*/build/reports/tests/
+          retention-days: 7
+
+  routes-current:
+    name: generated routes are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # The Kotlin route table is generated from the same file the Worker publishes. If somebody
+      # changes a route and does not regenerate, the phone would 404 in the field.
+      - run: node scripts/gen-android-routes.mjs

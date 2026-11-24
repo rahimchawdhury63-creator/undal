@@ -67,6 +67,12 @@ const STEPS = [
     cwd: ROOT,
   },
   {
+    name: "android-routes",
+    why: "the Android API table is generated from the surface and never hand-edited",
+    command: "node scripts/gen-android-routes.mjs",
+    cwd: ROOT,
+  },
+  {
     name: "migration-policy",
     summaries: [/^Ran \d+ tests?/u, /^OK$/u],
     why: "every migration is idempotent, additive and shaped the way the rest of the schema is",

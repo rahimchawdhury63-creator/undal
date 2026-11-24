@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 rootProject.name = "undal"
 
 include(":shared:money")
+include(":shared:api")
