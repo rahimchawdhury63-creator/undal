@@ -24,6 +24,32 @@ bottom. Update it whenever the answer changes; never let it drift from the check
 | `web/admin` build | `pnpm --filter @undal/admin build` | 396 KB, 128 KB JS gzipped |
 | Admin deploy gate | `node web/admin/scripts/verify-csp.mjs` | policy scoped to `/admin/*`, publishable |
 | Repository guardrails | `python3 scripts/guardrails/run.py` | 31 rules, 0 errors, 0 warnings |
+| Schema vs specification | `python3 scripts/db/check_schema_parity.py` | 115 tables, inventory and migrations agree |
+| Schema snapshot | `python3 scripts/db/expected.py` then `git diff --exit-code db/expected.json` | current: 117 tables, 1158 columns, 151 inline checks |
+| Migration runner | `python3 scripts/db/test_migrate.py` | 15 tests, 15 pass |
+| Workers' SQL vs schema | `python3 scripts/db/lint_sql.py` | 169 statements, 0 findings, 0 unparseable |
+| SQL linter itself | `python3 scripts/db/test_lint_sql.py` | 8 tests, 8 pass |
+
+## The SQL linter, and the bug it found
+
+There is no TiDB in this sandbox, so the unit tests drive handlers against a stub database that
+answers whatever they are told. That arrangement tests the handler and proves nothing about the
+SQL — a statement can name a column no migration ever created and every test stays green.
+
+`scripts/db/lint_sql.py` closes that gap without a server: it reads `db/expected.json` (the schema
+`expected.py` derives from the migrations), extracts the statements out of the TypeScript that
+builds them, parses each as MySQL with `sqlglot`, and resolves every qualifier against the real
+column list. It joins only literals separated by `+`, resolves `${CONSTANT}` fragments, and skips
+statements whose text is decided at run time rather than guessing at them.
+
+It found a real one on its first run: the zone pause guard counting live orders with
+`orders.status`, a column that does not exist — the column is `state`. The zone route's own tests
+would never have caught it, because the stub never reads the statement. It now counts the seven
+terminal states by name.
+
+What it cannot do, plainly: it does not execute anything, so a wrong join predicate, a missing
+index and a value that violates a CHECK are all invisible to it. It is a spelling check with a
+schema.
 
 The zone surface: `GET /v1/zones` (with live kitchen and rider counts per zone),
 `GET /v1/zones/{id}` (plus the ring), `POST /v1/zones/{id}/pause` and `POST /v1/zones/{id}/activate`,

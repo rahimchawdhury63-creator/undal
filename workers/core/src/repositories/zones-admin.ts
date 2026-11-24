@@ -125,7 +125,7 @@ export async function findZonePolygon(db: Db, id: Uint8Array): Promise<ZonePolyg
 export async function countLiveOrdersInZone(db: Db, id: Uint8Array): Promise<number> {
   const row = await db.first<{ live: number | string }>(
     "SELECT COUNT(*) AS `live` FROM `orders` WHERE `zone_id` = ? " +
-      "AND `status` NOT IN ('DELIVERED','SETTLED','CANCELLED')",
+      "AND `state` NOT IN ('DELIVERED','SETTLED','AUTO_CANCELLED','CANCELLED_BY_CUSTOMER','CANCELLED_BY_VENDOR','CANCELLED_BY_ADMIN','REJECTED')",
     [id],
   );
   return row === null ? 0 : Number(row.live);
