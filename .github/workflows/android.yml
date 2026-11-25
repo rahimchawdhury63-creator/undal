@@ -92,6 +92,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
@@ -105,7 +106,9 @@ jobs:
         if: failure()
         working-directory: android
         run: |
-          grep -m 6 -E '^e: |Caused by:|error:' apk.log | sed 's/^/::error::/' || echo "::error::no diagnostics"
+          { grep -m 3 -E '^e: |Caused by:|error:|What went wrong' apk.log || true
+            echo '--- tail'
+            tail -6 apk.log; } | sed 's/^/::error::/' 
       - uses: actions/upload-artifact@v4
         if: success()
         with:
