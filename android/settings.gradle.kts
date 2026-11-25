@@ -6,6 +6,14 @@
 // The Android build starts with the money module because it is the only part
 // that must agree with two other languages before any screen exists. The three
 // apps join this build in their own responses.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
 dependencyResolutionManagement {
     repositories {
         google()
@@ -17,3 +25,4 @@ rootProject.name = "undal"
 
 include(":shared:money")
 include(":shared:api")
+include(":app:rider")

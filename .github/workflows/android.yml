@@ -83,6 +83,35 @@ jobs:
       - name: compare
         run: node scripts/compare-money-answers.mjs
 
+  apk:
+    name: rider APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      # The first time an Android application module in this repository is assembled.
+      - name: assemble
+        working-directory: android
+        run: |
+          set -o pipefail
+          gradle :app:rider:assembleDebug --no-daemon 2>&1 | tee apk.log
+      - name: surface the first errors
+        if: failure()
+        working-directory: android
+        run: grep -m 6 -E "^e: |Caused by:|error:" apk.log | sed 's/^/::error::/' || echo "::error::no diagnostics"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: rider-debug-apk
+          path: android/app/rider/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
   routes-current:
     name: generated routes are current
     runs-on: ubuntu-latest
