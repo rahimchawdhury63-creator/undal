@@ -26,3 +26,4 @@ rootProject.name = "undal"
 include(":shared:money")
 include(":shared:api")
 include(":app:rider")
+include(":app:vendor")
