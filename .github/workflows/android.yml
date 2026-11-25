@@ -104,7 +104,8 @@ jobs:
       - name: surface the first errors
         if: failure()
         working-directory: android
-        run: grep -m 6 -E "^e: |Caused by:|error:" apk.log | sed 's/^/::error::/' || echo "::error::no diagnostics"
+        run: |
+          grep -m 6 -E '^e: |Caused by:|error:' apk.log | sed 's/^/::error::/' || echo "::error::no diagnostics"
       - uses: actions/upload-artifact@v4
         if: success()
         with:
