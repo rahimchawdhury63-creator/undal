@@ -30,6 +30,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.undal.rider.auth.AuthApi
+import app.undal.rider.auth.AuthApi as RiderAuth
+import app.undal.rider.auth.TokenStore
+import app.undal.rider.auth.Tokens
+import android.provider.Settings
 
 /**
  * The rider's three screens: offers, the shift, and the cash they are carrying.
@@ -45,17 +50,34 @@ private const val API_BASE = "https://api.undal.app"
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val store = TokenStore(applicationContext)
+        val auth = RiderAuth(API_BASE)
+        // The fingerprint the login route expects is stable per install, not a hardware id: an
+        // ANDROID_ID reset must not look like a new device to the session table.
+        val fingerprint = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+            ?: "unknown"
         setContent {
             MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) { RiderScreen() }
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    var tokens by remember { mutableStateOf(store.load()) }
+                    val session = tokens
+                    if (session == null) {
+                        SignInScreen(auth, store, fingerprint) { issued -> tokens = issued }
+                    } else {
+                        RiderScreen(token = session.access, onSignedOut = {
+                            store.clear()
+                            tokens = null
+                        })
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun RiderScreen() {
-    val model = remember { RiderViewModel(RiderApi(API_BASE), token = null) }
+private fun RiderScreen(token: String, onSignedOut: () -> Unit) {
+    val model = remember(token) { RiderViewModel(RiderApi(API_BASE), token) }
     var ui by remember { mutableStateOf(model.state) }
     var tab by remember { mutableStateOf(0) }
 
@@ -66,7 +88,10 @@ private fun RiderScreen() {
 
     Scaffold { insets ->
         Column(modifier = Modifier.padding(insets).padding(16.dp)) {
-            Text("Undal rider", style = MaterialTheme.typography.headlineSmall)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Undal rider", style = MaterialTheme.typography.headlineSmall)
+                OutlinedButton(onClick = onSignedOut) { Text("Sign out") }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 12.dp)) {
                 OutlinedButton(onClick = { tab = 0 }) { Text("Offers") }
                 OutlinedButton(onClick = { tab = 1 }) { Text("Shift") }
