@@ -79,7 +79,17 @@ jobs:
         run: node --experimental-strip-types packages/money/test/differential.ts
       - name: the Kotlin answers
         working-directory: android
-        run: gradle :shared:money:kotlinDifferential --no-daemon
+        run: |
+          set -o pipefail
+          gradle :shared:money:kotlinDifferential --no-daemon --stacktrace 2>&1 | tee parity.log
+      # The job that went red without saying why. It says why now.
+      - name: surface the first errors
+        if: failure()
+        working-directory: android
+        run: |
+          { awk '/What went wrong/{flag=1;next} flag&&n<5{print;n++}' parity.log || true
+            grep -m 3 -E '^e: |error:|Exception' parity.log || true
+            ls -l ../.artifacts/money/ 2>/dev/null || echo "no artifacts directory"; } | sed 's/^/::error::/' 
       - name: compare
         run: node scripts/compare-money-answers.mjs
 
