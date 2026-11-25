@@ -25,7 +25,8 @@ It has been watched failing: with `orders.status` put back into the zone guard i
 | Android build | Actions workflow `android` | green: Kotlin compiled, `money` and `api` tests passed |
 | Money parity | Actions `money-parity`, `node scripts/compare-money-answers.mjs` | 110 000 vectors × 5 fields, Kotlin = TypeScript |
 | Rider APK | Actions job `rider APK` | green: `:app:rider:assembleDebug` built and uploaded, 8.9 MB |
-| Money parity | Actions job `money-parity` | **red in run 45584194209 — `kotlinDifferential` failed; green in the two runs before it** |
+| Rider app | `android/app/rider` | sign-in, offers, shift, cash, accept-an-offer — compiles and assembles; never run on a device |
+| Money parity | Actions job `money-parity` | green: 110 000 vectors × 5 fields (one transient red, now instrumented) |
 | `workers/core` tests | `node --experimental-strip-types --test test/*.test.ts` | 974 tests, 972 pass, 0 fail |
 | `workers/core` types | `npx tsc --noEmit -p workers/core/tsconfig.json` | exit 0 |
 | `packages/tokens` | `pnpm --filter @undal/tokens test` | 6/6 |
