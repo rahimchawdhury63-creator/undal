@@ -105,9 +105,8 @@ jobs:
         if: failure()
         working-directory: android
         run: |
-          { grep -m 3 -E '^e: |Caused by:|error:|What went wrong' apk.log || true
-            echo '--- tail'
-            tail -6 apk.log; } | sed 's/^/::error::/' 
+          { awk '/What went wrong/{flag=1;next} flag&&n<5{print;n++}' apk.log || true
+            grep -m 3 -E '^e: |error:' apk.log || true; } | sed 's/^/::error::/' 
       - uses: actions/upload-artifact@v4
         if: success()
         with:
