@@ -8,7 +8,7 @@
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -34,9 +34,6 @@ android {
     }
 }
 
-kotlin {
-    jvmToolchain(21)
-}
 
 dependencies {
     implementation(project(":shared:api"))
