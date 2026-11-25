@@ -8,7 +8,9 @@ package app.undal.rider
 import app.undal.api.ApiRoutes
 import java.io.IOException
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
 /**
@@ -46,6 +48,36 @@ class RiderApi(private val baseUrl: String, private val client: OkHttpClient = O
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             val json = if (body.isEmpty()) JSONObject() else JSONObject(body)
+            if (!response.isSuccessful) {
+                val code = json.optJSONObject("error")?.optString("code").orEmpty()
+                throw IOException(if (code.isEmpty()) "HTTP ${response.code}" else code)
+            }
+            return json.optJSONObject("data") ?: json
+        }
+    }
+
+    /**
+     * Take an offer. The first write this app makes.
+     *
+     * The `Idempotency-Key` is minted once per tap and sent on every retry of that tap: the Worker
+     * replays the first response instead of creating a second acceptance, which is the difference
+     * between a rider getting one order and getting two they cannot deliver.
+     */
+    fun acceptOffer(token: String?, orderCode: String, offerId: String, idempotencyKey: String): JSONObject {
+        val path = String.format(ApiRoutes.ORDERS_CODE_OFFER_OFFERID_ACCEPT.path, orderCode, offerId)
+        val body = "{}".toRequestBody("application/json; charset=utf-8".toMediaType())
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + path)
+            .header("content-type", "application/json")
+            .header("accept", "application/json")
+            .header("idempotency-key", idempotencyKey)
+            .apply { if (token != null) header("authorization", "Bearer $token") }
+            .post(body)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            val json = if (text.isEmpty()) JSONObject() else JSONObject(text)
             if (!response.isSuccessful) {
                 val code = json.optJSONObject("error")?.optString("code").orEmpty()
                 throw IOException(if (code.isEmpty()) "HTTP ${response.code}" else code)

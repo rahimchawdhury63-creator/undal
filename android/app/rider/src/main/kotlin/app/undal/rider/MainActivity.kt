@@ -102,7 +102,7 @@ private fun RiderScreen(token: String, onSignedOut: () -> Unit) {
             }
             if (ui.loading) Text("Loading…")
             when (tab) {
-                0 -> Offers(ui.offers)
+                0 -> Offers(ui.offers) { offer -> model.accept(offer) }
                 1 -> Shift(ui.shift)
                 else -> Cash(ui.cash)
             }
@@ -111,7 +111,7 @@ private fun RiderScreen(token: String, onSignedOut: () -> Unit) {
 }
 
 @Composable
-private fun Offers(offers: List<RiderApi.Offer>) {
+private fun Offers(offers: List<RiderApi.Offer>, onAccept: (RiderApi.Offer) -> Unit) {
     if (offers.isEmpty()) {
         Text("No offers right now.")
         return
@@ -123,6 +123,7 @@ private fun Offers(offers: List<RiderApi.Offer>) {
                     Text(offer.orderCode, style = MaterialTheme.typography.titleMedium)
                     Text(offer.vendorName)
                     Text("${offer.distanceM} m · ${taka(offer.payoutPaisa)}")
+                    OutlinedButton(onClick = { onAccept(offer) }) { Text("Accept") }
                 }
             }
         }

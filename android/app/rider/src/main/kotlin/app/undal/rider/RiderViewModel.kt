@@ -41,6 +41,24 @@ class RiderViewModel(private val api: RiderApi, private val token: String?) : Vi
         listeners.forEach { it(next) }
     }
 
+    /**
+     * Accept, then reload. A rider who has taken an order should see the queue without it — leaving
+     * the accepted offer on screen is how the same order gets accepted twice by one person.
+     */
+    fun accept(offer: RiderApi.Offer) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    api.acceptOffer(token, offer.orderCode, offer.id, java.util.UUID.randomUUID().toString())
+                } catch (error: Exception) {
+                    publish(state.copy(failure = error.message ?: "NETWORK"))
+                    return@withContext
+                }
+            }
+            refresh()
+        }
+    }
+
     fun refresh() {
         publish(state.copy(loading = true, failure = null))
         viewModelScope.launch {
