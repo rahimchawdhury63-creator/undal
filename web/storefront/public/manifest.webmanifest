@@ -1,0 +1,15 @@
+{
+  "name": "Undal",
+  "short_name": "Undal",
+  "description": "Order food from the kitchens near you. Cash on delivery, honest ETAs.",
+  "lang": "bn",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FDFBF7",
+  "theme_color": "#0F4435",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

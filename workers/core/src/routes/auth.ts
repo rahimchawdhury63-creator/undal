@@ -413,8 +413,10 @@ async function sha256Bytes(value: string): Promise<Uint8Array> {
 export const AUTH_ROUTES: readonly RouteDefinition[] = [
   { method: "POST", path: "/v1/auth/login", permission: "*", group: "AUTH", maxBodyBytes: 8 * 1024, run: (ctx, input) => login(ctx, input.body) },
   { method: "POST", path: "/v1/auth/refresh", permission: "*", group: "AUTH", maxBodyBytes: 4 * 1024, run: (ctx, input) => refresh(ctx, input.body) },
-  { method: "POST", path: "/v1/auth/logout", permission: "customer.read", write: true, group: "AUTH", run: (ctx) => logout(ctx) },
-  { method: "POST", path: "/v1/auth/logout-all", permission: "customer.read", write: true, group: "AUTH", run: (ctx) => logoutAll(ctx) },
+  // Logout carries no body today, but the bound is declared anyway: a POST with no limit is a POST
+// that will buffer whatever arrives, and "the handler ignores it" is not a size policy.
+  { method: "POST", path: "/v1/auth/logout", permission: "customer.read", write: true, group: "AUTH", maxBodyBytes: 1024, run: (ctx) => logout(ctx) },
+  { method: "POST", path: "/v1/auth/logout-all", permission: "customer.read", write: true, group: "AUTH", maxBodyBytes: 1024, run: (ctx) => logoutAll(ctx) },
   { method: "POST", path: "/v1/auth/password", permission: "customer.read", write: true, group: "AUTH", maxBodyBytes: 8 * 1024, run: (ctx, input) => changePassword(ctx, input.body) },
   { method: "GET", path: "/v1/auth/me", permission: "customer.read", group: "AUTH", run: (ctx) => me(ctx) },
   { method: "GET", path: "/v1/auth/sessions", permission: "customer.view_sessions", group: "AUTH", run: (ctx) => sessions(ctx) },

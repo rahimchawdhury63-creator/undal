@@ -3,7 +3,7 @@
 -- Vendors whose paperwork is blocking approval.
 -- Used by `db-query.yml`: one SELECT, no parameters, 200 rows maximum.
 
-SELECT v.`id`, v.`name_en`, d.`kind`, d.`status`, d.`expires_on`
+SELECT v.`id`, v.`name`, d.`kind`, d.`status`, d.`expires_on`
 FROM `vendor_documents` d
 JOIN `vendors` v ON v.`id` = d.`vendor_id`
 WHERE d.`status` IN ('PENDING','REJECTED')

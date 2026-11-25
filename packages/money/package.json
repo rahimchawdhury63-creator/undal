@@ -12,7 +12,8 @@
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src test",
-    "test:coverage": "node --experimental-strip-types --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/*.test.ts"
+    "test:coverage": "node --experimental-strip-types --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/*.test.ts",
+    "differential": "node --experimental-strip-types test/differential.ts"
   },
   "devDependencies": {
     "@types/node": "22.7.4"

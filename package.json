@@ -13,7 +13,8 @@
     "guardrails:fixtures": "python3 scripts/guardrails/run.py --fixtures",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
-    "lint": "pnpm -r --if-present lint"
+    "lint": "pnpm -r --if-present lint",
+    "verify": "node scripts/verify.mjs"
   },
   "devDependencies": {
     "typescript": "5.6.3",
