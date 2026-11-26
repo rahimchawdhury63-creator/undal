@@ -1,1 +1,0 @@
-CREATE TABLE `zones` (`id` BINARY(16) NOT NULL);

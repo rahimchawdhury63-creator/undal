@@ -1,5 +1,0 @@
-# Run
-
-```bash
-$ npm install
-```

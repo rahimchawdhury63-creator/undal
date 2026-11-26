@@ -1,5 +1,0 @@
-lockfileVersion: '9.0'
-importers:
-  .:
-    dependencies:
-      hono: 4.6.3

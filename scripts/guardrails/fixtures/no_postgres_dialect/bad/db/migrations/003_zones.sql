@@ -1,1 +1,0 @@
-CREATE TABLE `zones` (`id` UUID NOT NULL);
