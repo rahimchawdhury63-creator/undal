@@ -1,9 +1,0 @@
-# Undal — Python requirements for the database pipeline. Licensed under PASVL-1.0.
-#
-# One dependency, pinned exactly: the migration runner talks the MySQL protocol
-# because TiDB Cloud Starter speaks it and because the HTTP data service has no
-# session, which makes statement-level resume impossible.
-PyMySQL==1.1.1
-# The SQL linter parses the Workers' statements as MySQL and resolves them against the
-# schema. Development tool: nothing the platform runs at request time imports it.
-sqlglot==30.34.0
